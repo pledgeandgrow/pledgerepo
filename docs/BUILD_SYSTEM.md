@@ -39,7 +39,68 @@
    ├── Pre-bundle dependencies (scan node_modules, CJS→ESM)
    ├── Load JS plugins (buildStart hooks)
    ├── Generate edge bundle (if edge_target configured)
+   ├── Generate service worker (if configured)
+   ├── Generate Web App Manifest (if configured)
+   ├── Check performance budgets (if configured)
+   ├── Generate bundle size diff (if previous snapshot exists)
+   ├── Multi-format output (if library mode configured — ESM/CJS/IIFE/UMD)
    └── Compress output (gzip .gz + brotli .br files)
+```
+
+## Transform Optimizations Pipeline
+
+During step 3 (transform), the following optimizations are applied in order:
+
+```
+1. CSS tree shaking — extract_used_class_names() from JS/JSX/TSX, shake_css() removes unused selectors
+2. Dead code elimination — eliminate_dead_code() removes unreachable branches (if false, if true)
+3. Constant folding — fold_constants() evaluates compile-time expressions (1 + 2 → 3)
+4. Optional chaining optimization — optimize_optional_chaining() simplifies redundant null checks
+5. Cross-chunk variable hoisting — analyze_cross_chunk_hoisting() prepares shared variable declarations
+6. Module-level memoization — ModuleTransformCache checks content + config hash before re-transforming
+7. WASM target compilation — ?wasm import suffix generates JS glue code for WASM modules
+```
+
+## CSS Processing Pipeline
+
+```
+1. Lightning CSS — minification, nesting, autoprefixing
+2. CSS Modules — scoped class names with blake3 content hashing
+3. PostCSS / Tailwind — @tailwind directives, @apply expansion
+4. Tailwind v4 — @theme, @utility, @variant directive processing
+5. CSS-in-JS extraction — styled-components, emotion, vanilla-extract compile-time extraction
+6. CSS @layer — cascade layer management and ordering
+7. Container queries — polyfill for older browsers
+8. Critical CSS — extract_critical_css() + inline_critical_css() for faster FCP
+9. CSS source maps — generate_css_source_map() maps to original source
+10. PostCSS plugin caching — blake3 content hash for incremental processing
+```
+
+## Asset Pipeline
+
+```
+MDX files        → compile_mdx() — Markdown + JSX with frontmatter
+GraphQL files    → parse_graphql() + graphql_to_module() with TypeScript types
+YAML/CSV/TSV     → transform_yaml() / transform_csv() / transform_tsv() with typed exports
+Images           → select_image_format() — WebP/AVIF auto-selection, generate_picture_element()
+Audio/Video      → transform_audio_asset() / transform_video_asset() with URL exports
+PDF              → transform_pdf_asset() with inline base64 support
+All assets       → AssetManifest with content-hashed output paths
+```
+
+## Plugin System
+
+```
+1. Plugin discovery — scan configured plugin paths
+2. Plugin loading — WASM plugins via wasmtime, JS plugins via boa_engine
+3. Hot reload — PluginHotReloader watches for file changes, reloads without restart
+4. Sandboxing — SandboxLimits (memory, CPU time) + SandboxedFs (filesystem access)
+5. Dependency resolution — PluginDependencyResolver with import maps for npm packages
+6. Lifecycle hooks — LifecycleHookRegistry:
+   ├── watchStart / watchChange / watchEnd (dev mode)
+   ├── beforeTransform / afterTransform
+   └── beforeBuild / afterBuild
+7. Parallel execution — execute_parallel_transforms() via rayon thread pool
 ```
 
 ## Oxc Transform Details
@@ -125,6 +186,15 @@ TransformOptions {
 - Replace identifiers with literal values at build time via `apply_define()`
 - Config: `define: { 'process.env.NODE_ID': '"production"', '__VERSION__': '"1.0.0"' }`
 - Type inference: strings wrapped in quotes, numbers/booleans preserved
+
+### import.meta.glob
+- Glob-based file imports for dynamic route/component discovery
+- `import.meta.glob('./pages/*.tsx')` expanded at transform time via `expand_import_meta_glob()`
+- **Lazy mode** (default): Returns `{ './pages/Home.tsx': () => import('./pages/Home.tsx'), ... }`
+- **Eager mode**: `{ eager: true }` returns `{ './pages/Home.tsx': moduleObject, ... }`
+- **Query support**: `?raw` returns file content as string, `import` filter for import-only
+- **Recursive**: `**` wildcard for recursive directory matching (e.g., `./components/**/*.tsx`)
+- Replaced at transform time in the JS transform pipeline after env variable replacement
 
 ### Node.js Polyfills
 - 20 built-in module polyfills available when `node_polyfills: true` in config
@@ -321,3 +391,70 @@ interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
 ```
+
+## Test Runner (`crates/js-plugin-host/src/test_runner.rs`)
+
+### Overview
+The built-in test runner provides a Vitest-compatible testing experience using the `boa_engine` embedded JS runtime. Tests are run without external dependencies (no Node.js, Jest, or Vitest required).
+
+### Configuration
+In `pledge.config.ts`:
+```typescript
+export default defineConfig({
+  test: {
+    include: ['**/*.{test,spec}.{ts,tsx,js,jsx}'],
+    exclude: ['node_modules', '.pledge', 'dist'],
+    environment: 'node', // 'node' | 'jsdom' | 'happy-dom'
+    globals: false, // Global describe/it/expect without imports
+    setup_files: [], // e.g. ['./test/setup.ts']
+    isolation: 'file', // 'file' | 'pool' | 'none'
+    coverage: false, // Enable coverage collection
+    coverage_reporter: 'text', // 'text' | 'json' | 'html' | 'lcov'
+    snapshot: true, // Enable snapshot testing
+    snapshot_dir: '__snapshots__',
+    update_snapshots: false, // Auto-update snapshots
+  },
+});
+```
+
+### API Support
+- **Test functions**: `describe`, `it`, `test`, `it.skip`, `test.skip`, `it.only`, `test.only`
+- **Assertions**: `expect()` with `toBe`, `toEqual`, `toBeTruthy`, `toBeFalsy`, `toBeNull`, `toBeUndefined`, `toBeDefined`, `toContain`, `toHaveLength`, `toThrow`, and `not` inverse matchers
+- **Lifecycle hooks**: `beforeAll`, `beforeEach`, `afterEach`, `afterAll`
+- **Mocking**: `vi.fn()`, `vi.mock()`, `vi.spyOn()`, `vi.stubGlobal()`
+- **Snapshot testing**: `toMatchSnapshot()`, `toMatchInlineSnapshot()` with `.snap` file persistence
+
+### Test Environments
+| Environment | Description |
+|-------------|-------------|
+| `node` (default) | No DOM shims, minimal `process` and `Buffer` stubs |
+| `jsdom` | Full DOM shim: `document`, `window`, `navigator`, `location`, `customElements`, `MutationObserver`, `getComputedStyle`, `HTMLElement` |
+| `happy-dom` | Lighter DOM shim: `document`, `window`, `navigator`, `location`, `customElements`, `MutationObserver` |
+
+### Test Isolation
+| Mode | Description |
+|------|-------------|
+| `file` (default) | Each test file runs in its own Boa JS context |
+| `pool` | Shared pool of contexts for batch execution |
+| `none` | No isolation — all tests share a single context |
+
+### Coverage Reporting
+- **Coverage tracking**: Line, function, and branch coverage via `__pledge_coverage` global
+- **Report formats**: `text` (console output), `json` (machine-readable), `html` (styled report), `lcov` (for CI integration)
+- **Config**: `test.coverage: true` to enable, `test.coverage_reporter` to select format
+
+### UI Mode
+- `pledge test --ui` generates an HTML report with:
+  - Pass/fail/skip summary with colored indicators
+  - Per-test file breakdown with suite and test names
+  - Error messages and stack traces for failed tests
+  - Execution duration per test
+- Report served at `localhost:5174` with auto-browser-open
+- Report also written to `.pledge/test-report.html`
+
+### Snapshot Testing
+- **`toMatchSnapshot()`**: Serializes value to JSON, compares against stored `.snap` file
+- **`toMatchInlineSnapshot()`**: Compares against inline snapshot string
+- **Auto-update**: `test.update_snapshots: true` or `-u` flag updates stale snapshots
+- **Storage**: `.snap` files stored in `test.snapshot_dir` (default: `__snapshots__`)
+- **Mismatch reporting**: Detailed diff shown on snapshot mismatch

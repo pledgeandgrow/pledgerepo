@@ -31,3 +31,17 @@ rayon = { workspace = true }
 dialoguer = "0.11"
 console = "0.15"
 atty = "0.2"
+mimalloc = { workspace = true }
+camino = { workspace = true }
+clap_complete = { workspace = true }
+indicatif = { workspace = true }
+inquire = { workspace = true }
+
+[features]
+default = []
+# Enable jemalloc with heap profiling support instead of mimalloc
+jemalloc = ["dep:tikv-jemallocator"]
+
+[dependencies.tikv-jemallocator]
+workspace = true
+optional = true

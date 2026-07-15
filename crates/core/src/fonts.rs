@@ -7,6 +7,7 @@
 //   - WOFF2 optimization
 //   - @font-face generation
 
+use anyhow::Result;
 use std::path::Path;
 
 /// Font format
@@ -216,6 +217,153 @@ pub fn get_font_format(path: &Path) -> Option<FontFormat> {
         .and_then(FontFormat::from_extension)
 }
 
+/// Font subsetting configuration
+#[derive(Debug, Clone)]
+pub struct FontSubsetConfig {
+    /// Which subsets to generate
+    pub subsets: Vec<FontSubset>,
+    /// Font family name
+    pub family: String,
+    /// Font weight
+    pub weight: Option<u32>,
+    /// Font style
+    pub style: Option<String>,
+    /// Whether to preload critical subsets
+    pub preload: bool,
+    /// Font display strategy
+    pub display: FontDisplay,
+}
+
+impl Default for FontSubsetConfig {
+    fn default() -> Self {
+        Self {
+            subsets: vec![FontSubset::Latin, FontSubset::LatinExtended],
+            family: "Inter".to_string(),
+            weight: Some(400),
+            style: Some("normal".to_string()),
+            preload: true,
+            display: FontDisplay::Swap,
+        }
+    }
+}
+
+/// Result of font subsetting
+#[derive(Debug, Clone)]
+pub struct SubsettedFont {
+    /// The subset this font covers
+    pub subset: FontSubset,
+    /// @font-face CSS declaration
+    pub css: String,
+    /// Preload link tag (if preload is enabled)
+    pub preload_tag: Option<String>,
+    /// Font file path for this subset
+    pub path: String,
+}
+
+/// Generate subsetted font declarations for a font file
+/// Creates separate @font-face declarations with unicode-range for each subset
+pub fn generate_subsets(
+    font_path: &str,
+    config: &FontSubsetConfig,
+) -> Vec<SubsettedFont> {
+    let format = get_font_format(Path::new(font_path))
+        .unwrap_or(FontFormat::WOFF2);
+
+    let mut results = Vec::new();
+
+    for subset in &config.subsets {
+        let subset_suffix = match subset {
+            FontSubset::Latin => "latin",
+            FontSubset::LatinExtended => "latin-ext",
+            FontSubset::Cyrillic => "cyrillic",
+            FontSubset::Greek => "greek",
+            FontSubset::Vietnamese => "vietnamese",
+            FontSubset::Full => "full",
+        };
+
+        // Generate subsetted font path
+        let stem = Path::new(font_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("font");
+        let ext = format.extension();
+        let subset_path = format!("assets/{}.{}.{}", stem, subset_suffix, ext);
+
+        // Generate @font-face CSS
+        let face = FontFace {
+            family: config.family.clone(),
+            weight: config.weight,
+            style: config.style.clone(),
+            src: vec![FontSrc {
+                url: format!("/{}", subset_path),
+                format,
+            }],
+            display: config.display,
+            subset: Some(*subset),
+            preload: config.preload,
+        };
+
+        let css = generate_font_face(&face);
+        let preload_tag = if config.preload && *subset == FontSubset::Latin {
+            Some(generate_preload_tag(&format!("/{}", subset_path), format))
+        } else {
+            None
+        };
+
+        results.push(SubsettedFont {
+            subset: *subset,
+            css,
+            preload_tag,
+            path: subset_path,
+        });
+    }
+
+    results
+}
+
+/// Generate combined CSS for all subsetted fonts
+pub fn generate_subset_css(subsets: &[SubsettedFont]) -> String {
+    subsets
+        .iter()
+        .map(|s| s.css.clone())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+/// Generate all preload tags for subsetted fonts
+pub fn generate_subset_preload_tags(subsets: &[SubsettedFont]) -> Vec<String> {
+    subsets
+        .iter()
+        .filter_map(|s| s.preload_tag.clone())
+        .collect()
+}
+
+/// Optimize fonts in a project — scan for font files and generate subsetted CSS
+pub fn optimize_fonts(
+    font_dir: &Path,
+    config: &FontSubsetConfig,
+) -> Result<Vec<SubsettedFont>> {
+    let mut all_subsets = Vec::new();
+
+    if !font_dir.exists() {
+        return Ok(all_subsets);
+    }
+
+    // Scan for font files
+    for entry in std::fs::read_dir(font_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if is_font(&path) {
+            let path_str = path.to_string_lossy().replace('\\', "/");
+            let subsets = generate_subsets(&path_str, config);
+            all_subsets.extend(subsets);
+        }
+    }
+
+    Ok(all_subsets)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,5 +411,54 @@ mod tests {
         let css = "@font-face {\n  font-family: 'Test';\n  src: url('test.woff2');\n}";
         let optimized = optimize_font_css(css);
         assert!(optimized.contains("font-display: swap"));
+    }
+
+    #[test]
+    fn test_generate_subsets() {
+        let config = FontSubsetConfig {
+            subsets: vec![FontSubset::Latin, FontSubset::Cyrillic],
+            family: "Inter".to_string(),
+            weight: Some(400),
+            style: Some("normal".to_string()),
+            preload: true,
+            display: FontDisplay::Swap,
+        };
+
+        let subsets = generate_subsets("fonts/inter.woff2", &config);
+        assert_eq!(subsets.len(), 2);
+
+        // Latin subset
+        assert!(subsets[0].css.contains("font-family: 'Inter'"));
+        assert!(subsets[0].css.contains("unicode-range"));
+        assert!(subsets[0].css.contains("U+0000-00FF"));
+        assert!(subsets[0].preload_tag.is_some());
+
+        // Cyrillic subset
+        assert!(subsets[1].css.contains("U+0400-045F"));
+        assert!(subsets[1].preload_tag.is_none()); // Only Latin is preloaded
+    }
+
+    #[test]
+    fn test_generate_subset_css() {
+        let config = FontSubsetConfig::default();
+        let subsets = generate_subsets("fonts/inter.woff2", &config);
+        let css = generate_subset_css(&subsets);
+        assert!(css.contains("@font-face"));
+        assert!(css.contains("font-display: swap"));
+    }
+
+    #[test]
+    fn test_generate_subset_preload_tags() {
+        let config = FontSubsetConfig {
+            subsets: vec![FontSubset::Latin, FontSubset::LatinExtended],
+            preload: true,
+            ..Default::default()
+        };
+        let subsets = generate_subsets("fonts/inter.woff2", &config);
+        let tags = generate_subset_preload_tags(&subsets);
+        // Only Latin subset gets preload tag
+        assert_eq!(tags.len(), 1);
+        assert!(tags[0].contains("rel=\"preload\""));
+        assert!(tags[0].contains("as=\"font\""));
     }
 }

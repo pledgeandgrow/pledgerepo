@@ -35,14 +35,17 @@ User source files (src/*.tsx, *.ts)
 
 ```
 pledgepack-cli
-├── pledgepack-core (engine, config, transform, pipeline, env, html, compression, analyzer, edge, dep_bundler, polyfills)
+├── pledgepack-core (engine, config, transform, pipeline, env, html, compression, analyzer, edge, dep_bundler, polyfills, transform_optimizations, css_features, css_in_js, tailwind_v4, asset_pipeline, plugin_system, output_distribution, service_worker, lsp_server, migrate, module_graph, remote, git_cache, watcher, hmr_diff, lazy_pipeline, middleware, doctor, config_validate)
 │   ├── pledgepack-cache (function-level cache, memory + disk)
 │   ├── pledgepack-native-sys (FFI to Zig)
 │   ├── oxc (parser, semantic, transformer, codegen)
 │   ├── lightningcss (CSS minification, CSS Modules)
 │   ├── blake3 (content hashing for CSS Modules + cache keys)
 │   ├── flate2 (gzip compression)
-│   └── brotli (Brotli compression)
+│   ├── brotli (Brotli compression)
+│   ├── wasmtime (WASM plugin sandboxing)
+│   ├── rayon (parallel transforms, parallel plugin execution)
+│   └── dashmap (concurrent cache, concurrent plugin registry)
 ├── pledgepack-dev-server (axum, notify, tokio-tungstenite, reqwest, rustls)
 │   ├── pledgepack-core
 │   ├── pledgepack-native-sys
@@ -108,6 +111,7 @@ Source string
     └── Post-processing
             ├── Environment variable replacement (import.meta.env.PLEDGE_*)
             ├── Define replacement (compile-time constants from config.define)
+            ├── import.meta.glob expansion (glob-based file imports for dynamic route/component discovery)
             ├── Dynamic import detection (Oxc AST ImportExpression visitor)
             ├── Web Worker transform (Worker + SharedWorker patterns)
             └── React Fast Refresh injection (dev mode, React only)
@@ -185,6 +189,8 @@ Source string
 - **HMR**: `notify` crate watcher → debounce 150ms → WebSocket push to clients
 - **CSS HMR**: CSS file changes send content via WebSocket, `<style>` tags updated in-place
 - **Error overlay**: Transform errors sent via WebSocket with source context, file path, color-coded lines
+- **Runtime error overlay**: `window.addEventListener('error')` and `window.addEventListener('unhandledrejection')` catch runtime browser errors and display them in the overlay with stack traces
+- **Auto-open browser**: `open: true` config auto-opens default browser on dev server start (`start` on Windows, `open` on macOS, `xdg-open` on Linux)
 - **Dev server proxy**: All HTTP methods (GET, POST, PUT, DELETE, PATCH) proxied via reqwest
 - **WebSocket proxy**: `ws: true` on proxy config enables bidirectional WS proxying
 - **Source maps**: `sourceMappingURL` comments appended to dev server responses
@@ -211,6 +217,21 @@ Source string
 - **JS-to-WASM compilation**: Shells out to `javy compile` CLI to produce WASM plugins
 - **Fallback**: Falls back to embedded JS runtime if javy is not installed
 - **Install**: `npm install -g @bytecodealliance/javy`
+
+### Test Runner (`crates/js-plugin-host/src/test_runner.rs`)
+- **Vitest-compatible API**: `describe`, `it`, `test`, `expect` with matchers (`toBe`, `toEqual`, `toBeTruthy`, `toContain`, `toHaveLength`, `toThrow`, `not` inverse matchers)
+- **Lifecycle hooks**: `beforeAll`, `beforeEach`, `afterEach`, `afterAll`
+- **Embedded JS runtime**: Tests run in `boa_engine` with `console.log` and `require()` shim
+- **TypeScript stripping**: TS syntax automatically stripped for Boa compatibility
+- **Mock support**: `vi.fn()`, `vi.mock()`, `vi.spyOn()`, `vi.stubGlobal()` for Vitest-compatible mocking
+- **Snapshot testing**: `toMatchSnapshot()` and `toMatchInlineSnapshot()` with `SnapshotStore` for `.snap` file persistence, auto-update mode, and mismatch error reporting
+- **Coverage reporting**: `CoverageReport` with text, JSON, HTML, and LCOV output formats; line/function/branch coverage tracking
+- **Test setup files**: `test.setup_files` config for running setup code before each test file
+- **Test environments**: `test.environment` config — `node` (default), `jsdom` (DOM shims: document, window, navigator, location, customElements, MutationObserver, getComputedStyle), `happy-dom` (lighter DOM shims)
+- **Globals mode**: `test.globals: true` to run tests with global `describe`, `it`, `test`, `expect` without imports
+- **Test isolation**: `test.isolation` config — `file` (each file in own Boa context), `pool` (shared pool), `none` (no isolation)
+- **UI mode**: `pledge test --ui` generates HTML report with pass/fail/skip summary, per-test status, error details, and serves it at `localhost:5174` with auto-browser-open
+- **Config integration**: `run_test_file_with_config()` accepts `TestConfig` for full configuration support
 
 ### Environment Variables (`crates/core/src/env.rs`)
 - **File loading**: `.env` → `.env.local` → `.env.[mode]` → `.env.[mode].local` (highest precedence last)
@@ -254,6 +275,14 @@ Source string
 - **Type inference**: Automatically wraps strings, preserves numbers/booleans
 - **Config**: `define: { 'process.env.NODE_ID': '"production"' }`
 
+### import.meta.glob (`crates/core/src/transform.rs:expand_import_meta_glob`)
+- **Glob-based file imports**: `import.meta.glob('./pages/*.tsx')` expanded at transform time
+- **Lazy mode**: Default — returns object mapping paths to `() => import('./pages/Home.tsx')` dynamic import functions
+- **Eager mode**: `{ eager: true }` — returns object mapping paths to directly imported modules
+- **Query support**: `?raw` query returns file content as string, `import` filter for import-only
+- **Recursive wildcards**: `**` for recursive directory matching (e.g., `./components/**/*.tsx`)
+- **Path keys**: Object keys are the matched file paths relative to the importing module
+
 ### Library Mode (`crates/core/src/config.rs`)
 - **Multiple formats**: ESM, CJS, UMD, IIFE output formats
 - **External dependencies**: Mark packages as external (not bundled)
@@ -274,3 +303,85 @@ Source string
 - **Chunks**: Modules grouped by directory with size summaries
 - **Duplicates**: Same module name in different paths flagged
 - **HTML report**: `pledge analyze` serves interactive HTML at `localhost:4200`
+
+### Transform Optimizations (`crates/core/src/transform_optimizations.rs`)
+- **WASM target compilation**: `?wasm` import suffix detects WASM modules and generates JS glue code
+- **Tree shaking with side-effects**: `analyze_side_effects()` checks for global writes, DOM access, console calls
+- **Cross-chunk variable hoisting**: `analyze_cross_chunk_hoisting()` tracks variables imported across chunks
+- **CSS tree shaking**: `extract_used_class_names()` finds className/class/:class attributes including template literals; `shake_css()` filters unused CSS rules
+- **Dead code elimination**: `eliminate_dead_code()` handles `if (false)`, `if (true)`, strict comparisons, typeof checks
+- **Constant folding**: `fold_constants()` handles numeric, string, boolean, and typeof expression folding
+- **Optional chaining optimization**: `optimize_optional_chaining()` simplifies redundant null checks
+- **Module-level memoization**: `ModuleTransformCache` with blake3 content + config hash keys and LRU eviction
+
+### CSS Features (`crates/core/src/css_features.rs`)
+- **CSS `@layer` management**: `parse_layers()` detects and orders cascade layers
+- **Container queries polyfill**: `polyfill_container_queries()` for older browser support
+- **Critical CSS extraction**: `extract_critical_css()` finds above-the-fold selectors; `inline_critical_css()` inlines into HTML
+- **CSS source maps**: `generate_css_source_map()` maps output to original `.scss`/`.less`/`.css`
+
+### CSS-in-JS (`crates/core/src/css_in_js.rs`)
+- **Compile-time extraction**: styled-components, emotion, vanilla-extract patterns
+- **JS object to CSS**: `js_object_to_css()` converts JS style objects to CSS declarations
+- **Template literal extraction**: Parses tagged template literals for CSS content
+
+### Tailwind v4 (`crates/core/src/tailwind_v4.rs`)
+- **Oxide engine integration**: `@theme`, `@utility`, `@variant` directive support
+- **Theme detection**: `detect_tailwind_v4_theme()` identifies v4 config patterns
+- **Utility generation**: Dynamic utility class generation from theme tokens
+
+### Asset Pipeline (`crates/core/src/asset_pipeline.rs`)
+- **MDX compilation**: `compile_mdx()` — Markdown + JSX with frontmatter extraction
+- **GraphQL loading**: `parse_graphql()` + `graphql_to_module()` with TypeScript type generation
+- **YAML/CSV/TSV imports**: Typed named exports from data files
+- **Image format auto-selection**: `select_image_format()` + `generate_picture_element()` for WebP/AVIF
+- **Audio/video assets**: URL exports with metadata
+- **PDF assets**: Inline base64 support
+- **Asset manifest**: `AssetManifest` with content-hashed output paths
+
+### Plugin System (`crates/core/src/plugin_system.rs`)
+- **Hot reload**: `PluginHotReloader` watches plugin files and reloads without restart
+- **WASM sandboxing**: `SandboxLimits` (memory, CPU time) + `SandboxedFs` (filesystem access control)
+- **Dependency resolution**: `PluginDependencyResolver` with import maps for npm packages in WASM sandbox
+- **Lifecycle hooks**: `LifecycleHookRegistry` — `watchStart`, `watchChange`, `watchEnd`, before/after transform/build
+- **Parallel execution**: `execute_parallel_transforms()` via rayon thread pool
+
+### Output Distribution (`crates/core/src/output_distribution.rs`)
+- **Performance budgets**: `check_budget()` enforces per-entry and per-chunk size limits
+- **Bundle size diff**: `diff_snapshots()` + `format_diff_report()` with regression detection
+- **Source map explorer**: `build_source_map_tree()` + `generate_explorer_html()` with interactive treemap
+- **Multi-format output**: `generate_multi_format()` — ESM, CJS, IIFE, UMD for library mode
+
+### Service Worker (`crates/core/src/service_worker.rs`)
+- **Service worker generation**: Precaching strategies (cache-first, network-first, stale-while-revalidate)
+- **Web App Manifest**: `generate_manifest()` produces manifest.json with icons, theme, display mode
+
+### LSP Server (`crates/core/src/lsp_server.rs`)
+- **Import resolution**: `extract_import_path()` parses import/require statements
+- **Go-to-definition**: Resolves module specifiers to file paths
+- **Diagnostics**: Real-time error reporting with `DiagnosticSeverity`
+- **Hover info**: Type and documentation on hover
+- **Document symbols**: `SymbolKind` enumeration for outline view
+
+### Migration Tooling (`crates/core/src/migrate.rs`)
+- **Config migration**: `migrate_config()` from Vite/webpack/CRA/Next.js to `pledge.config.ts`
+- **Dry run**: `--dry-run` flag shows what would be migrated without writing files
+- **Framework detection**: Auto-detects framework from existing config files
+
+### Incremental Build Graph (`crates/core/src/module_graph.rs`)
+- **Content-hash change detection**: Only rebuild changed modules and transitive dependents
+- **Persistent serialization**: `SerializableModuleGraph` saves/loads via bincode to `module_graph.bin`
+
+### Remote Cache (`crates/core/src/remote.rs`)
+- **S3/GCS/HTTP backends**: `RemoteCache` with automatic fallback
+- **3-tier cache**: Memory → disk → remote, integrated in `BuildEngine`
+
+### Git Cache Invalidation (`crates/core/src/git_cache.rs`)
+- **Git tree hashes**: `GitCacheInvalidator` uses `git ls-files` and `git rev-parse HEAD^{tree}`
+- **Faster invalidation**: Tree hash comparison instead of per-file content hashing
+
+### Dev Server Optimizations
+- **Native file watcher** (`crates/core/src/watcher.rs`): Platform-specific inotify/FSEvents/ReadDirectoryChangesW
+- **HMR partial updates** (`crates/core/src/hmr_diff.rs`): LCS-based line-level diff via WebSocket
+- **Cold boot optimization** (`crates/core/src/lazy_pipeline.rs`): Deferred Oxc/Lightning CSS initialization
+- **Middleware chain** (`crates/core/src/middleware.rs`): Configurable request processing pipeline

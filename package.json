@@ -4,7 +4,7 @@
   "description": "A Rust+Zig bundler with incremental computation, WASM plugins, and Rollup-quality output",
   "type": "module",
   "bin": {
-    "pledge": "./bin/pledge.js"
+    "pledge": "bin/pledge.js"
   },
   "author": "Pledge and Grow",
   "license": "MIT",
@@ -21,7 +21,8 @@
     "test": "pledge test",
     "test:watch": "pledge test --watch",
     "gen:env": "pledge generate-env-types",
-    "postinstall": "node ./bin/postinstall.js"
+    "postinstall": "node ./bin/postinstall.js",
+    "publish:npm": "npm publish --access public"
   },
   "files": [
     "bin/",
@@ -48,11 +49,13 @@
     "next",
     "remix",
     "astro",
-    "qwik"
+    "qwik",
+    "pledge",
+    "pledgepack"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/pledgeandgrow/pledgerepo.git"
+    "url": "git+https://github.com/pledgeandgrow/pledgerepo.git"
   },
   "homepage": "https://github.com/pledgeandgrow/pledgerepo",
   "bugs": {
@@ -60,5 +63,11 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   }
 }

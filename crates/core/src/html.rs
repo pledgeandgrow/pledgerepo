@@ -62,6 +62,7 @@ pub fn process_html(html_path: &PathBuf) -> Result<HtmlEntry> {
 }
 
 /// Generate production HTML with hashed asset references
+/// Supports multiple entry scripts, CSS links, module preloads, preload/prefetch hints
 pub fn generate_production_html(
     template_html: &str,
     entry_scripts: &[(String, String)], // (original_src, hashed_filename)
@@ -97,6 +98,69 @@ pub fn generate_production_html(
 
     if !meta_tags.is_empty() {
         html = html.replace("</head>", &format!("{}\n</head>", meta_tags));
+    }
+
+    html
+}
+
+/// Generate production HTML with full preload/prefetch and modulepreload support
+pub fn generate_production_html_with_preloads(
+    template_html: &str,
+    entry_scripts: &[(String, String)],
+    css_files: &[String],
+    async_chunks: &[String],
+    module_preload: bool,
+    preload: bool,
+    prefetch: bool,
+    additional_meta: &HashMap<String, String>,
+) -> String {
+    let mut html = template_html.to_string();
+
+    // Replace script src references with hashed versions for all entry scripts
+    for (original, hashed) in entry_scripts {
+        let old_src = format!(r#"src="{}""#, original);
+        let new_src = format!(r#"src="/{}""#, hashed);
+        html = html.replace(&old_src, &new_src);
+    }
+
+    let mut head_injections = String::new();
+
+    // CSS links
+    for css in css_files {
+        head_injections.push_str(&format!(r#"    <link rel="stylesheet" href="/{}" />"#, css));
+        head_injections.push('\n');
+    }
+
+    // Module preload directives for async chunks
+    if module_preload {
+        for chunk in async_chunks {
+            head_injections.push_str(&format!(r#"    <link rel="modulepreload" href="/{}" />"#, chunk));
+            head_injections.push('\n');
+        }
+    }
+
+    // Preload directives for critical assets (first CSS file)
+    if preload && !css_files.is_empty() {
+        head_injections.push_str(&format!(r#"    <link rel="preload" href="/{}" as="style" />"#, css_files[0]));
+        head_injections.push('\n');
+    }
+
+    // Prefetch directives for async chunks
+    if prefetch {
+        for chunk in async_chunks {
+            head_injections.push_str(&format!(r#"    <link rel="prefetch" href="/{}" />"#, chunk));
+            head_injections.push('\n');
+        }
+    }
+
+    // Meta tags
+    for (name, content) in additional_meta {
+        head_injections.push_str(&format!(r#"    <meta name="{}" content="{}" />"#, name, content));
+        head_injections.push('\n');
+    }
+
+    if !head_injections.is_empty() {
+        html = html.replace("</head>", &format!("{}\n</head>", head_injections));
     }
 
     html

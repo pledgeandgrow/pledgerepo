@@ -202,14 +202,20 @@ if (import.meta.hot) {
 
 ## Error Overlay
 
-The dev server includes an in-browser error overlay for transform errors:
+The dev server includes an in-browser error overlay for transform errors and runtime errors:
 
-### Features
+### Transform Errors
 - **Source context**: Shows the error line with surrounding code (5 lines before/after)
 - **Color-coded**: Line numbers in gray, error line highlighted in red
 - **File path**: Full file path displayed at top of overlay
 - **Auto-clear**: Overlay disappears when the next successful HMR update arrives
 - **WebSocket delivery**: Errors pushed to all connected clients in real-time
+
+### Runtime Errors
+- **window.error events**: Catches uncaught JavaScript errors via `window.addEventListener('error')`
+- **Unhandled promise rejections**: Catches via `window.addEventListener('unhandledrejection')`
+- **Stack traces**: Runtime error stack traces displayed in the overlay
+- **Auto-clear**: Overlay dismisses on next successful HMR update
 
 ### Error Message Format
 ```json
@@ -220,6 +226,30 @@ The dev server includes an in-browser error overlay for transform errors:
   "source": "line 1\nline 2\nline 3 (error)\nline 4\nline 5"
 }
 ```
+
+## Auto-Open Browser
+
+The dev server can automatically open the default browser when it starts:
+
+### Configuration
+In `pledge.config.ts`:
+```typescript
+export default defineConfig({
+  dev_server: {
+    open: true, // Auto-open browser on dev server start
+  },
+});
+```
+
+Or via CLI flag:
+```bash
+pledge dev --open
+```
+
+### Platform Support
+- **Windows**: Uses `cmd /C start` command
+- **macOS**: Uses `open` command
+- **Linux**: Uses `xdg-open` command
 
 ## CSS HMR
 
@@ -317,3 +347,45 @@ Simple static file server for `dist/`:
 pledge build   # Build to dist/
 pledge serve   # Serve dist/ on :4000
 ```
+
+## Dev Server Optimizations (Features 9-15)
+
+### Native File Watcher (`crates/core/src/watcher.rs`)
+- Platform-specific native watchers for lower latency:
+  - **Linux**: `inotify` via `notify` crate
+  - **macOS**: `FSEvents` via `notify` crate
+  - **Windows**: `ReadDirectoryChangesW` via `notify` crate
+- Fallback to polling watcher if native APIs unavailable
+- 200ms debounce to batch rapid file changes
+- Filters out `node_modules`, `.pledge`, `target`, `.git` directories
+
+### HMR Partial Updates (`crates/core/src/hmr_diff.rs`)
+- **Line-level diff**: LCS-based algorithm computes minimal diff between old and new module content
+- **`is_small()` heuristic**: Only sends diff for small changes, falls back to full replacement for large changes
+- **WebSocket transport**: Diff sent via WebSocket as JSON `{ type: "diff", path, additions, deletions }`
+- **Reduced bandwidth**: Only changed lines transmitted instead of full module
+
+### Cold Boot Optimization (`crates/core/src/lazy_pipeline.rs`)
+- **Deferred initialization**: Oxc parser and Lightning CSS only initialized on first request
+- **Dirty dependency tracking**: Only re-transforms modules whose dependencies changed
+- **Lazy pipeline**: Transform pipeline components loaded on-demand
+
+### WebSocket Compression
+- `tower-http` `CompressionLayer` with gzip and `Fastest` quality level
+- Per-message deflate for HMR WebSocket to reduce bandwidth on large module updates
+
+### Multi-Entry Dev Server
+- `detect_entries()` auto-detects HTML files in project root
+- Each HTML entry gets independent HMR context
+- Per-entry routes registered dynamically
+
+### Middleware Chain (`crates/core/src/middleware.rs`)
+- Configurable middleware pipeline for request processing
+- `MiddlewareFn` parsed from config (auth, logging, headers, CORS, rewrites)
+- Middleware executed before module serving
+- CORS and rewrite helpers built-in
+
+### On-Demand Dependency Optimization
+- Import patterns tracked per-module in `DevServerState`
+- Re-optimizes dependencies only when import patterns change
+- Not on every server start — faster cold boots

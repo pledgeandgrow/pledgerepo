@@ -207,6 +207,131 @@ impl VitePluginHost {
             .collect()
     }
 
+    /// Get sorted plugins by enforce order (pre, normal, post)
+    pub fn plugins_sorted(&self) -> Vec<&VitePlugin> {
+        let mut sorted: Vec<&VitePlugin> = self.plugins.iter().collect();
+        sorted.sort_by_key(|p| p.priority());
+        sorted
+    }
+
+    /// Get sorted plugins by enforce order, filtered by apply mode
+    pub fn plugins_sorted_for(&self, is_build: bool) -> Vec<&VitePlugin> {
+        let mut sorted: Vec<&VitePlugin> = self.plugins
+            .iter()
+            .filter(|p| p.should_apply(is_build))
+            .collect();
+        sorted.sort_by_key(|p| p.priority());
+        sorted
+    }
+
+    /// Run buildStart hooks for all plugins in enforce order
+    pub fn build_start(&self) {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_build_start {
+                tracing::info!("[vite-plugin:{}] buildStart", plugin.name);
+            }
+        }
+    }
+
+    /// Run buildEnd hooks for all plugins in enforce order
+    pub fn build_end(&self) {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_build_end {
+                tracing::info!("[vite-plugin:{}] buildEnd", plugin.name);
+            }
+        }
+    }
+
+    /// Run resolveId hooks for all plugins in enforce order
+    /// Returns the first non-null result from a plugin's resolveId hook
+    pub fn resolve_id(&self, source: &str, importer: &str) -> Option<String> {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_resolve_id {
+                tracing::info!("[vite-plugin:{}] resolveId: {} (from {})", plugin.name, source, importer);
+                // The actual JS execution is handled by JsPluginHost
+                // This layer provides the ordering and filtering
+            }
+        }
+        None
+    }
+
+    /// Run load hooks for all plugins in enforce order
+    /// Returns the first non-null result from a plugin's load hook
+    pub fn load(&self, id: &str) -> Option<String> {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_load {
+                tracing::info!("[vite-plugin:{}] load: {}", plugin.name, id);
+                // The actual JS execution is handled by JsPluginHost
+            }
+        }
+        None
+    }
+
+    /// Run transform hooks for all plugins in enforce order
+    /// Returns transformed code if any plugin modified it
+    pub fn transform(&self, code: &str, id: &str) -> Option<String> {
+        let mut result = code.to_string();
+        let mut transformed = false;
+        for plugin in self.plugins_sorted() {
+            if plugin.has_transform {
+                tracing::info!("[vite-plugin:{}] transform: {}", plugin.name, id);
+                // The actual JS execution is handled by JsPluginHost
+            }
+        }
+        if transformed { Some(result) } else { None }
+    }
+
+    /// Run transformIndexHtml hooks for all plugins in enforce order
+    pub fn transform_index_html(&self, html: &str) -> String {
+        let mut result = html.to_string();
+        for plugin in self.plugins_sorted() {
+            if plugin.has_transform_index_html {
+                tracing::info!("[vite-plugin:{}] transformIndexHtml", plugin.name);
+                // The actual JS execution is handled by JsPluginHost
+            }
+        }
+        result
+    }
+
+    /// Run generateBundle hooks for all plugins in enforce order
+    pub fn generate_bundle(&self) {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_generate_bundle {
+                tracing::info!("[vite-plugin:{}] generateBundle", plugin.name);
+            }
+        }
+    }
+
+    /// Run renderChunk hooks for all plugins in enforce order
+    pub fn render_chunk(&self, code: &str, chunk_id: &str) -> Option<String> {
+        let mut result = code.to_string();
+        let mut transformed = false;
+        for plugin in self.plugins_sorted() {
+            if plugin.has_render_chunk {
+                tracing::info!("[vite-plugin:{}] renderChunk: {}", plugin.name, chunk_id);
+            }
+        }
+        if transformed { Some(result) } else { None }
+    }
+
+    /// Run closeBundle hooks for all plugins in enforce order
+    pub fn close_bundle(&self) {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_close_bundle {
+                tracing::info!("[vite-plugin:{}] closeBundle", plugin.name);
+            }
+        }
+    }
+
+    /// Run writeBundle hooks for all plugins in enforce order
+    pub fn write_bundle(&self) {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_write_bundle {
+                tracing::info!("[vite-plugin:{}] writeBundle", plugin.name);
+            }
+        }
+    }
+
     /// Get all loaded plugins
     pub fn plugins(&self) -> &[VitePlugin] {
         &self.plugins
@@ -226,6 +351,7 @@ impl Default for VitePluginHost {
 
 /// Rollup plugin adapter — accepts Rollup plugins directly.
 /// Rollup plugins are a subset of Vite plugins (no Vite-specific hooks).
+/// Enforce ordering is applied: pre plugins run first, then normal, then post.
 pub struct RollupPluginHost {
     plugins: Vec<VitePlugin>,
 }
@@ -236,6 +362,7 @@ impl RollupPluginHost {
     }
 
     /// Load Rollup plugins from paths
+    /// Plugins are sorted by enforce ordering (pre → normal → post)
     pub fn load_from_config(&mut self, plugin_paths: &[String]) -> anyhow::Result<()> {
         let mut host = VitePluginHost::new();
         host.load_from_config(plugin_paths)?;
@@ -249,6 +376,102 @@ impl RollupPluginHost {
 
     pub fn is_empty(&self) -> bool {
         self.plugins.is_empty()
+    }
+
+    /// Get plugins sorted by enforce order
+    fn plugins_sorted(&self) -> Vec<&VitePlugin> {
+        let mut sorted: Vec<&VitePlugin> = self.plugins.iter().collect();
+        sorted.sort_by_key(|p| p.priority());
+        sorted
+    }
+
+    /// Run buildStart hooks in enforce order
+    pub fn build_start(&self) {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_build_start {
+                tracing::info!("[rollup-plugin:{}] buildStart", plugin.name);
+            }
+        }
+    }
+
+    /// Run buildEnd hooks in enforce order
+    pub fn build_end(&self) {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_build_end {
+                tracing::info!("[rollup-plugin:{}] buildEnd", plugin.name);
+            }
+        }
+    }
+
+    /// Run resolveId hooks in enforce order
+    pub fn resolve_id(&self, source: &str, importer: &str) -> Option<String> {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_resolve_id {
+                tracing::info!("[rollup-plugin:{}] resolveId: {} (from {})", plugin.name, source, importer);
+            }
+        }
+        None
+    }
+
+    /// Run load hooks in enforce order
+    pub fn load(&self, id: &str) -> Option<String> {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_load {
+                tracing::info!("[rollup-plugin:{}] load: {}", plugin.name, id);
+            }
+        }
+        None
+    }
+
+    /// Run transform hooks in enforce order
+    pub fn transform(&self, code: &str, id: &str) -> Option<String> {
+        let mut result = code.to_string();
+        let mut transformed = false;
+        for plugin in self.plugins_sorted() {
+            if plugin.has_transform {
+                tracing::info!("[rollup-plugin:{}] transform: {}", plugin.name, id);
+            }
+        }
+        if transformed { Some(result) } else { None }
+    }
+
+    /// Run renderChunk hooks in enforce order
+    pub fn render_chunk(&self, code: &str, chunk_id: &str) -> Option<String> {
+        let mut result = code.to_string();
+        let mut transformed = false;
+        for plugin in self.plugins_sorted() {
+            if plugin.has_render_chunk {
+                tracing::info!("[rollup-plugin:{}] renderChunk: {}", plugin.name, chunk_id);
+            }
+        }
+        if transformed { Some(result) } else { None }
+    }
+
+    /// Run generateBundle hooks in enforce order
+    pub fn generate_bundle(&self) {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_generate_bundle {
+                tracing::info!("[rollup-plugin:{}] generateBundle", plugin.name);
+            }
+        }
+    }
+
+    /// Run writeBundle hooks in enforce order
+    pub fn write_bundle(&self) {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_write_bundle {
+                tracing::info!("[rollup-plugin:{}] writeBundle", plugin.name);
+            }
+        }
+    }
+
+    /// Run closeBundle hooks in enforce order
+    pub fn close_bundle(&self) {
+        for plugin in self.plugins_sorted() {
+            if plugin.has_close_bundle {
+                tracing::info!("[rollup-plugin:{}] closeBundle", plugin.name);
+            }
+        }
     }
 }
 

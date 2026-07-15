@@ -49,6 +49,9 @@ blake3 = "1"
 # Base64 encoding for inline assets
 base64 = "0.22"
 
+# Image processing (decode, resize, encode WebP/JPEG/PNG)
+image = { version = "0.25", features = ["jpeg", "png", "webp", "gif"] }
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -63,12 +66,27 @@ wasmtime = "29"
 # CLI
 clap = { version = "4", features = ["derive"] }
 
+# CLI UX
+clap_complete = "4"
+indicatif = "0.17"
+inquire = "0.7"
+
 # File watching
 notify = "8"
+
+# C library bindings (native file watcher on Linux)
+libc = "0.2"
 
 # Parallelism
 rayon = "1"
 dashmap = "6"
+
+# Global allocator (performance)
+mimalloc = "0.1"
+tikv-jemallocator = { version = "0.6", features = ["profiling"] }
+
+# Typed UTF-8 paths
+camino = "1"
 
 # Internal crates
 pledgepack-core = { path = "crates/core" }

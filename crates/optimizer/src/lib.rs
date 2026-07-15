@@ -10,7 +10,10 @@
 
 use anyhow::Result;
 use pledgepack_core::module::{ModuleId, ResolvedModule};
+use pledgepack_core::config::BuildConfig;
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
 
 pub struct Optimizer {
     /// Modules that have side effects (can't be tree-shaken)
@@ -64,12 +67,45 @@ impl Optimizer {
         Ok(self.chunks.clone())
     }
 
-    /// Mark modules with side effects
+    /// Run optimization passes with build config for inline_dynamic_imports and manual_chunks
+    pub fn optimize_with_config(
+        &mut self,
+        entry_modules: &[ModuleId],
+        all_modules: &HashMap<ModuleId, ResolvedModule>,
+        graph: &pledgepack_core::Graph,
+        build_config: &BuildConfig,
+    ) -> Result<Vec<Chunk>> {
+        // Phase 1: Mark side-effect-free modules
+        self.mark_side_effects(all_modules);
+
+        // Phase 2: Tree shake — remove unreachable modules
+        let reachable = self.tree_shake(entry_modules, graph);
+
+        // Phase 3: Code splitting — group modules into chunks
+        self.split_chunks(entry_modules, &reachable, all_modules, graph);
+
+        // Phase 3b: Apply manual chunks configuration
+        if !build_config.manual_chunks.is_empty() {
+            self.apply_manual_chunks(&reachable, all_modules, &build_config.manual_chunks);
+        }
+
+        // Phase 3c: If inline_dynamic_imports, merge all async chunks into their parent entry chunks
+        if build_config.inline_dynamic_imports {
+            self.inline_dynamic_imports();
+        }
+
+        Ok(self.chunks.clone())
+    }
+
+    /// Mark modules with side effects (parallelized using rayon)
     fn mark_side_effects(
         &mut self,
         modules: &HashMap<ModuleId, ResolvedModule>,
     ) {
-        for (id, module) in modules {
+        // Process modules in parallel — each module's side-effect analysis is independent
+        let side_effects: Mutex<HashSet<ModuleId>> = Mutex::new(HashSet::new());
+
+        modules.par_iter().for_each(|(id, module)| {
             let source = String::from_utf8_lossy(&module.source);
 
             // Heuristic: modules with top-level statements that aren't
@@ -86,9 +122,11 @@ impl Optimizer {
                 });
 
             if has_side_effects {
-                self.side_effect_modules.insert(*id);
+                side_effects.lock().unwrap().insert(*id);
             }
-        }
+        });
+
+        self.side_effect_modules = side_effects.into_inner().unwrap();
     }
 
     /// Tree shake: find all reachable modules from entry points
@@ -118,7 +156,7 @@ impl Optimizer {
         reachable
     }
 
-    /// Split modules into chunks: entry, vendor, and shared
+    /// Split modules into chunks: entry, vendor, and shared (parallelized using rayon)
     fn split_chunks(
         &mut self,
         entry_modules: &[ModuleId],
@@ -127,87 +165,105 @@ impl Optimizer {
         graph: &pledgepack_core::Graph,
     ) {
         // Track which modules are used by multiple entry points
-        let mut module_users: HashMap<ModuleId, HashSet<ModuleId>> = HashMap::new();
+        // Process each entry's dependency traversal in parallel
+        let module_users: Mutex<HashMap<ModuleId, HashSet<ModuleId>>> = Mutex::new(HashMap::new());
 
-        for entry in entry_modules {
+        entry_modules.par_iter().for_each(|entry| {
             let mut visited = HashSet::new();
             let mut queue = vec![*entry];
+            let mut local_users: HashMap<ModuleId, HashSet<ModuleId>> = HashMap::new();
+
             while let Some(id) = queue.pop() {
                 if visited.contains(&id) {
                     continue;
                 }
                 visited.insert(id);
-                module_users.entry(id).or_default().insert(*entry);
+                local_users.entry(id).or_default().insert(*entry);
                 for dep in graph.get_dependents(id, 256) {
                     queue.push(dep);
                 }
             }
-        }
 
-        // Vendor modules: in node_modules
-        let mut vendor_modules: Vec<ModuleId> = Vec::new();
-        // Shared modules: used by 2+ entries
-        let mut shared_modules: Vec<ModuleId> = Vec::new();
-        // Entry modules
-        let mut entry_module_set: HashSet<ModuleId> = HashSet::new();
-
-        for entry in entry_modules {
-            entry_module_set.insert(*entry);
-        }
-
-        for &id in reachable {
-            if entry_module_set.contains(&id) {
-                continue;
+            // Merge local results into shared map
+            let mut global = module_users.lock().unwrap();
+            for (id, entries) in local_users {
+                global.entry(id).or_default().extend(entries);
             }
+        });
 
-            // Check if module is in node_modules
-            if let Some(module) = modules.get(&id) {
-                let path_str = module.path.to_string_lossy();
-                if path_str.contains("node_modules") {
-                    vendor_modules.push(id);
-                    continue;
-                }
-            }
+        let module_users = module_users.into_inner().unwrap();
 
-            // Check if shared between entries
-            if let Some(users) = module_users.get(&id) {
-                if users.len() > 1 {
-                    shared_modules.push(id);
-                    continue;
-                }
-            }
-        }
+        // Vendor modules: in node_modules (parallelized)
+        let entry_module_set: HashSet<ModuleId> = entry_modules.iter().copied().collect();
 
-        // Entry chunk: entry module + its exclusive deps
-        for (i, entry) in enumerate(entry_modules) {
-            let mut chunk_modules = vec![*entry];
-            // Add exclusive deps (not vendor, not shared, not other entries)
-            let mut visited = HashSet::new();
-            let mut queue = vec![*entry];
-            while let Some(id) = queue.pop() {
-                if visited.contains(&id) {
-                    continue;
-                }
-                visited.insert(id);
-                if id != *entry {
-                    if !vendor_modules.contains(&id)
-                        && !shared_modules.contains(&id)
-                        && !entry_module_set.contains(&id)
-                    {
-                        chunk_modules.push(id);
+        // Classify modules in parallel: vendor, shared, or entry-exclusive
+        let (vendor_modules, shared_modules): (Vec<ModuleId>, Vec<ModuleId>) = reachable
+            .par_iter()
+            .filter(|id| !entry_module_set.contains(id))
+            .partition_map(|id| {
+                // Check if module is in node_modules
+                if let Some(module) = modules.get(id) {
+                    let path_str = module.path.to_string_lossy();
+                    if path_str.contains("node_modules") {
+                        return rayon::iter::Either::Left(*id);
                     }
                 }
-                for dep in graph.get_dependents(id, 256) {
-                    queue.push(dep);
-                }
-            }
 
-            self.chunks.push(Chunk {
-                id: format!("entry-{}", i),
-                modules: chunk_modules,
-                chunk_type: ChunkType::Entry,
+                // Check if shared between entries
+                if let Some(users) = module_users.get(id) {
+                    if users.len() > 1 {
+                        return rayon::iter::Either::Right(*id);
+                    }
+                }
+
+                rayon::iter::Either::Left(*id) // default to vendor if not shared
             });
-        }
+
+        // Filter out non-vendor, non-shared from vendor_modules (fix partition logic)
+        let vendor_modules: Vec<ModuleId> = vendor_modules.into_iter().filter(|id| {
+            if let Some(module) = modules.get(id) {
+                module.path.to_string_lossy().contains("node_modules")
+            } else {
+                false
+            }
+        }).collect();
+
+        // Entry chunk: entry module + its exclusive deps (parallelized)
+        let entry_chunks: Vec<Chunk> = entry_modules
+            .par_iter()
+            .enumerate()
+            .map(|(i, entry)| {
+                let mut chunk_modules = vec![*entry];
+                let mut visited = HashSet::new();
+                let mut queue = vec![*entry];
+
+                while let Some(id) = queue.pop() {
+                    if visited.contains(&id) {
+                        continue;
+                    }
+                    visited.insert(id);
+                    if id != *entry {
+                        if !vendor_modules.contains(&id)
+                            && !shared_modules.contains(&id)
+                            && !entry_module_set.contains(&id)
+                        {
+                            chunk_modules.push(id);
+                        }
+                    }
+                    for dep in graph.get_dependents(id, 256) {
+                        queue.push(dep);
+                    }
+                }
+
+                Chunk {
+                    id: format!("entry-{}", i),
+                    modules: chunk_modules,
+                    chunk_type: ChunkType::Entry,
+                }
+            })
+            .collect();
+
+        self.chunks = entry_chunks;
 
         // Vendor chunk
         if !vendor_modules.is_empty() {
@@ -228,12 +284,84 @@ impl Optimizer {
         }
     }
 
+    /// Apply manual chunks configuration — group modules matching patterns into named chunks
+    fn apply_manual_chunks(
+        &mut self,
+        reachable: &HashSet<ModuleId>,
+        modules: &HashMap<ModuleId, ResolvedModule>,
+        manual_chunks: &HashMap<String, Vec<String>>,
+    ) {
+        for (chunk_name, patterns) in manual_chunks {
+            let mut chunk_modules: Vec<ModuleId> = Vec::new();
+
+            for &id in reachable {
+                if let Some(module) = modules.get(&id) {
+                    let path_str = module.path.to_string_lossy();
+                    if patterns.iter().any(|pattern| {
+                        path_str.contains(pattern) || path_str.as_ref() == pattern.as_str()
+                    }) {
+                        chunk_modules.push(id);
+                    }
+                }
+            }
+
+            if !chunk_modules.is_empty() {
+                // Remove these modules from other chunks to avoid duplication
+                for chunk in &mut self.chunks {
+                    chunk.modules.retain(|m| !chunk_modules.contains(m));
+                }
+
+                self.chunks.push(Chunk {
+                    id: chunk_name.clone(),
+                    modules: chunk_modules,
+                    chunk_type: ChunkType::Shared,
+                });
+                tracing::info!("Manual chunk '{}': {} modules", chunk_name, 
+                    self.chunks.last().map(|c| c.modules.len()).unwrap_or(0));
+            }
+        }
+    }
+
+    /// Inline dynamic imports — merge all async chunks into their parent entry chunks
+    fn inline_dynamic_imports(&mut self) {
+        // Find all async chunks
+        let async_chunks: Vec<(usize, Vec<ModuleId>)> = self.chunks.iter()
+            .enumerate()
+            .filter(|(_, c)| c.chunk_type == ChunkType::Async)
+            .map(|(i, c)| (i, c.modules.clone()))
+            .collect();
+
+        if async_chunks.is_empty() {
+            return;
+        }
+
+        // Merge async chunk modules into entry chunks
+        let entry_indices: Vec<usize> = self.chunks.iter()
+            .enumerate()
+            .filter(|(_, c)| c.chunk_type == ChunkType::Entry)
+            .map(|(i, _)| i)
+            .collect();
+
+        for (_, async_modules) in &async_chunks {
+            for &entry_idx in &entry_indices {
+                if let Some(entry_chunk) = self.chunks.get_mut(entry_idx) {
+                    for module in async_modules {
+                        if !entry_chunk.modules.contains(module) {
+                            entry_chunk.modules.push(*module);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Remove async chunks
+        self.chunks.retain(|c| c.chunk_type != ChunkType::Async);
+
+        tracing::info!("Inlined dynamic imports: merged {} async chunks into entry chunks", async_chunks.len());
+    }
+
     /// Get all chunk IDs
     pub fn chunk_ids(&self) -> Vec<String> {
         self.chunks.iter().map(|c| c.id.clone()).collect()
     }
-}
-
-fn enumerate<T>(iter: &[T]) -> impl Iterator<Item = (usize, &T)> {
-    iter.iter().enumerate()
 }

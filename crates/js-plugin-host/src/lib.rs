@@ -82,6 +82,13 @@ pub struct HtmlTag {
     pub inject_to: Option<String>,
 }
 
+/// Middleware registered by a plugin's configureServer hook
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerMiddleware {
+    pub plugin_name: String,
+    pub source: String,
+}
+
 /// Manages a collection of JS plugins with an embedded JS runtime
 pub struct JsPluginHost {
     plugins: Vec<JsPlugin>,
@@ -134,6 +141,29 @@ impl JsPluginHost {
             self.plugins.push(plugin);
         }
         Ok(())
+    }
+
+    /// Load all plugin files from a directory
+    pub fn load_from_dir(dir: &std::path::Path) -> Result<Self> {
+        let mut host = Self::new();
+        if !dir.is_dir() {
+            return Ok(host);
+        }
+        let mut plugin_paths = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if matches!(ext, "js" | "ts" | "mjs" | "cjs") {
+                        plugin_paths.push(path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+        if !plugin_paths.is_empty() {
+            host.load_plugins(&plugin_paths)?;
+        }
+        Ok(host)
     }
 
     /// Parse a plugin from source code.
@@ -238,22 +268,97 @@ impl JsPluginHost {
     }
 
     /// Check if any plugin handles resolveId for the given source
-    pub fn resolve_id(&self, source: &str, _importer: &str) -> Option<ResolveIdResult> {
+    /// Actually calls the JS resolveId() function in each plugin that has it
+    pub fn resolve_id(&mut self, source: &str, importer: &str) -> Option<ResolveIdResult> {
         for plugin in &self.plugins {
             if plugin.has_resolve_id {
                 info!("[plugin:{}] resolveId: {}", plugin.name, source);
-                // In a full implementation, this would call the JS function
-                // For now, we just log that a plugin could handle it
+
+                let js_code = format!(
+                    r#"
+                    (function() {{
+                        try {{
+                            var __pluginModule = {};
+                            if (__pluginModule && typeof __pluginModule.resolveId === 'function') {{
+                                var __result = __pluginModule.resolveId({}, {});
+                                if (__result) {{
+                                    return JSON.stringify(__result);
+                                }}
+                            }}
+                        }} catch(e) {{
+                            console.log('Plugin resolveId error: ' + e.message);
+                        }}
+                        return null;
+                    }})()
+                    "#,
+                    plugin.source,
+                    serde_json::to_string(source).unwrap_or_else(|_| "\"\"".to_string()),
+                    serde_json::to_string(importer).unwrap_or_else(|_| "\"\"".to_string())
+                );
+
+                match self.context.eval(Source::from_bytes(js_code.as_str())) {
+                    Ok(val) => {
+                        if !val.is_null() && !val.is_undefined() {
+                            if let Ok(json_str) = val.to_string(&mut self.context) {
+                                let json_str = json_str.to_std_string_escaped();
+                                if let Ok(result) = serde_json::from_str::<ResolveIdResult>(&json_str) {
+                                    return Some(result);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("[plugin:{}] resolveId execution error: {}", plugin.name, e);
+                    }
+                }
             }
         }
         None
     }
 
     /// Check if any plugin handles load for the given id
-    pub fn load(&self, id: &str) -> Option<LoadResult> {
+    /// Actually calls the JS load() function in each plugin that has it
+    pub fn load(&mut self, id: &str) -> Option<LoadResult> {
         for plugin in &self.plugins {
             if plugin.has_load {
                 info!("[plugin:{}] load: {}", plugin.name, id);
+
+                let js_code = format!(
+                    r#"
+                    (function() {{
+                        try {{
+                            var __pluginModule = {};
+                            if (__pluginModule && typeof __pluginModule.load === 'function') {{
+                                var __result = __pluginModule.load({});
+                                if (__result && __result.code) {{
+                                    return JSON.stringify(__result);
+                                }}
+                            }}
+                        }} catch(e) {{
+                            console.log('Plugin load error: ' + e.message);
+                        }}
+                        return null;
+                    }})()
+                    "#,
+                    plugin.source,
+                    serde_json::to_string(id).unwrap_or_else(|_| "\"\"".to_string())
+                );
+
+                match self.context.eval(Source::from_bytes(js_code.as_str())) {
+                    Ok(val) => {
+                        if !val.is_null() && !val.is_undefined() {
+                            if let Ok(json_str) = val.to_string(&mut self.context) {
+                                let json_str = json_str.to_std_string_escaped();
+                                if let Ok(result) = serde_json::from_str::<LoadResult>(&json_str) {
+                                    return Some(result);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("[plugin:{}] load execution error: {}", plugin.name, e);
+                    }
+                }
             }
         }
         None
@@ -322,18 +427,152 @@ impl JsPluginHost {
     }
 
     /// Run transformIndexHtml hooks for all plugins
-    pub fn transform_index_html(&self, html: &str) -> (String, Vec<HtmlTag>) {
+    /// Actually calls the JS transformIndexHtml() function and collects HTML modifications
+    pub fn transform_index_html(&mut self, html: &str) -> (String, Vec<HtmlTag>) {
         let mut result_html = html.to_string();
         let mut tags = Vec::new();
 
         for plugin in &self.plugins {
             if plugin.has_transform_index_html {
                 info!("[plugin:{}] transformIndexHtml", plugin.name);
-                // In a full implementation, this would call the JS function
+
+                let js_code = format!(
+                    r#"
+                    (function() {{
+                        try {{
+                            var __pluginModule = {};
+                            if (__pluginModule && typeof __pluginModule.transformIndexHtml === 'function') {{
+                                var __result = __pluginModule.transformIndexHtml({});
+                                if (__result) {{
+                                    if (typeof __result === 'string') {{
+                                        return JSON.stringify({{ html: __result, tags: [] }});
+                                    }} else if (Array.isArray(__result)) {{
+                                        return JSON.stringify({{ html: null, tags: __result }});
+                                    }} else if (__result.html || __result.tags) {{
+                                        return JSON.stringify(__result);
+                                    }}
+                                }}
+                            }}
+                        }} catch(e) {{
+                            console.log('Plugin transformIndexHtml error: ' + e.message);
+                        }}
+                        return null;
+                    }})()
+                    "#,
+                    plugin.source,
+                    serde_json::to_string(html).unwrap_or_else(|_| "\"\"".to_string())
+                );
+
+                match self.context.eval(Source::from_bytes(js_code.as_str())) {
+                    Ok(val) => {
+                        if !val.is_null() && !val.is_undefined() {
+                            if let Ok(json_str) = val.to_string(&mut self.context) {
+                                let json_str = json_str.to_std_string_escaped();
+                                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                    // If html is returned as string, replace result_html
+                                    if let Some(html_val) = parsed.get("html").and_then(|h| h.as_str()) {
+                                        if !html_val.is_empty() {
+                                            result_html = html_val.to_string();
+                                        }
+                                    }
+                                    // Parse tags array
+                                    if let Some(tags_arr) = parsed.get("tags").and_then(|t| t.as_array()) {
+                                        for tag_val in tags_arr {
+                                            let mut tag = HtmlTag {
+                                                tag: tag_val.get("tag").and_then(|t| t.as_str()).unwrap_or("").to_string(),
+                                                attrs: HashMap::new(),
+                                                children: tag_val.get("children").and_then(|c| c.as_str()).map(|s| s.to_string()),
+                                                inject_to: tag_val.get("injectTo").and_then(|i| i.as_str()).map(|s| s.to_string()),
+                                            };
+                                            if let Some(attrs) = tag_val.get("attrs").and_then(|a| a.as_object()) {
+                                                for (k, v) in attrs {
+                                                    tag.attrs.insert(k.clone(), v.as_str().unwrap_or("").to_string());
+                                                }
+                                            }
+                                            if !tag.tag.is_empty() {
+                                                tags.push(tag);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("[plugin:{}] transformIndexHtml execution error: {}", plugin.name, e);
+                    }
+                }
             }
         }
 
         (result_html, tags)
+    }
+
+    /// Run configureServer hooks for all plugins
+    /// Executes the JS configureServer(server) function, passing a minimal server object
+    /// that allows plugins to register middleware, add routes, etc.
+    pub fn configure_server(&mut self) -> Vec<ServerMiddleware> {
+        let mut middlewares = Vec::new();
+
+        for plugin in &self.plugins {
+            if plugin.has_configure_server {
+                info!("[plugin:{}] configureServer", plugin.name);
+
+                // Execute the configureServer hook in JS
+                // The plugin can register middleware by calling server.use(fn)
+                let js_code = format!(
+                    r#"
+                    (function() {{
+                        try {{
+                            var __pluginModule = {};
+                            if (__pluginModule && typeof __pluginModule.configureServer === 'function') {{
+                                var __registered = [];
+                                var __server = {{
+                                    use: function(fn) {{
+                                        if (typeof fn === 'function') __registered.push(fn.toString());
+                                    }},
+                                    on: function(event, fn) {{
+                                        if (typeof fn === 'function') __registered.push('on:' + event + ':' + fn.toString());
+                                    }},
+                                }};
+                                __pluginModule.configureServer(__server);
+                                if (__registered.length > 0) {{
+                                    return JSON.stringify(__registered);
+                                }}
+                            }}
+                        }} catch(e) {{
+                            console.log('Plugin configureServer error: ' + e.message);
+                        }}
+                        return null;
+                    }})()
+                    "#,
+                    plugin.source
+                );
+
+                match self.context.eval(Source::from_bytes(js_code.as_str())) {
+                    Ok(val) => {
+                        if !val.is_null() && !val.is_undefined() {
+                            if let Ok(json_str) = val.to_string(&mut self.context) {
+                                let json_str = json_str.to_std_string_escaped();
+                                if let Ok(fns) = serde_json::from_str::<Vec<String>>(&json_str) {
+                                    for fn_source in fns {
+                                        middlewares.push(ServerMiddleware {
+                                            plugin_name: plugin.name.clone(),
+                                            source: fn_source,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("[plugin:{}] configureServer execution error: {}", plugin.name, e);
+                    }
+                }
+            }
+        }
+
+        middlewares
     }
 
     /// Check if any plugins are loaded

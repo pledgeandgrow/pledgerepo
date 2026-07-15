@@ -8,4 +8,5 @@ license.workspace = true
 anyhow = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
+rayon = { workspace = true }
 pledgepack-core = { workspace = true }

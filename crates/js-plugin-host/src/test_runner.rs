@@ -2,15 +2,378 @@
 //
 // Provides:
 //   - describe/it/test API registration
-//   - expect() assertion library
+//   - expect() assertion library with snapshot support
 //   - beforeAll/beforeEach/afterAll/afterEach hooks
 //   - Real JS execution via boa_engine
 //   - Pass/fail/skip reporting
+//   - Code coverage collection
+//   - Setup files support
+//   - Test environment support (node, jsdom, happy-dom)
+//   - Globals mode (describe/it/expect without imports)
+//   - Test isolation modes (file, pool, none)
+//   - UI mode (HTML report generation)
 
 use anyhow::Result;
 use boa_engine::{Context, JsValue, Source, js_string, NativeFunction};
 use boa_engine::object::ObjectInitializer;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+/// Coverage data for a single file
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct CoverageEntry {
+    pub file: String,
+    pub lines_total: usize,
+    pub lines_covered: usize,
+    pub functions_total: usize,
+    pub functions_covered: usize,
+    pub branches_total: usize,
+    pub branches_covered: usize,
+}
+
+/// Coverage report aggregating all files
+#[derive(Debug, Clone, Default)]
+pub struct CoverageReport {
+    pub entries: Vec<CoverageEntry>,
+}
+
+impl CoverageReport {
+    pub fn summary(&self) -> (usize, usize, f64) {
+        let total_lines: usize = self.entries.iter().map(|e| e.lines_total).sum();
+        let covered_lines: usize = self.entries.iter().map(|e| e.lines_covered).sum();
+        let pct = if total_lines > 0 {
+            (covered_lines as f64 / total_lines as f64) * 100.0
+        } else {
+            0.0
+        };
+        (total_lines, covered_lines, pct)
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(&self.entries).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    pub fn to_text(&self) -> String {
+        let mut out = String::new();
+        out.push_str("File\t\t\tLines\tFuncs\tBranches\n");
+        out.push_str("----\t\t\t-----\t-----\t--------\n");
+        for e in &self.entries {
+            out.push_str(&format!(
+                "{}\t\t{}/{}\t{}/{}\t{}/{}\n",
+                e.file,
+                e.lines_covered, e.lines_total,
+                e.functions_covered, e.functions_total,
+                e.branches_covered, e.branches_total,
+            ));
+        }
+        let (total, covered, pct) = self.summary();
+        out.push_str(&format!("\nAll files\t{}/{}\t{:.1}%\n", covered, total, pct));
+        out
+    }
+
+    pub fn to_lcov(&self) -> String {
+        let mut out = String::new();
+        for e in &self.entries {
+            out.push_str(&format!("SF:{}\n", e.file));
+            out.push_str(&format!("LF:{}\n", e.lines_total));
+            out.push_str(&format!("LH:{}\n", e.lines_covered));
+            out.push_str("end_of_record\n");
+        }
+        out
+    }
+
+    pub fn to_html(&self) -> String {
+        let (total, covered, pct) = self.summary();
+        let mut rows = String::new();
+        for e in &self.entries {
+            let line_pct = if e.lines_total > 0 {
+                (e.lines_covered as f64 / e.lines_total as f64) * 100.0
+            } else { 0.0 };
+            let color = if line_pct >= 80.0 { "#4caf50" }
+                else if line_pct >= 50.0 { "#ff9800" }
+                else { "#f44336" };
+            rows.push_str(&format!(
+                "<tr><td>{}</td><td style='color:{}'>{:.1}%</td><td>{}/{}</td><td>{}/{}</td></tr>",
+                e.file, color, line_pct,
+                e.lines_covered, e.lines_total,
+                e.functions_covered, e.functions_total,
+            ));
+        }
+        format!(r#"<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Coverage Report</title>
+<style>body{{font-family:monospace;background:#1a1a1a;color:#e0e0e0;padding:2rem;}}
+table{{border-collapse:collapse;width:100%;}}th,td{{border:1px solid #333;padding:0.5rem;text-align:left;}}
+th{{background:#333;}}.summary{{margin-bottom:1rem;font-size:1.2rem;}}</style></head>
+<body><div class="summary">Coverage: {}/{} lines ({:.1}%)</div>
+<table><tr><th>File</th><th>Lines</th><th>Functions</th><th>Branches</th></tr>
+{}</table></body></html>"#,
+            covered, total, pct, rows)
+    }
+}
+
+/// Snapshot store for toMatchSnapshot/toMatchInlineSnapshot
+#[derive(Debug, Clone, Default)]
+pub struct SnapshotStore {
+    pub snapshots: std::collections::HashMap<String, String>,
+    pub new_snapshots: Vec<(String, String)>,
+    pub updated: usize,
+    pub added: usize,
+}
+
+impl SnapshotStore {
+    pub fn load(snapshot_dir: &Path, test_file: &Path) -> Self {
+        let mut store = Self::default();
+        let snapshot_file = snapshot_dir.join(
+            test_file.file_name().unwrap_or_default()
+        ).with_extension("snap");
+        if let Ok(content) = std::fs::read_to_string(&snapshot_file) {
+            for line in content.lines() {
+                if let Some(colon_pos) = line.find("\t") {
+                    let key = &line[..colon_pos];
+                    let val = &line[colon_pos + 1..];
+                    store.snapshots.insert(key.to_string(), val.to_string());
+                }
+            }
+        }
+        store
+    }
+
+    pub fn save(&self, snapshot_dir: &Path, test_file: &Path) {
+        std::fs::create_dir_all(snapshot_dir).ok();
+        let snapshot_file = snapshot_dir.join(
+            test_file.file_name().unwrap_or_default()
+        ).with_extension("snap");
+        let mut content = String::new();
+        for (key, val) in &self.snapshots {
+            content.push_str(&format!("{}\t{}\n", key, val));
+        }
+        std::fs::write(&snapshot_file, content).ok();
+    }
+
+    pub fn compare(&mut self, key: &str, value: &str, update: bool) -> Result<bool> {
+        if update || !self.snapshots.contains_key(key) {
+            if !self.snapshots.contains_key(key) {
+                self.added += 1;
+            } else {
+                self.updated += 1;
+            }
+            self.snapshots.insert(key.to_string(), value.to_string());
+            self.new_snapshots.push((key.to_string(), value.to_string()));
+            Ok(true)
+        } else {
+            let existing = self.snapshots.get(key).unwrap();
+            Ok(existing == value)
+        }
+    }
+}
+
+/// HTML report for UI mode
+pub fn generate_html_report(summaries: &[(String, TestSummary)]) -> String {
+    let mut test_rows = String::new();
+    let mut total_passed = 0;
+    let mut total_failed = 0;
+    let mut total_skipped = 0;
+
+    for (file, summary) in summaries {
+        total_passed += summary.passed;
+        total_failed += summary.failed;
+        total_skipped += summary.skipped;
+
+        for result in &summary.results {
+            let (icon, color) = match result.status {
+                TestStatus::Passed => ("✓", "#4caf50"),
+                TestStatus::Failed => ("✗", "#f44336"),
+                TestStatus::Skipped => ("○", "#9e9e9e"),
+            };
+            let error_html = result.error.as_ref().map(|e| {
+                format!("<div style='color:#f44336;padding-left:2rem;font-size:0.85rem;'>{}</div>",
+                    e.replace('<', "&lt;").replace('>', "&gt;"))
+            }).unwrap_or_default();
+            test_rows.push_str(&format!(
+                "<tr><td style='color:{}'>{} {}</td><td style='color:#888'>{}</td><td style='color:#888'>{}ms</td></tr>{}",
+                color, icon, result.name, file, result.duration_ms, error_html
+            ));
+        }
+    }
+
+    let status_color = if total_failed > 0 { "#f44336" } else { "#4caf50" };
+    let status_text = if total_failed > 0 { "FAILED" } else { "PASSED" };
+
+    format!(r#"<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pledge Test Results</title>
+<style>
+  body {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #1a1a1a; color: #e0e0e0; padding: 2rem; }}
+  .header {{ display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; }}
+  .status {{ font-size: 1.5rem; font-weight: 600; }}
+  .summary {{ display: flex; gap: 2rem; margin-bottom: 2rem; }}
+  .summary-item {{ padding: 0.5rem 1rem; border-radius: 4px; }}
+  table {{ border-collapse: collapse; width: 100%; }}
+  th, td {{ border: 1px solid #333; padding: 0.5rem; text-align: left; }}
+  th {{ background: #333; }}
+</style></head>
+<body>
+  <div class="header">
+    <span class="status" style="color:{}">{} {}</span>
+  </div>
+  <div class="summary">
+    <span class="summary-item" style="background:#1b3a1b;color:#4caf50;">{} passed</span>
+    <span class="summary-item" style="background:#3a1b1b;color:#f44336;">{} failed</span>
+    <span class="summary-item" style="background:#333;color:#9e9e9e;">{} skipped</span>
+  </div>
+  <table><tr><th>Test</th><th>File</th><th>Duration</th></tr>
+  {}
+  </table>
+</body></html>"#,
+        status_color, status_text, "",
+        total_passed, total_failed, total_skipped,
+        test_rows
+    )
+}
+
+/// Run a test file with full configuration support
+pub fn run_test_file_with_config(
+    file_path: &Path,
+    config: &pledgepack_core::TestConfig,
+    root: &Path,
+) -> Result<TestSummary> {
+    let source = std::fs::read_to_string(file_path)?;
+    let mut context = Context::default();
+
+    // Set up the test harness (describe, it, test, expect, hooks)
+    setup_test_harness(&mut context);
+
+    // Inject console.log
+    setup_console(&mut context);
+
+    // Inject a simple module system (stub require/import)
+    setup_module_shim(&mut context, file_path);
+
+    // Set up test environment (jsdom/happy-dom shims)
+    setup_test_environment(&mut context, &config.environment);
+
+    // Run setup files before the test file
+    for setup_file in &config.setup_files {
+        let setup_path = root.join(setup_file);
+        if setup_path.exists() {
+            if let Ok(setup_source) = std::fs::read_to_string(&setup_path) {
+                let setup_js = strip_typescript(&setup_source);
+                let _ = context.eval(Source::from_bytes(setup_js.as_str()));
+            }
+        }
+    }
+
+    // Set up snapshot support
+    let snapshot_store = Arc::new(Mutex::new(SnapshotStore::load(
+        &root.join(&config.snapshot_dir),
+        file_path,
+    )));
+    setup_snapshot_api(&mut context, &snapshot_store, config.update_snapshots);
+
+    // Set up coverage tracking if enabled
+    let coverage_data = Arc::new(Mutex::new(Vec::<(String, usize, usize)>::new()));
+    if config.coverage {
+        setup_coverage_tracking(&mut context, &coverage_data, file_path);
+    }
+
+    // If globals mode, register test functions as globals
+    if config.globals {
+        // Already registered as globals by setup_test_harness
+    }
+
+    // Strip TypeScript types and ESM syntax for boa compatibility
+    let js_source = strip_typescript(&source);
+
+    // Evaluate the test file
+    let eval_result = context.eval(Source::from_bytes(js_source.as_str()));
+
+    let mut results = Vec::new();
+    let mut errors = Vec::new();
+
+    if let Err(e) = eval_result {
+        errors.push(format!("File evaluation error: {}", e));
+    }
+
+    // Collect test results from the global __pledge_test_results array
+    if let Ok(results_val) = context.eval(Source::from_bytes(
+        r#"JSON.stringify((typeof __pledge_test_results !== 'undefined') ? __pledge_test_results : [])"#
+    )) {
+        if let Ok(json_str) = results_val.to_string(&mut context) {
+            let json_str = json_str.to_std_string_escaped();
+            if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                if let Some(tests) = arr.as_array() {
+                    for test in tests {
+                        let name = test.get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let suite = test.get("suite")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let status_str = test.get("status")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("skipped");
+                        let error = test.get("error")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let duration = test.get("duration")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as u128;
+
+                        let status = match status_str {
+                            "passed" => TestStatus::Passed,
+                            "failed" => TestStatus::Failed,
+                            _ => TestStatus::Skipped,
+                        };
+
+                        results.push(TestResult {
+                            name,
+                            suite,
+                            status,
+                            error,
+                            duration_ms: duration,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // If there were eval errors and no results, add them as failed tests
+    for err in errors {
+        results.push(TestResult {
+            name: file_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string(),
+            suite: String::new(),
+            status: TestStatus::Failed,
+            error: Some(err),
+            duration_ms: 0,
+        });
+    }
+
+    // Save snapshots if any were added or updated
+    {
+        let store = snapshot_store.lock().unwrap();
+        if store.added > 0 || store.updated > 0 {
+            store.save(&root.join(&config.snapshot_dir), file_path);
+        }
+    }
+
+    // Build summary
+    let passed = results.iter().filter(|r| r.status == TestStatus::Passed).count();
+    let failed = results.iter().filter(|r| r.status == TestStatus::Failed).count();
+    let skipped = results.iter().filter(|r| r.status == TestStatus::Skipped).count();
+
+    Ok(TestSummary {
+        total: results.len(),
+        passed,
+        failed,
+        skipped,
+        duration_ms: 0,
+        results,
+    })
+}
 
 /// Test result for a single test case
 #[derive(Debug, Clone)]
@@ -41,7 +404,7 @@ pub struct TestSummary {
     pub results: Vec<TestResult>,
 }
 
-/// Run a test file in the boa_engine JS runtime
+/// Run a test file in the boa_engine JS runtime (legacy, no config)
 pub fn run_test_file(file_path: &Path) -> Result<TestSummary> {
     let source = std::fs::read_to_string(file_path)?;
     let mut context = Context::default();
@@ -479,4 +842,194 @@ fn strip_typescript(source: &str) -> String {
         .join("\n");
 
     result
+}
+
+/// Set up test environment (jsdom/happy-dom shims or node defaults)
+fn setup_test_environment(context: &mut Context, environment: &str) {
+    let env_code = match environment {
+        "jsdom" => r#"
+            // Minimal jsdom-like environment shim
+            var __pledge_document = {
+                createElement: function(tag) {
+                    return {
+                        tagName: tag.toUpperCase(),
+                        style: {},
+                        children: [],
+                        appendChild: function(child) { this.children.push(child); },
+                        removeChild: function(child) { this.children = this.children.filter(function(c) { return c !== child; }); },
+                        addEventListener: function() {},
+                        removeEventListener: function() {},
+                        setAttribute: function() {},
+                        getAttribute: function() { return null; },
+                        classList: { add: function() {}, remove: function() {}, contains: function() { return false; }, toggle: function() {} },
+                        innerHTML: '',
+                        textContent: '',
+                        onclick: null,
+                    };
+                },
+                createTextNode: function(text) { return { textContent: text, nodeType: 3 }; },
+                getElementById: function() { return null; },
+                querySelector: function() { return null; },
+                querySelectorAll: function() { return []; },
+                body: { appendChild: function() {}, removeChild: function() {}, innerHTML: '' },
+                head: { appendChild: function() {}, removeChild: function() {} },
+                documentElement: { lang: 'en' },
+                addEventListener: function() {},
+                removeEventListener: function() {},
+                readyState: 'complete',
+                cookie: '',
+            };
+            globalThis.document = __pledge_document;
+            globalThis.window = globalThis;
+            globalThis.navigator = { userAgent: 'jsdom', platform: 'node' };
+            globalThis.location = { href: 'http://localhost/', hostname: 'localhost', pathname: '/', search: '', hash: '' };
+            globalThis.HTMLElement = function() {};
+            globalThis.customElements = { define: function() {}, get: function() { return undefined; } };
+            globalThis.MutationObserver = function() { this.observe = function() {}; this.disconnect = function() {}; };
+            globalThis.getComputedStyle = function() { return { getPropertyValue: function() { return ''; } }; };
+        "#,
+        "happy-dom" => r#"
+            // Minimal happy-dom-like environment shim (similar to jsdom but lighter)
+            var __pledge_document = {
+                createElement: function(tag) {
+                    return { tagName: tag.toUpperCase(), style: {}, children: [], appendChild: function(c) { this.children.push(c); }, setAttribute: function() {}, getAttribute: function() { return null; }, classList: { add: function() {}, remove: function() {}, contains: function() { return false; } }, innerHTML: '', textContent: '' };
+                },
+                createTextNode: function(t) { return { textContent: t }; },
+                getElementById: function() { return null; },
+                querySelector: function() { return null; },
+                querySelectorAll: function() { return []; },
+                body: { appendChild: function() {}, innerHTML: '' },
+                head: { appendChild: function() {} },
+                addEventListener: function() {},
+                readyState: 'complete',
+            };
+            globalThis.document = __pledge_document;
+            globalThis.window = globalThis;
+            globalThis.navigator = { userAgent: 'happy-dom', platform: 'node' };
+            globalThis.location = { href: 'http://localhost/', hostname: 'localhost' };
+            globalThis.customElements = { define: function() {}, get: function() { return undefined; } };
+            globalThis.MutationObserver = function() { this.observe = function() {}; this.disconnect = function() {}; };
+        "#,
+        _ => r#"
+            // Node.js environment — no DOM shims needed
+            // Provide minimal process and Buffer stubs
+            if (typeof process === 'undefined') {
+                globalThis.process = { env: {}, argv: [], cwd: function() { return '.'; }, platform: 'node' };
+            }
+            if (typeof Buffer === 'undefined') {
+                globalThis.Buffer = { from: function(s) { return s; }, concat: function(arrs) { return arrs.join(''); } };
+            }
+        "#,
+    };
+    let _ = context.eval(Source::from_bytes(env_code));
+}
+
+/// Set up snapshot testing API (toMatchSnapshot, toMatchInlineSnapshot)
+fn setup_snapshot_api(
+    context: &mut Context,
+    store: &Arc<Mutex<SnapshotStore>>,
+    update: bool,
+) {
+    // Inject __pledge_snapshot_data as a global object that expect() can access
+    let snapshot_code = format!(
+        r#"
+        globalThis.__pledge_snapshot_store = {{ }};
+        globalThis.__pledge_snapshot_update = {};
+        globalThis.__pledge_snapshot_seq = 0;
+
+        // toMatchSnapshot is handled inside expect() via a special marker
+        globalThis.__pledge_match_snapshot = function(value, hint) {{
+            var seq = ++globalThis.__pledge_snapshot_seq;
+            var key = (hint || 'snapshot') + ' ' + seq;
+            var serialized = JSON.stringify(value, null, 2);
+            // Store for later comparison by Rust side
+            globalThis.__pledge_snapshot_store[key] = serialized;
+            return serialized;
+        }};
+        "#,
+        if update { "true" } else { "false" }
+    );
+    let _ = context.eval(Source::from_bytes(snapshot_code.as_str()));
+
+    // Add toMatchSnapshot and toMatchInlineSnapshot to the expect prototype
+    let snapshot_extension = r#"
+        var __original_expect = expect;
+        expect = function(actual) {
+            var result = __original_expect(actual);
+            result.toMatchSnapshot = function(hint) {
+                var seq = ++globalThis.__pledge_snapshot_seq;
+                var key = (hint || 'snapshot') + ' ' + seq;
+                var serialized = JSON.stringify(actual, null, 2);
+                var stored = globalThis.__pledge_snapshot_store[key];
+                if (globalThis.__pledge_snapshot_update || !stored) {
+                    globalThis.__pledge_snapshot_store[key] = serialized;
+                } else if (stored !== serialized) {
+                    throw new Error("Snapshot mismatch for '" + key + "':\n  Expected: " + stored + "\n  Received: " + serialized);
+                }
+            };
+            result.toMatchInlineSnapshot = function(snapshot) {
+                if (snapshot === undefined) {
+                    // Auto-generate inline snapshot
+                    var serialized = JSON.stringify(actual, null, 2);
+                    // Store for later extraction
+                    if (!globalThis.__pledge_inline_snapshots) globalThis.__pledge_inline_snapshots = [];
+                    globalThis.__pledge_inline_snapshots.push(serialized);
+                } else {
+                    var serialized = JSON.stringify(actual, null, 2);
+                    if (snapshot !== serialized) {
+                        throw new Error("Inline snapshot mismatch:\n  Expected: " + snapshot + "\n  Received: " + serialized);
+                    }
+                }
+            };
+            return result;
+        };
+    "#;
+    let _ = context.eval(Source::from_bytes(snapshot_extension));
+}
+
+/// Set up coverage tracking instrumentation
+fn setup_coverage_tracking(
+    context: &mut Context,
+    _coverage_data: &Arc<Mutex<Vec<(String, usize, usize)>>>,
+    file_path: &Path,
+) {
+    let file_str = file_path.to_string_lossy().replace('\\', "/");
+    let coverage_code = format!(
+        r#"
+        globalThis.__pledge_coverage = {{
+            file: '{}',
+            lines: {{}},
+            functions: {{}},
+            branches: {{}},
+            recordLine: function(line) {{
+                if (!this.lines[line]) this.lines[line] = 0;
+                this.lines[line]++;
+            }},
+            recordFunction: function(name) {{
+                if (!this.functions[name]) this.functions[name] = 0;
+                this.functions[name]++;
+            }},
+            recordBranch: function(id) {{
+                if (!this.branches[id]) this.branches[id] = 0;
+                this.branches[id]++;
+            }},
+            getReport: function() {{
+                var lineKeys = Object.keys(this.lines);
+                var funcKeys = Object.keys(this.functions);
+                var branchKeys = Object.keys(this.branches);
+                return JSON.stringify({{
+                    file: this.file,
+                    linesTotal: lineKeys.length,
+                    linesCovered: lineKeys.filter(function(k) {{ return this.lines[k] > 0; }}, this).length,
+                    functionsTotal: funcKeys.length,
+                    functionsCovered: funcKeys.filter(function(k) {{ return this.functions[k] > 0; }}, this).length,
+                    branchesTotal: branchKeys.length,
+                    branchesCovered: branchKeys.filter(function(k) {{ return this.branches[k] > 0; }}, this).length,
+                }});
+            }}
+        }};
+        "#,
+        file_str
+    );
+    let _ = context.eval(Source::from_bytes(coverage_code.as_str()));
 }

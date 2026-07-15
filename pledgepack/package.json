@@ -1,0 +1,58 @@
+{
+  "name": "pledgepack",
+  "version": "0.1.0",
+  "description": "A Rust+Zig bundler with incremental computation, WASM plugins, and Rollup-quality output. Like Vite, Webpack, or Turbopack — but faster.",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "pledge": "./bin/pledge.js"
+  },
+  "scripts": {
+    "postinstall": "node ./bin/postinstall.js"
+  },
+  "files": [
+    "bin/",
+    "index.js",
+    "pledge.json",
+    "README.md"
+  ],
+  "keywords": [
+    "build-tool",
+    "bundler",
+    "dev-server",
+    "rust",
+    "zig",
+    "wasm",
+    "vite",
+    "webpack",
+    "turbopack",
+    "rollup",
+    "esbuild",
+    "hmr",
+    "jsx",
+    "tsx",
+    "react",
+    "vue",
+    "svelte",
+    "solid",
+    "next",
+    "remix",
+    "astro",
+    "qwik",
+    "pledge",
+    "pledgepack"
+  ],
+  "author": "Pledge and Grow",
+  "license": "MIT",
+  "homepage": "https://github.com/pledgeandgrow/pledgerepo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pledgeandgrow/pledgerepo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pledgeandgrow/pledgerepo/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

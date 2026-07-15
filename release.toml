@@ -1,0 +1,42 @@
+# cargo-release configuration
+# https://github.com/crate-ci/cargo-release
+
+[workspace]
+# Bump all workspace members together
+release = true
+
+# Publish to crates.io
+publish = true
+
+# Create a git tag after release
+tag = true
+
+# Push the tag to the remote
+push = true
+
+# Commit message template
+pre-release-commit-message = "chore: Release {{version}}"
+
+# Tag name template
+tag-name = "v{{version}}"
+
+# Don't publish before tagging
+tag-prefix = ""
+
+# Enable cargo-dist integration
+# Run `cargo release` to bump version, tag, and push
+# Then cargo-dist CI picks up the tag and builds binaries
+[[pre-release-replacements]]
+file = "CHANGELOG.md"
+search = "## Unreleased"
+replace = "## {{version}} - {{date}}"
+
+[[pre-release-replacements]]
+file = "package.json"
+search = '"version": ".*"'
+replace = '"version": "{{version}}"'
+
+[[pre-release-replacements]]
+file = "README.md"
+search = "version = \"0\\.1\\.0\""
+replace = "version = \"{{version}}\""

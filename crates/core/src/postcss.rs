@@ -10,6 +10,322 @@
 use std::path::Path;
 use std::collections::HashMap;
 
+/// Tailwind configuration parsed from tailwind.config.js/ts/mjs
+#[derive(Debug, Clone, Default)]
+pub struct TailwindConfig {
+    /// Content paths to scan for class names
+    pub content: Vec<String>,
+    /// Whether dark mode is enabled (class or media)
+    pub dark_mode: Option<String>,
+    /// Custom theme extensions
+    pub theme_extensions: HashMap<String, String>,
+    /// Core plugins to enable/disable
+    pub core_plugins: HashMap<String, bool>,
+    /// Whether JIT mode is enabled
+    pub jit: bool,
+}
+
+impl TailwindConfig {
+    /// Load Tailwind config from the project root
+    /// Tries tailwind.config.js, tailwind.config.ts, tailwind.config.mjs, tailwind.config.cjs
+    pub fn from_file(root: &Path) -> Option<Self> {
+        let candidates = [
+            "tailwind.config.js",
+            "tailwind.config.ts",
+            "tailwind.config.mjs",
+            "tailwind.config.cjs",
+            "tailwind.config.json",
+        ];
+
+        for candidate in &candidates {
+            let path = root.join(candidate);
+            if path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    return Some(Self::parse_config(&content));
+                }
+            }
+        }
+
+        // Check package.json for "tailwindcss" field with config
+        let pkg_path = root.join("package.json");
+        if pkg_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&pkg_path) {
+                if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(tw) = pkg.get("tailwindcss") {
+                        return Some(Self::parse_from_json(tw));
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Parse config from JS/TS source
+    fn parse_config(content: &str) -> Self {
+        // Try JSON first (tailwind.config.json)
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
+            return Self::parse_from_json(&json);
+        }
+
+        let mut config = Self::default();
+
+        // Extract content paths — look for content: [...] or content: '...'
+        config.content = extract_array_strings(content, "content");
+
+        // Extract darkMode
+        if let Some(dm) = extract_string_value(content, "darkMode") {
+            config.dark_mode = Some(dm);
+        }
+
+        // Detect JIT (content config presence implies JIT in Tailwind v3+)
+        config.jit = !config.content.is_empty();
+
+        config
+    }
+
+    /// Parse from JSON value
+    fn parse_from_json(json: &serde_json::Value) -> Self {
+        let mut config = Self::default();
+
+        if let Some(content) = json.get("content").and_then(|c| c.as_array()) {
+            config.content = content
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+        }
+
+        if let Some(dm) = json.get("darkMode").and_then(|d| d.as_str()) {
+            config.dark_mode = Some(dm.to_string());
+        }
+
+        config.jit = !config.content.is_empty();
+
+        config
+    }
+
+    /// Get the content globs, defaulting to common patterns if not configured
+    pub fn content_paths(&self, root: &Path) -> Vec<std::path::PathBuf> {
+        if self.content.is_empty() {
+            // Default content paths
+            vec![
+                root.join("src").join("**").join("*.{html,js,ts,jsx,tsx,vue,svelte}"),
+            ]
+        } else {
+            self.content.iter().map(|s| root.join(s)).collect()
+        }
+    }
+}
+
+/// Extract an array of strings from JS source for a given field name
+fn extract_array_strings(source: &str, field: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    
+    // Look for field: [...] patterns
+    let patterns = [format!("{}:", field), format!("{} :", field)];
+    for pattern in &patterns {
+        if let Some(pos) = source.find(pattern) {
+            let rest = &source[pos + pattern.len()..];
+            if let Some(start) = rest.find('[') {
+                if let Some(end) = rest[start..].find(']') {
+                    let array_content = &rest[start + 1..start + end];
+                    // Extract quoted strings from the array
+                    for quote in ['"', '\''] {
+                        let mut search = 0;
+                        while let Some(q_start) = array_content[search..].find(quote) {
+                            let abs_start = search + q_start + 1;
+                            if let Some(q_end) = array_content[abs_start..].find(quote) {
+                                result.push(array_content[abs_start..abs_start + q_end].to_string());
+                                search = abs_start + q_end + 1;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    return result;
+                }
+            }
+        }
+    }
+    
+    result
+}
+
+/// Extract a string value from JS source for a given field name
+fn extract_string_value(source: &str, field: &str) -> Option<String> {
+    for quote in ['"', '\''] {
+        let pattern = format!("{}:", field);
+        if let Some(pos) = source.find(&pattern) {
+            let rest = &source[pos + pattern.len()..];
+            let trimmed = rest.trim_start();
+            if trimmed.starts_with(quote) {
+                if let Some(end) = trimmed[1..].find(quote) {
+                    return Some(trimmed[1..1 + end].to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Browserslist targets parsed from package.json or .browserslistrc
+#[derive(Debug, Clone, Default)]
+pub struct BrowserslistConfig {
+    /// Raw browser target queries (e.g. "last 2 versions", "> 1%")
+    pub targets: Vec<String>,
+    /// Parsed browser version targets for Lightning CSS
+    pub parsed: Option<lightningcss::targets::Browsers>,
+}
+
+impl BrowserslistConfig {
+    /// Load browserslist from package.json or .browserslistrc
+    pub fn from_root(root: &Path) -> Self {
+        let mut config = Self::default();
+
+        // Try .browserslistrc file first
+        let rc_path = root.join(".browserslistrc");
+        if rc_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&rc_path) {
+                config.targets = content
+                    .lines()
+                    .map(|l| l.trim())
+                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                    .map(|l| l.to_string())
+                    .collect();
+            }
+        }
+
+        // Check package.json for "browserslist" field
+        if config.targets.is_empty() {
+            let pkg_path = root.join("package.json");
+            if pkg_path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&pkg_path) {
+                    if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(bl) = pkg.get("browserslist") {
+                            if let Some(arr) = bl.as_array() {
+                                config.targets = arr
+                                    .iter()
+                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                    .collect();
+                            } else if let Some(s) = bl.as_str() {
+                                config.targets = vec![s.to_string()];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Parse targets into Lightning CSS Browsers
+        if !config.targets.is_empty() {
+            config.parsed = Some(parse_browserslist(&config.targets));
+        }
+
+        config
+    }
+
+    /// Get Lightning CSS browser targets, falling back to defaults
+    pub fn browser_targets(&self) -> lightningcss::targets::Browsers {
+        self.parsed.unwrap_or(lightningcss::targets::Browsers {
+            chrome: Some(100 << 16),
+            firefox: Some(100 << 16),
+            safari: Some(15 << 16),
+            edge: Some(100 << 16),
+            android: Some(100 << 16),
+            ..Default::default()
+        })
+    }
+
+    /// Check if browserslist is configured
+    pub fn is_configured(&self) -> bool {
+        !self.targets.is_empty()
+    }
+}
+
+/// Parse browserslist queries into Lightning CSS Browsers targets
+fn parse_browserslist(targets: &[String]) -> lightningcss::targets::Browsers {
+    use lightningcss::targets::Browsers;
+
+    let mut browsers = Browsers::default();
+
+    for target in targets {
+        let trimmed = target.trim();
+
+        // Parse "last 2 versions" — set recent versions
+        if trimmed.starts_with("last") {
+            // Default to recent versions
+            if browsers.chrome.is_none() {
+                browsers.chrome = Some(100 << 16);
+            }
+            if browsers.firefox.is_none() {
+                browsers.firefox = Some(100 << 16);
+            }
+            if browsers.safari.is_none() {
+                browsers.safari = Some(15 << 16);
+            }
+            if browsers.edge.is_none() {
+                browsers.edge = Some(100 << 16);
+            }
+        }
+
+        // Parse specific browser versions like "chrome >= 88"
+        for (browser, field) in [
+            ("chrome", &mut browsers.chrome),
+            ("firefox", &mut browsers.firefox),
+            ("safari", &mut browsers.safari),
+            ("edge", &mut browsers.edge),
+            ("opera", &mut browsers.opera),
+            ("android", &mut browsers.android),
+            ("samsung", &mut browsers.samsung),
+        ] {
+            if trimmed.to_lowercase().starts_with(browser) {
+                // Extract version number
+                let version_part = trimmed[browser.len()..].trim();
+                let version_str: String = version_part
+                    .chars()
+                    .skip_while(|c| !c.is_ascii_digit())
+                    .take_while(|c| c.is_ascii_digit() || *c == '.')
+                    .collect();
+                if let Ok(version) = version_str.parse::<u32>() {
+                    *field = Some(version << 16);
+                }
+            }
+        }
+
+        // Parse "> X%" — coverage percentage (use defaults)
+        if trimmed.starts_with('>') || trimmed.starts_with(">=") {
+            // Coverage-based — use sensible defaults
+            if browsers.chrome.is_none() {
+                browsers.chrome = Some(90 << 16);
+            }
+            if browsers.firefox.is_none() {
+                browsers.firefox = Some(90 << 16);
+            }
+            if browsers.safari.is_none() {
+                browsers.safari = Some(14 << 16);
+            }
+        }
+    }
+
+    // If nothing was set, use defaults
+    if browsers.chrome.is_none()
+        && browsers.firefox.is_none()
+        && browsers.safari.is_none()
+        && browsers.edge.is_none()
+    {
+        return Browsers {
+            chrome: Some(100 << 16),
+            firefox: Some(100 << 16),
+            safari: Some(15 << 16),
+            edge: Some(100 << 16),
+            android: Some(100 << 16),
+            ..Default::default()
+        };
+    }
+
+    browsers
+}
+
 /// PostCSS plugin configuration
 #[derive(Debug, Clone)]
 pub struct PostCssPlugin {
@@ -157,14 +473,14 @@ pub fn process_css(
                 result = run_tailwind(&result, root);
             }
             "autoprefixer" => {
-                result = run_autoprefixer(&result);
+                result = run_autoprefixer(&result, root);
             }
             "postcss-nested" | "postcss-nesting" => {
                 result = run_nesting(&result);
             }
             "postcss-preset-env" => {
                 result = run_nesting(&result);
-                result = run_autoprefixer(&result);
+                result = run_autoprefixer(&result, root);
             }
             "cssnano" => {
                 if is_production {
@@ -184,11 +500,18 @@ pub fn process_css(
 }
 
 /// Run Tailwind: scan content files, expand @tailwind directives, process @apply
+/// Uses TailwindConfig from tailwind.config.js/ts/mjs for content paths
 fn run_tailwind(css: &str, root: &Path) -> String {
     let mut result = css.to_string();
 
     if result.contains("@tailwind") {
-        let used = scan_tailwind_content(root);
+        // Load Tailwind config for content paths
+        let tw_config = TailwindConfig::from_file(root);
+        let used = if let Some(ref config) = tw_config {
+            scan_tailwind_content_with_config(root, config)
+        } else {
+            scan_tailwind_content(root)
+        };
         result = expand_tailwind_directives(&result, &used);
     }
 
@@ -197,6 +520,28 @@ fn run_tailwind(css: &str, root: &Path) -> String {
     }
 
     result
+}
+
+/// Scan project source files for Tailwind class names using config content paths
+fn scan_tailwind_content_with_config(root: &Path, config: &TailwindConfig) -> std::collections::HashSet<String> {
+    let mut classes = std::collections::HashSet::new();
+    for content_path in config.content_paths(root) {
+        if content_path.is_dir() {
+            scan_dir_for_classes(&content_path, &mut classes);
+        } else if content_path.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&content_path) {
+                extract_class_names(&content, &mut classes);
+            }
+        } else {
+            // Handle glob patterns — try scanning parent directory
+            if let Some(parent) = content_path.parent() {
+                if parent.is_dir() {
+                    scan_dir_for_classes(parent, &mut classes);
+                }
+            }
+        }
+    }
+    classes
 }
 
 /// Scan project source files for Tailwind class names
@@ -298,19 +643,13 @@ fn process_tailwind_apply(css: &str) -> String {
 }
 
 /// Run autoprefixer using Lightning CSS browser targets
-fn run_autoprefixer(css: &str) -> String {
+/// Reads browserslist from package.json or .browserslistrc, falls back to defaults
+fn run_autoprefixer(css: &str, root: &Path) -> String {
     use lightningcss::stylesheet::{StyleSheet, ParserOptions, PrinterOptions};
-    use lightningcss::targets::Browsers;
 
+    let browsers = BrowserslistConfig::from_root(root);
     let targets = lightningcss::targets::Targets {
-        browsers: Some(Browsers {
-            chrome: Some(100 << 16),
-            firefox: Some(100 << 16),
-            safari: Some(15 << 16),
-            edge: Some(100 << 16),
-            android: Some(100 << 16),
-            ..Default::default()
-        }),
+        browsers: Some(browsers.browser_targets()),
         ..Default::default()
     };
 
@@ -704,5 +1043,58 @@ mod tests {
             Some("autoprefixer".to_string())
         );
         assert_eq!(extract_plugin_name("// comment"), None);
+    }
+
+    #[test]
+    fn test_tailwind_config_parse_js() {
+        let js = r#"
+        module.exports = {
+          content: ['./src/**/*.{html,js,ts,jsx,tsx}'],
+          darkMode: 'class',
+          theme: {},
+          plugins: [],
+        }
+        "#;
+        let config = TailwindConfig::parse_config(js);
+        assert_eq!(config.content.len(), 1);
+        assert!(config.content[0].contains("src/**"));
+        assert_eq!(config.dark_mode, Some("class".to_string()));
+        assert!(config.jit);
+    }
+
+    #[test]
+    fn test_tailwind_config_parse_json() {
+        let json = r#"{
+          "content": ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+          "darkMode": "media"
+        }"#;
+        let config = TailwindConfig::parse_config(json);
+        assert_eq!(config.content.len(), 2);
+        assert_eq!(config.dark_mode, Some("media".to_string()));
+    }
+
+    #[test]
+    fn test_browserslist_parse_targets() {
+        let targets = vec![
+            "last 2 versions".to_string(),
+            "chrome >= 88".to_string(),
+            "firefox >= 90".to_string(),
+        ];
+        let browsers = parse_browserslist(&targets);
+        assert!(browsers.chrome.is_some());
+        assert!(browsers.firefox.is_some());
+        // chrome >= 88
+        assert_eq!(browsers.chrome.unwrap() >> 16, 88);
+        // firefox >= 90
+        assert_eq!(browsers.firefox.unwrap() >> 16, 90);
+    }
+
+    #[test]
+    fn test_browserslist_defaults() {
+        let targets: Vec<String> = vec![];
+        let browsers = parse_browserslist(&targets);
+        assert!(browsers.chrome.is_some());
+        assert!(browsers.firefox.is_some());
+        assert!(browsers.safari.is_some());
     }
 }

@@ -20,6 +20,11 @@ pub enum ModuleKind {
     Svelte,
     Astro,
     Worker,
+    Mdx,
+    Graphql,
+    Yaml,
+    Csv,
+    Tsv,
     Unknown,
 }
 
@@ -37,6 +42,11 @@ impl ModuleKind {
             ".svelte" => Self::Svelte,
             ".astro" => Self::Astro,
             ".worker.js" | ".worker.ts" => Self::Worker,
+            ".mdx" => Self::Mdx,
+            ".graphql" | ".gql" => Self::Graphql,
+            ".yaml" | ".yml" => Self::Yaml,
+            ".csv" => Self::Csv,
+            ".tsv" => Self::Tsv,
             ".png" | ".jpg" | ".jpeg" | ".gif" | ".svg" | ".webp" | ".ico" |
             ".woff" | ".woff2" | ".ttf" | ".otf" | ".eot" |
             ".mp4" | ".webm" | ".mp3" | ".wav" | ".pdf" => Self::Asset,

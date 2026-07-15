@@ -87,6 +87,203 @@ pub struct PledgeConfig {
 
     /// Watch mode configuration for production builds
     pub watch: WatchConfig,
+
+    /// Build configuration for chunk splitting, source maps, asset inlining
+    #[serde(default)]
+    pub build: BuildConfig,
+
+    /// Test configuration (Vitest-compatible)
+    #[serde(default)]
+    pub test: TestConfig,
+
+    /// App directory for file-based routing (e.g., "app" or "src/app")
+    /// When set, enables Next.js/Expo-style file-based routing:
+    ///   app/page.tsx          → /
+    ///   app/about/page.tsx    → /about
+    ///   app/blog/[slug]/page.tsx → /blog/:slug
+    ///   app/layout.tsx        → shared layout wrapper
+    ///
+    /// Auto-detection order (when not explicitly set):
+    ///   1. src/app/  — if src/ exists, colocate routes with source
+    ///   2. app/      — flat structure at project root
+    #[serde(default)]
+    pub app_dir: Option<String>,
+}
+
+/// Test configuration (Vitest-compatible)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestConfig {
+    /// Test environment: "node" (default), "jsdom", "happy-dom"
+    #[serde(default = "default_test_environment")]
+    pub environment: String,
+
+    /// Setup files to run before each test file
+    #[serde(default)]
+    pub setup_files: Vec<String>,
+
+    /// Whether to run tests with globals (describe, it, expect) instead of imports
+    #[serde(default)]
+    pub globals: bool,
+
+    /// Test isolation mode: "file" (each file in own context), "pool" (shared pool), "none" (no isolation)
+    #[serde(default = "default_test_isolation")]
+    pub isolation: String,
+
+    /// Whether to collect code coverage
+    #[serde(default)]
+    pub coverage: bool,
+
+    /// Coverage report format: "text", "json", "html", "lcov"
+    #[serde(default = "default_coverage_reporter")]
+    pub coverage_reporter: String,
+
+    /// Whether to enable snapshot testing
+    #[serde(default = "default_true")]
+    pub snapshot: bool,
+
+    /// Directory for snapshot files (default: "__snapshots__")
+    #[serde(default = "default_snapshot_dir")]
+    pub snapshot_dir: String,
+
+    /// Whether to update snapshots automatically
+    #[serde(default)]
+    pub update_snapshots: bool,
+
+    /// Test file patterns (default: ["**/*.{test,spec}.{js,ts,jsx,tsx}"])
+    #[serde(default = "default_test_patterns")]
+    pub include: Vec<String>,
+
+    /// Test file patterns to exclude
+    #[serde(default = "default_test_exclude")]
+    pub exclude: Vec<String>,
+}
+
+fn default_test_environment() -> String {
+    "node".to_string()
+}
+
+fn default_test_isolation() -> String {
+    "file".to_string()
+}
+
+fn default_coverage_reporter() -> String {
+    "text".to_string()
+}
+
+fn default_snapshot_dir() -> String {
+    "__snapshots__".to_string()
+}
+
+fn default_test_patterns() -> Vec<String> {
+    vec![
+        "**/*.{test,spec}.{js,ts,jsx,tsx}".to_string(),
+    ]
+}
+
+fn default_test_exclude() -> Vec<String> {
+    vec![
+        "**/node_modules/**".to_string(),
+        "**/target/**".to_string(),
+        "**/.pledge/**".to_string(),
+    ]
+}
+
+impl Default for TestConfig {
+    fn default() -> Self {
+        Self {
+            environment: default_test_environment(),
+            setup_files: Vec::new(),
+            globals: false,
+            isolation: default_test_isolation(),
+            coverage: false,
+            coverage_reporter: default_coverage_reporter(),
+            snapshot: true,
+            snapshot_dir: default_snapshot_dir(),
+            update_snapshots: false,
+            include: default_test_patterns(),
+            exclude: default_test_exclude(),
+        }
+    }
+}
+
+/// Build configuration for production builds
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildConfig {
+    /// Manual chunk splitting configuration
+    /// Maps chunk name to list of module paths/globs to include
+    #[serde(default)]
+    pub manual_chunks: std::collections::HashMap<String, Vec<String>>,
+
+    /// Inline dynamic imports into parent chunk instead of creating async chunks
+    #[serde(default)]
+    pub inline_dynamic_imports: bool,
+
+    /// Source map mode: "external" (default), "hidden", "inline", "nosources"
+    #[serde(default = "default_source_map_mode")]
+    pub source_map_mode: String,
+
+    /// Asset inlining threshold in bytes (default: 4096)
+    /// Assets smaller than this are inlined as base64 data URIs
+    #[serde(default = "default_assets_inline_limit")]
+    pub assets_inline_limit: usize,
+
+    /// Minify JSON modules in production (default: true)
+    #[serde(default = "default_true")]
+    pub json_minify: bool,
+
+    /// Generate modulepreload link tags for async chunks (default: true)
+    #[serde(default = "default_true")]
+    pub module_preload: bool,
+
+    /// Generate preload link tags for critical assets (default: false)
+    #[serde(default)]
+    pub preload: bool,
+
+    /// Generate prefetch link tags for assets (default: false)
+    #[serde(default)]
+    pub prefetch: bool,
+
+    /// Polyfill modulepreload for older browsers (default: false)
+    #[serde(default)]
+    pub module_preload_polyfill: bool,
+
+    /// Enable font subsetting for production builds (default: false)
+    #[serde(default)]
+    pub font_subsetting: bool,
+
+    /// Enable SVG sprite generation (default: false)
+    #[serde(default)]
+    pub svg_sprite: bool,
+}
+
+fn default_source_map_mode() -> String {
+    "external".to_string()
+}
+
+fn default_assets_inline_limit() -> usize {
+    4096
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for BuildConfig {
+    fn default() -> Self {
+        Self {
+            manual_chunks: std::collections::HashMap::new(),
+            inline_dynamic_imports: false,
+            source_map_mode: "external".to_string(),
+            assets_inline_limit: 4096,
+            json_minify: true,
+            module_preload: true,
+            preload: false,
+            prefetch: false,
+            module_preload_polyfill: false,
+            font_subsetting: false,
+            svg_sprite: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -120,6 +317,26 @@ pub struct CacheConfig {
     pub enabled: bool,
     /// Cache directory (default: "node_modules/.pledge-cache")
     pub dir: PathBuf,
+    /// Remote cache configuration (optional, for CI/team cache sharing)
+    #[serde(default)]
+    pub remote: RemoteCacheSettings,
+}
+
+/// Settings for remote cache (S3/GCS/HTTP)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RemoteCacheSettings {
+    /// Enable remote cache (default: false)
+    pub enabled: bool,
+    /// Backend: "http", "s3", "gcs"
+    pub backend: String,
+    /// Endpoint URL
+    pub endpoint: String,
+    /// Bucket name (for S3/GCS)
+    pub bucket: Option<String>,
+    /// Region (for S3)
+    pub region: Option<String>,
+    /// Namespace prefix for cache keys
+    pub namespace: Option<String>,
 }
 
 impl Default for CacheConfig {
@@ -127,6 +344,7 @@ impl Default for CacheConfig {
         Self {
             enabled: true,
             dir: PathBuf::from("node_modules/.pledge-cache"),
+            remote: RemoteCacheSettings::default(),
         }
     }
 }
@@ -143,6 +361,16 @@ pub struct DevServerConfig {
     pub open: bool,
     /// HTTPS support (default: false)
     pub https: bool,
+    /// Public directory for static assets (default: "public")
+    #[serde(default = "default_public_dir")]
+    pub public_dir: String,
+    /// Middleware functions to apply to the dev server (JS source code)
+    #[serde(default)]
+    pub middleware: Vec<String>,
+}
+
+fn default_public_dir() -> String {
+    "public".to_string()
 }
 
 impl Default for DevServerConfig {
@@ -153,6 +381,8 @@ impl Default for DevServerConfig {
             hmr: true,
             open: false,
             https: false,
+            public_dir: "public".to_string(),
+            middleware: Vec::new(),
         }
     }
 }
@@ -257,8 +487,24 @@ impl Default for WatchConfig {
 
 impl Default for PledgeConfig {
     fn default() -> Self {
+        // Auto-detect entry point based on project structure
+        // Priority: app/entry.tsx → src/app/entry.tsx → src/index.tsx → index.tsx
+        let entry = {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let candidates = [
+                cwd.join("app").join("entry.tsx"),
+                cwd.join("src").join("app").join("entry.tsx"),
+                cwd.join("src").join("index.tsx"),
+                cwd.join("index.tsx"),
+            ];
+            candidates.iter()
+                .find(|p| p.exists())
+                .and_then(|p| p.strip_prefix(&cwd).ok())
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|| "src/index.tsx".to_string())
+        };
         Self {
-            entry: vec!["src/index.tsx".to_string()],
+            entry: vec![entry],
             out_dir: PathBuf::from(".pledge"),
             root: PathBuf::from("."),
             mode: BuildMode::Development,
@@ -294,11 +540,64 @@ impl Default for PledgeConfig {
             node_polyfills: false,
             define: std::collections::HashMap::new(),
             watch: WatchConfig::default(),
+            build: BuildConfig::default(),
+            test: TestConfig::default(),
+            app_dir: None,
         }
     }
 }
 
 impl PledgeConfig {
+    /// Resolve the app directory for file-based routing.
+    /// If `app_dir` is explicitly set, use that.
+    /// Otherwise auto-detect in priority order:
+    ///   1. app/ at project root (Next.js convention)
+    ///   2. src/app/ inside src
+    pub fn resolve_app_dir(&self) -> Option<String> {
+        if let Some(dir) = &self.app_dir {
+            return Some(dir.clone());
+        }
+        let root_app = self.root.join("app");
+        let src_app = self.root.join("src").join("app");
+        if root_app.is_dir() {
+            Some("app".to_string())
+        } else if src_app.is_dir() {
+            Some("src/app".to_string())
+        } else {
+            None
+        }
+    }
+
+    /// Resolve the source directory for non-app projects.
+    /// Returns the base directory containing components/, lib/, etc.
+    /// Priority: src/ if it exists, otherwise project root.
+    pub fn resolve_src_dir(&self) -> String {
+        if self.root.join("src").is_dir() {
+            "src".to_string()
+        } else {
+            ".".to_string()
+        }
+    }
+
+    /// Detect the project structure convention.
+    /// Returns the base directory for index.html and module resolution.
+    /// Priority: app/ → src/app/ → src/ → root
+    pub fn resolve_base_dir(&self) -> Option<String> {
+        let root_app = self.root.join("app");
+        let src_app = self.root.join("src").join("app");
+        let src_dir = self.root.join("src");
+
+        if root_app.is_dir() {
+            Some("app".to_string())
+        } else if src_app.is_dir() {
+            Some("src/app".to_string())
+        } else if src_dir.is_dir() {
+            Some("src".to_string())
+        } else {
+            None
+        }
+    }
+
     /// Load config from pledge.config.ts, pledge.config.js, pledge.config.json, pledge.json, or defaults
     /// Supports TypeScript config files by extracting the JSON-like config object.
     pub fn load(root: &PathBuf) -> anyhow::Result<Self> {

@@ -79,7 +79,34 @@ impl SolidAdapter {
             })
             .build(&program);
 
-        Ok(codegen_result.code)
+        let mut code = codegen_result.code;
+
+        // Inject Solid HMR boundary in dev mode with reactive scope preservation
+        if !is_production {
+            code.push_str(r#"
+// Solid HMR — reactive scope preservation
+if (import.meta.hot) {
+  import.meta.hot.accept((newModule) => {
+    if (newModule) {
+      // Solid components are reactive by default — re-executing the module
+      // re-creates reactive scopes. The Solid runtime handles cleanup
+      // automatically via createRoot/createEffect disposal.
+      // Notify all registered Solid HMR boundaries to re-execute
+      const __solid_hmr_boundaries = window.__pledge_solid_hmr;
+      if (__solid_hmr_boundaries) {
+        __solid_hmr_boundaries.forEach((boundary) => {
+          if (boundary && typeof boundary === 'function') {
+            boundary(newModule);
+          }
+        });
+      }
+    }
+  });
+}
+"#);
+        }
+
+        Ok(code)
     }
 }
 

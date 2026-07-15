@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pledge App</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: #0a0a0a; color: #e0e0e0; font-family: system-ui, -apple-system, sans-serif; }
+      .app-layout { min-height: 100vh; display: flex; flex-direction: column; }
+      .app-nav { display: flex; align-items: center; gap: 1rem; padding: 1rem 2rem; background: #111; border-bottom: 1px solid #222; }
+      .app-nav-brand { font-size: 1.2rem; font-weight: 700; color: #6c63ff; text-decoration: none; }
+      .app-nav-links { display: flex; gap: 1rem; margin-left: auto; }
+      .app-nav-links a { color: #aaa; text-decoration: none; padding: 0.5rem 1rem; border-radius: 6px; transition: all 0.2s; }
+      .app-nav-links a:hover { background: #222; color: #fff; }
+      .app-nav-toggle { display: none; }
+      .app-content { flex: 1; padding: 2rem; max-width: 900px; margin: 0 auto; width: 100%; }
+      .app-footer { padding: 1rem 2rem; text-align: center; color: #555; border-top: 1px solid #222; }
+      .page h1 { font-size: 2rem; margin-bottom: 1rem; }
+      .page p { color: #aaa; margin-bottom: 1rem; line-height: 1.6; }
+      .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 2rem; }
+      .feature-card { background: #111; border: 1px solid #222; border-radius: 12px; padding: 1.5rem; }
+      .feature-card h3 { margin-bottom: 0.5rem; }
+      .feature-card p { font-size: 0.9rem; }
+      .blog-list { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem; }
+      .blog-item { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; background: #111; border: 1px solid #222; border-radius: 8px; text-decoration: none; color: #e0e0e0; transition: all 0.2s; }
+      .blog-item:hover { border-color: #6c63ff; }
+      .blog-date { color: #555; font-size: 0.85rem; }
+      .back-link { display: inline-block; margin-bottom: 1rem; color: #6c63ff; text-decoration: none; }
+      .task-input { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+      .task-input input { flex: 1; padding: 0.75rem; background: #111; border: 1px solid #222; border-radius: 8px; color: #e0e0e0; font-size: 1rem; }
+      .task-input button { padding: 0.75rem 1.5rem; background: #6c63ff; border: none; border-radius: 8px; color: #fff; cursor: pointer; font-weight: 600; }
+      .task-list { list-style: none; }
+      .task-list li { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: #111; border: 1px solid #222; border-radius: 8px; margin-bottom: 0.5rem; }
+      .task-list li.done span { text-decoration: line-through; color: #555; }
+      .task-list li span { flex: 1; }
+      .task-list li button { background: none; border: none; color: #ff4466; cursor: pointer; }
+      .empty { color: #555; }
+      .not-found { text-align: center; padding-top: 4rem; }
+      .not-found h1 { font-size: 4rem; }
+      @media (max-width: 640px) {
+        .app-nav-toggle { display: block; background: none; border: none; color: #fff; font-size: 1.5rem; cursor: pointer; }
+        .app-nav-links { display: none; flex-direction: column; position: absolute; top: 100%; left: 0; right: 0; background: #111; padding: 1rem; }
+        .app-nav-links.open { display: flex; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./entry.tsx"></script>
+  </body>
+</html>

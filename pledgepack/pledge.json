@@ -1,0 +1,23 @@
+{
+  "entry": ["src/index.tsx"],
+  "html_entry": "index.html",
+  "output_dir": ".pledge",
+  "dev_server": {
+    "port": 3000,
+    "host": "localhost",
+    "hmr": true,
+    "open": false,
+    "public_dir": "public",
+    "middleware": []
+  },
+  "resolve": {
+    "alias": {},
+    "extensions": [".tsx", ".ts", ".jsx", ".js", ".mjs", ".json", ".css"],
+    "conditions": ["browser", "import"]
+  },
+  "optimize": {
+    "minify": true,
+    "tree_shake": true,
+    "split_chunks": true
+  }
+}

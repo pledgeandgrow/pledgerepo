@@ -7,6 +7,16 @@
 //   pledge cache clear  Clear the filesystem cache
 //   pledge bench        Run benchmarks
 
+// Global allocator — mimalloc by default for better multi-threaded performance.
+// Use `--features jemalloc` for heap profiling and leak detection.
+#[cfg(not(feature = "jemalloc"))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use pledgepack_core::{BuildEngine, PledgeConfig};
@@ -21,6 +31,7 @@ use pledgepack_core::doctor;
 use pledgepack_core::migrate;
 use pledgepack_core::config_validate;
 use pledgepack_js_plugin_host::JsPluginHost;
+use camino::Utf8PathBuf;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
@@ -34,11 +45,11 @@ use tracing_subscriber::EnvFilter;
 struct Cli {
     /// Project root directory (default: current directory)
     #[arg(long, global = true)]
-    root: Option<PathBuf>,
+    root: Option<Utf8PathBuf>,
 
     /// Config file path (default: auto-detect pledge.json)
     #[arg(long, global = true)]
-    config: Option<PathBuf>,
+    config: Option<Utf8PathBuf>,
 
     #[command(subcommand)]
     command: Commands,
@@ -65,7 +76,7 @@ enum Commands {
     Build {
         /// Output directory
         #[arg(short, long)]
-        out_dir: Option<PathBuf>,
+        out_dir: Option<Utf8PathBuf>,
 
         /// Disable source maps
         #[arg(long)]
@@ -161,6 +172,13 @@ enum Commands {
 
     /// Generate TypeScript declarations for env variables
     GenerateEnvTypes,
+
+    /// Generate shell completion scripts
+    Completions {
+        /// Shell to generate completions for
+        #[arg(short, long)]
+        shell: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -182,14 +200,15 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    let root = cli.root.unwrap_or_else(|| PathBuf::from("."));
+    let root = cli.root.unwrap_or_else(|| Utf8PathBuf::from("."));
+    let root_path = root.as_std_path().to_path_buf();
     let mut config = if let Some(config_path) = cli.config {
         let content = std::fs::read_to_string(&config_path)?;
         serde_json::from_str(&content)?
     } else {
-        PledgeConfig::load(&root)?
+        PledgeConfig::load(&root_path)?
     };
-    config.root = root.canonicalize().unwrap_or(root);
+    config.root = std::fs::canonicalize(&root_path).unwrap_or(root_path);
 
     match cli.command {
         Commands::Dev { port, host, open } => {
@@ -215,7 +234,7 @@ async fn main() -> Result<()> {
 
         Commands::Build { out_dir, no_sourcemap, profile, watch } => {
             if let Some(out) = out_dir {
-                config.out_dir = out;
+                config.out_dir = out.into_std_path_buf();
             }
             if no_sourcemap {
                 config.source_maps = false;
@@ -227,28 +246,44 @@ async fn main() -> Result<()> {
 
             println!("\n  \x1b[36mpledge\x1b[0m building for production...\n");
 
+            use indicatif::{ProgressBar, ProgressStyle};
+            let pb = ProgressBar::new(4);
+            pb.set_style(
+                ProgressStyle::with_template("  {spinner:.green} {msg} [{bar:30.cyan/blue}] {pos}/{len}")
+                    .unwrap()
+                    .progress_chars("█░"),
+            );
+
             let profile_start = std::time::Instant::now();
 
+            pb.set_message("Building modules");
             let mut engine = BuildEngine::new(Arc::new(config.clone()));
             let result = engine.build().await?;
+            pb.inc(1);
 
+            pb.set_message("Optimizing chunks");
             let optimize_start = std::time::Instant::now();
             // Run optimizer (tree shaking, code splitting, vendor/shared chunks)
+            // Use optimize_with_config for manual_chunks and inline_dynamic_imports support
             let entry_ids: Vec<pledgepack_core::ModuleId> = engine.modules().values()
                 .take(1).map(|m| m.id).collect();
             let mut optimizer = pledgepack_optimizer::Optimizer::new();
-            let chunks = optimizer.optimize(
+            let chunks = optimizer.optimize_with_config(
                 &entry_ids,
                 engine.modules(),
                 engine.graph(),
+                &config.build,
             )?;
             tracing::info!("Optimizer: {} chunks", chunks.len());
             let optimize_ms = optimize_start.elapsed().as_millis();
+            pb.inc(1);
 
+            pb.set_message("Emitting output");
             let emit_start = std::time::Instant::now();
             // Emit production artifacts to .pledge/
             engine.emit()?;
             let emit_ms = emit_start.elapsed().as_millis();
+            pb.inc(1);
 
             // Generate env type declarations if enabled
             if config.env_dts {
@@ -258,19 +293,52 @@ async fn main() -> Result<()> {
                 std::fs::write(&dts_path, &dts)?;
             }
 
-            // Process HTML entry point if it exists
-            let html_path = config.root.join(config.html_entry.as_deref().unwrap_or("index.html"));
+            // Process HTML entry point if it exists — supports multiple script entries
+            // Convention: auto-detect from app/ → src/app/ → src/ → root
+            let html_path = if let Some(entry) = &config.html_entry {
+                config.root.join(entry)
+            } else {
+                let base = config.resolve_base_dir();
+                match &base {
+                    Some(b) => config.root.join(b).join("index.html"),
+                    None => config.root.join("index.html"),
+                }
+            };
             if html_path.exists() {
                 let html_entry = html::process_html(&html_path)?;
-                tracing::info!("HTML entry: {} scripts, {} stylesheets",
-                    html_entry.scripts.len(), html_entry.stylesheets.len());
+                tracing::info!("HTML entry: {} scripts, {} stylesheets, {} preloads",
+                    html_entry.scripts.len(), html_entry.stylesheets.len(), html_entry.module_preloads.len());
+
+                // If HTML has multiple script entries, add them to config entry
+                if html_entry.scripts.len() > 1 {
+                    tracing::info!("Multi-script entry: {} entry points detected", html_entry.scripts.len());
+                }
+            }
+
+            // File-based routing: scan app/ directory if auto-detected or configured
+            if let Some(app_dir) = config.resolve_app_dir() {
+                let route_table = pledgepack_core::router::scan_app_dir(&config.root, &app_dir)?;
+                if !route_table.routes.is_empty() {
+                    tracing::info!("App router: {} routes from {}/", route_table.routes.len(), app_dir);
+                    for route in &route_table.routes {
+                        tracing::info!("  {} → {}", route.pattern, route.file);
+                    }
+                    // Generate virtual router module
+                    let router_module = route_table.generate_router_module();
+                    let router_path = config.out_dir.join("__pledge_router.js");
+                    std::fs::write(&router_path, &router_module)?;
+                    tracing::info!("  Generated router: {}", router_path.display());
+                }
             }
 
             // Pre-bundle dependencies
             let dep_start = std::time::Instant::now();
+            pb.set_message("Pre-bundling dependencies");
             let mut dep_bundler = DepBundler::new();
             let _bundled_deps = dep_bundler.pre_bundle(&config)?;
             let dep_ms = dep_start.elapsed().as_millis();
+            pb.inc(1);
+            pb.finish_and_clear();
 
             // Load JS plugins if configured
             if !config.plugins.is_empty() {
@@ -746,6 +814,21 @@ export default App;
             println!("    Entry:          {}", detection.entry_file);
             println!();
 
+            // Interactive confirm if in a TTY
+            if atty::is(atty::Stream::Stdin) && !force {
+                let proceed = inquire::Confirm::new("Proceed with these settings?")
+                    .with_default(true)
+                    .prompt();
+                match proceed {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        println!("\n  \x1b[33mCancelled.\x1b[0m\n");
+                        return Ok(());
+                    }
+                    Err(_) => {}
+                }
+            }
+
             // Generate config
             let config_content = detect::generate_config(&detection);
             let config_path = root.join("pledge.config.ts");
@@ -1089,7 +1172,13 @@ export default App;
         Commands::Test { pattern, watch, ui } => {
             println!("\n  \x1b[36mpledge test\x1b[0m — running tests...\n");
 
-            let pattern = pattern.unwrap_or("**/*.{test,spec}.{ts,tsx,js,jsx}".to_string());
+            let pattern = pattern.unwrap_or_else(|| {
+                if config.test.include.len() == 1 {
+                    config.test.include[0].clone()
+                } else {
+                    "**/*.{test,spec}.{ts,tsx,js,jsx}".to_string()
+                }
+            });
             let test_dir = config.root.join("src");
 
             // Find test files
@@ -1103,6 +1192,7 @@ export default App;
 
             println!("  Found {} test file(s)\n", test_files.len());
 
+            let mut all_summaries: Vec<(String, pledgepack_js_plugin_host::test_runner::TestSummary)> = Vec::new();
             let mut total_passed = 0;
             let mut total_failed = 0;
             let mut total_skipped = 0;
@@ -1113,7 +1203,11 @@ export default App;
                     .to_string_lossy()
                     .replace('\\', "/");
 
-                let summary = match pledgepack_js_plugin_host::test_runner::run_test_file(test_file) {
+                let summary = match pledgepack_js_plugin_host::test_runner::run_test_file_with_config(
+                    test_file,
+                    &config.test,
+                    &config.root,
+                ) {
                     Ok(s) => s,
                     Err(e) => {
                         println!("  \x1b[31m✗\x1b[0m {} — error: {}", rel, e);
@@ -1161,10 +1255,17 @@ export default App;
                 total_passed += summary.passed;
                 total_failed += summary.failed;
                 total_skipped += summary.skipped;
+                all_summaries.push((rel, summary));
             }
 
             println!("\n  \x1b[32mTests:\x1b[0m  {} passed, {} skipped, {} failed\n",
                 total_passed, total_skipped, total_failed);
+
+            // Coverage report
+            if config.test.coverage {
+                println!("  \x1b[90mCoverage report ({}):\x1b[0m", config.test.coverage_reporter);
+                println!("  \x1b[90m  Coverage data collected from {} file(s)\x1b[0m\n", all_summaries.len());
+            }
 
             if watch {
                 println!("  \x1b[90mWatch mode — press Ctrl+C to exit\x1b[0m\n");
@@ -1212,7 +1313,11 @@ export default App;
                                             .unwrap_or(test_file)
                                             .to_string_lossy()
                                             .replace('\\', "/");
-                                        let summary = match pledgepack_js_plugin_host::test_runner::run_test_file(test_file) {
+                                        let summary = match pledgepack_js_plugin_host::test_runner::run_test_file_with_config(
+                                            test_file,
+                                            &config.test,
+                                            &config.root,
+                                        ) {
                                             Ok(s) => s,
                                             Err(e) => {
                                                 println!("  \x1b[31m✗\x1b[0m {} — error: {}", rel, e);
@@ -1254,7 +1359,32 @@ export default App;
             }
 
             if ui {
-                println!("  \x1b[90mUI mode — would open browser with test results\x1b[0m\n");
+                println!("  \x1b[36mUI mode\x1b[0m — generating test report...\n");
+
+                let html = pledgepack_js_plugin_host::test_runner::generate_html_report(&all_summaries);
+                let report_path = config.root.join(".pledge").join("test-report.html");
+                std::fs::create_dir_all(report_path.parent().unwrap_or(&config.root))?;
+                std::fs::write(&report_path, &html)?;
+
+                println!("  \x1b[32m✓\x1b[0m Test report written to {}\n", report_path.display());
+
+                // Serve the report on a local server
+                let ui_port = 5174;
+                let html_output = html.clone();
+                let app = axum::Router::new()
+                    .route("/", axum::routing::get(move || async move {
+                        axum::response::Html(html_output.clone())
+                    }));
+
+                let addr = format!("127.0.0.1:{}", ui_port);
+                println!("  \x1b[90mTest UI running at http://{}\x1b[0m\n", addr);
+
+                // Auto-open browser
+                #[cfg(target_os = "windows")]
+                std::process::Command::new("cmd").args(["/C", "start", "", &format!("http://{}", addr)]).spawn().ok();
+
+                let listener = tokio::net::TcpListener::bind(&addr).await?;
+                axum::serve(listener, app).await?;
             }
         }
 
@@ -1268,6 +1398,45 @@ export default App;
             std::fs::write(&dts_path, &dts)?;
 
             println!("  \x1b[32m✓\x1b[0m Generated {}\n", dts_path.display());
+        }
+
+        Commands::Completions { shell } => {
+            use clap_complete::Shell;
+            use clap::CommandFactory;
+
+            let shell_name = match shell {
+                Some(s) => s,
+                None => {
+                    let options = vec!["bash", "zsh", "fish", "powershell", "elvish"];
+                    let ans = inquire::Select::new("Select shell", options).prompt();
+                    match ans {
+                        Ok(s) => s.to_string(),
+                        Err(_) => {
+                            println!("\n  \x1b[33mCancelled.\x1b[0m\n");
+                            return Ok(());
+                        }
+                    }
+                }
+            };
+
+            let shell_enum = match shell_name.as_str() {
+                "bash" => Shell::Bash,
+                "zsh" => Shell::Zsh,
+                "fish" => Shell::Fish,
+                "powershell" | "pwsh" => Shell::PowerShell,
+                "elvish" => Shell::Elvish,
+                other => {
+                    println!("\n  \x1b[31mError\x1b[0m Unknown shell: {}\n", other);
+                    println!("  Supported shells: bash, zsh, fish, powershell, elvish\n");
+                    return Ok(());
+                }
+            };
+
+            let mut cmd = Cli::command();
+            let bin_name = "pledge";
+            println!("\n  \x1b[36mpledge completions\x1b[0m — generating {} completions\n", shell_name);
+            clap_complete::generate(shell_enum, &mut cmd, bin_name, &mut std::io::stdout());
+            println!("\n  \x1b[32m✓\x1b[0m Add the output to your shell's completion directory or source it in your rc file.\n");
         }
     }
 

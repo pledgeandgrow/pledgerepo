@@ -6,6 +6,7 @@ pub const VALID_FIELDS: &[&str] = &[
     "cache", "devServer", "sourceMaps", "resolveAlias", "proxy", "profile",
     "outputFormat", "conditions", "envPrefix", "envDts", "htmlEntry",
     "compressGzip", "compressBrotli", "image", "edgeTarget", "plugins",
+    "appDir",
 ];
 
 /// Valid devServer fields.

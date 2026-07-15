@@ -238,6 +238,89 @@ pub fn is_svg(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// SVG sprite entry
+#[derive(Debug, Clone)]
+pub struct SvgSpriteEntry {
+    /// Unique ID for this icon in the sprite
+    pub id: String,
+    /// Original SVG content
+    pub svg: String,
+}
+
+/// Generate an SVG sprite from multiple SVG icons
+/// Combines all SVGs into a single <svg> with <symbol> elements
+/// Usage: <svg><use href="#icon-id"/></svg>
+pub fn generate_sprite(entries: &[SvgSpriteEntry]) -> String {
+    let mut symbols = String::new();
+
+    for entry in entries {
+        let optimized = optimize_svg(&entry.svg, &SvgOptions::default());
+
+        // Extract the inner content of the <svg> tag
+        let inner = extract_svg_inner(&optimized);
+
+        // Extract viewBox from the original svg tag
+        let viewbox = extract_viewbox(&optimized);
+
+        symbols.push_str(&format!(
+            r#"<symbol id="{}" {}>{}</symbol>"#,
+            entry.id,
+            viewbox.map(|vb| format!("viewBox=\"{}\"", vb)).unwrap_or_default(),
+            inner
+        ));
+    }
+
+    format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" style="display:none;">{}</svg>"#,
+        symbols
+    )
+}
+
+/// Extract the inner content between <svg> and </svg> tags
+fn extract_svg_inner(svg: &str) -> String {
+    if let Some(start) = svg.find("<svg") {
+        if let Some(content_start) = svg[start..].find('>') {
+            let content_start = start + content_start + 1;
+            if let Some(end) = svg.rfind("</svg>") {
+                return svg[content_start..end].trim().to_string();
+            }
+        }
+    }
+    svg.to_string()
+}
+
+/// Extract viewBox attribute value from an SVG tag
+fn extract_viewbox(svg: &str) -> Option<String> {
+    if let Some(vb_start) = svg.find("viewBox=\"") {
+        let rest = &svg[vb_start + 9..];
+        if let Some(vb_end) = rest.find('"') {
+            return Some(rest[..vb_end].to_string());
+        }
+    }
+    // Also check for lowercase viewBox
+    if let Some(vb_start) = svg.find("viewbox=\"") {
+        let rest = &svg[vb_start + 9..];
+        if let Some(vb_end) = rest.find('"') {
+            return Some(rest[..vb_end].to_string());
+        }
+    }
+    None
+}
+
+/// Generate a use reference for a sprite symbol
+pub fn generate_use_tag(id: &str, width: Option<u32>, height: Option<u32>) -> String {
+    let dims = match (width, height) {
+        (Some(w), Some(h)) => format!(r#" width="{}" height="{}""#, w, h),
+        (Some(w), None) => format!(r#" width="{}""#, w),
+        (None, Some(h)) => format!(r#" height="{}""#, h),
+        (None, None) => String::new(),
+    };
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg"{}><use href="#{}"/></svg>"##,
+        dims, id
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,5 +355,26 @@ mod tests {
         assert!(is_svg(Path::new("icon.svg")));
         assert!(is_svg(Path::new("ICON.SVG")));
         assert!(!is_svg(Path::new("photo.jpg")));
+    }
+
+    #[test]
+    fn test_generate_sprite() {
+        let entries = vec![
+            SvgSpriteEntry { id: "icon-home".to_string(), svg: r#"<svg viewBox="0 0 24 24"><path d="M3 12L12 3l9 9"/></svg>"#.to_string() },
+            SvgSpriteEntry { id: "icon-user".to_string(), svg: r#"<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/></svg>"#.to_string() },
+        ];
+        let sprite = generate_sprite(&entries);
+        assert!(sprite.contains("symbol id=\"icon-home\""));
+        assert!(sprite.contains("symbol id=\"icon-user\""));
+        assert!(sprite.contains("viewBox=\"0 0 24 24\""));
+        assert!(sprite.contains("<path d=\"M3 12L12 3l9 9\""));
+    }
+
+    #[test]
+    fn test_generate_use_tag() {
+        let tag = generate_use_tag("icon-home", Some(24), Some(24));
+        assert!(tag.contains("href=\"#icon-home\""));
+        assert!(tag.contains("width=\"24\""));
+        assert!(tag.contains("height=\"24\""));
     }
 }

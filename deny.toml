@@ -1,0 +1,61 @@
+# cargo-deny configuration
+# https://github.com/EmbarkStudios/cargo-deny
+
+[graph]
+# Don't lint dev dependencies in CI
+all-features = true
+no-default-features = false
+
+[advisories]
+# Check for security advisories from RustSec
+db-urls = ["https://github.com/rustsec/advisory-db"]
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "deny"
+notice = "warn"
+
+# Ignore specific advisories (add as needed)
+ignore = []
+
+[licenses]
+# Allow these licenses
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    "0BSD",
+    "Unlicense",
+]
+
+# Deny these licenses
+deny = [
+    "GPL-2.0",
+    "GPL-3.0",
+    "AGPL-3.0",
+]
+
+# Confidence threshold for license detection
+confidence-threshold = 0.8
+
+[bans]
+# Deny multiple versions of the same crate
+multiple-versions = "warn"
+
+# Deny specific crates
+deny = []
+
+# Skip certain crates for duplicate detection
+skip = []
+
+[sources]
+# Only allow crates from crates.io
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

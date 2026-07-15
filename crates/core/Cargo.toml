@@ -24,6 +24,9 @@ lightningcss = { workspace = true }
 # Base64 for inline asset encoding
 base64 = { workspace = true }
 
+# Image processing (decode, resize, encode)
+image = { workspace = true }
+
 # Cache (function-level incremental cache with disk persistence)
 pledgepack-cache = { path = "../cache" }
 
@@ -33,3 +36,6 @@ pledgepack-native-sys = { path = "../../native-sys" }
 # Compression (gzip + brotli)
 flate2 = "1"
 brotli = "7"
+
+# Serialization for module graph persistence
+bincode = { workspace = true }

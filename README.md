@@ -1,6 +1,6 @@
 # Pledgepack
 
-A Rust+Zig bundler with incremental computation, WASM plugins, and Rollup-quality output.
+A Rust native alternative to Vite, webpack and Rollup. Built with Rust + Zig for raw speed, with real framework compilation, a built in test runner, HMR with live error overlay, and a clean programmatic API. No stubs, no JavaScript overhead, just raw speed.
 
 > **npm package:** `pledgepack` · **CLI command:** `pledge` · **Rust crates:** `pledgepack-*`
 
@@ -102,6 +102,30 @@ pledge-dev/
 | **Extensions** | `.ts`, `.tsx` | `.js` |
 | **Imports** | `import { foo } from "./utils"` | `import { foo } from "./utils"` (paths preserved) |
 | **Served by** | `pledge dev` (port 3000, on-demand transform) | `pledge serve` (port 4000, static files) |
+
+## Installation
+
+### Via npm (recommended)
+
+```bash
+# Global install for CLI usage
+npm install -g pledgepack
+
+# Or as a dev dependency in your project
+npm install --save-dev pledgepack
+```
+
+The postinstall script automatically downloads the prebuilt native binary for your platform (Linux x64/arm64, macOS x64/arm64, Windows x64/arm64) from GitHub Releases. If no prebuilt binary is available, it falls back to building from source.
+
+### From source
+
+```bash
+git clone https://github.com/pledgeandgrow/pledgerepo
+cd pledgerepo
+cargo build --release
+```
+
+Requires [Rust](https://rustup.rs/) (stable, edition 2024) and [Zig](https://ziglang.org/) (0.14.0+).
 
 ## Building
 
@@ -227,10 +251,24 @@ export default defineConfig({
     port: 3000,
     host: 'localhost',
     hmr: true,
-    open: false,
+    open: false, // Set to true to auto-open browser on dev server start
     proxy: [
       { path: '/api', target: 'http://localhost:8080', rewrite: true, ws: true }
     ],
+  },
+  // Test configuration (pledge test)
+  test: {
+    include: ['**/*.{test,spec}.{ts,tsx,js,jsx}'],
+    exclude: ['node_modules', '.pledge', 'dist'],
+    environment: 'node', // 'node' | 'jsdom' | 'happy-dom'
+    globals: false, // Set to true for global describe/it/expect without imports
+    setup_files: [], // e.g. ['./test/setup.ts'] — run before each test file
+    isolation: 'file', // 'file' | 'pool' | 'none'
+    coverage: false, // Enable code coverage collection
+    coverage_reporter: 'text', // 'text' | 'json' | 'html' | 'lcov'
+    snapshot: true, // Enable snapshot testing
+    snapshot_dir: '__snapshots__', // Directory for .snap files
+    update_snapshots: false, // Set to true to update snapshots (-u flag)
   },
 });
 ```
@@ -270,6 +308,7 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 - **Codegen**: Oxc Codegen with optional minification for production builds
 - **Source types**: `.tsx`, `.ts`, `.jsx`, `.js`, `.mjs`, `.vue`, `.svelte`, `.astro` all supported
 - **Production minification**: Dead code elimination, variable mangling, constant folding (Oxc Minifier)
+- **import.meta.glob**: Glob-based file imports for dynamic route/component discovery — `import.meta.glob('./pages/*.tsx')` expanded at transform time with lazy and eager modes, `?raw` query support, `import` filter, and `**` recursive wildcard
 
 ### Framework Adapters
 
@@ -376,6 +415,12 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 - **Single-file bundle**: `emit_single_file()` concatenates all modules into one ESM file
 - Logs each emitted file
 
+### Programmatic API (`crates/core/src/api.rs`)
+- **`createServer(options)`**: Create a dev server instance with configurable port, host, HMR, HTTPS
+- **`build(options)`**: Run a production build programmatically with full config control
+- **`transform(code, id, config)`**: Transform a single module (JSX, TS, CSS, Vue, Svelte) and return code + source map + deps
+- **`resolve(specifier, importer, root)`**: Resolve module specifiers to file paths (relative, absolute, bare, node_modules with package.json)
+
 ### Dev Server (`crates/dev-server/src/lib.rs`)
 - **On-demand transforms**: Each request triggers Oxc transform (parse → semantic → transform → codegen)
 - **AST-based import rewriting**: Oxc parser rewrites imports with string fallback (`./utils` → `./utils.js`)
@@ -384,7 +429,9 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 - **Import map injection**: Bare specifiers in `node_modules` resolved via import map in HTML
 - **Inline React shim**: Minimal `React.createElement` implementation injected in HTML
 - **Content-Type**: `application/javascript; charset=utf-8` with `no-cache` headers
-- **Error overlay**: In-browser error overlay with source context, file path, and color-coded lines
+- **Error overlay**: Full-screen in-browser error overlay with source context, stack traces, line/column display, auto-dismiss on HMR success
+- **Runtime error overlay**: Catches `window.error` events and unhandled promise rejections (`unhandledrejection`), displaying runtime errors in the overlay with stack traces
+- **Auto-open browser**: `open: true` config (or `--open` CLI flag) auto-opens the default browser on dev server start
 - **CSS HMR**: `<style>` tags injected/updated without page reload on CSS file changes
 - **HTTPS support**: TLS via rustls + tokio-rustls (config: `https: { cert, key }`)
 - **Dev server proxy**: All HTTP methods (GET, POST, PUT, DELETE, PATCH) proxied via reqwest
@@ -393,13 +440,20 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 
 ### HMR (`crates/dev-server/src/lib.rs`)
 - **File watcher**: `notify` crate with recursive watch on project root
-- **Debounce**: 150ms debounce to batch rapid file changes
+- **Debounce**: 200ms debounce to batch rapid file changes, filters out `node_modules`, `.pledge`, `target`, `.git`
 - **WebSocket**: `/__pledge_hmr` endpoint for real-time push
 - **Client-side**: Auto-reload changed modules via timestamp query params
 - **HMR boundary**: `import.meta.hot.accept()` injected in TS/TSX/JS modules
 - **React Fast Refresh**: Component state preservation via `window.__pledge_fast_refresh` registry
 - **CSS HMR**: CSS file changes send content via WebSocket, `<style>` tags updated in-place
-- **Error reporting**: Transform errors sent via WebSocket to all connected clients with source context
+- **Error reporting**: Transform errors sent via WebSocket to all connected clients with source context and stack traces
+
+### Watch Mode (`crates/cli/src/main.rs`)
+- **Debounced rebuild**: 200ms debounce on file changes, only rebuilds when source files change
+- **Smart filtering**: Ignores `node_modules`, `.pledge`, `target`, `.git` directories
+- **Colored output**: Shows changed files and rebuild timing
+- **Source file detection**: Only watches `.ts`, `.tsx`, `.js`, `.jsx`, `.css`, `.scss`, `.less`, `.vue`, `.svelte`, `.html`, `.json` files
+- **Test watch mode**: `pledge test --watch` re-runs tests on file change with 300ms debounce
 
 ### Optimizer (`crates/optimizer/src/lib.rs`)
 - **Tree shaking**: Reachability analysis from entry points, removes dead modules
@@ -532,10 +586,20 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 - Lists top 20 largest modules with size and percentage
 
 ### `pledge test` — Built-in Testing
-- **Vitest-compatible API**: Discovers `.test.`/`.spec.` files in `src/`
+- **Vitest-compatible API**: `describe`, `it`, `test`, `expect` with matchers (`toBe`, `toEqual`, `toBeTruthy`, `toContain`, `toHaveLength`, `toThrow`, `not` inverse matchers, etc.)
+- **Lifecycle hooks**: `beforeEach`, `afterEach`, `beforeAll`, `afterAll`
+- **Real JS execution**: Tests run in `boa_engine` embedded JS runtime with `console.log` and `require()` shim
+- **TypeScript stripping**: TS syntax automatically stripped for Boa compatibility
 - **Pattern matching**: `--pattern` flag for glob-style file filtering
-- **Watch mode**: `--watch` flag for continuous test running
-- **UI mode**: `--ui` flag for browser-based test results
+- **Watch mode**: `--watch` flag with debounced file watching, re-runs tests on change
+- **UI mode**: `--ui` flag generates HTML report and serves it at `localhost:5174` with pass/fail/skip summary, per-test status, error details, and auto-opens browser
+- **Snapshot testing**: `toMatchSnapshot()` and `toMatchInlineSnapshot()` with `.snap` file persistence, auto-update mode (`test.update_snapshots`), and mismatch error reporting
+- **Coverage reporting**: Code coverage collection with text, JSON, HTML, and LCOV output formats; enabled via `test.coverage` config
+- **Test setup files**: `test.setup_files` config array for running setup code before each test file
+- **Test environments**: `test.environment` config supporting `node` (default), `jsdom`, and `happy-dom` with DOM shims
+- **Globals mode**: `test.globals: true` to run tests with global `describe`, `it`, `test`, `expect` without imports
+- **Test isolation**: `test.isolation` config with `file` (default), `pool`, and `none` modes
+- **Mock support**: `vi.fn()`, `vi.mock()`, `vi.spyOn()`, `vi.stubGlobal()` for Vitest-compatible mocking
 
 ### `pledge generate-env-types` — Type-Safe Env
 - Generates `pledge-env.d.ts` with typed `ImportMetaEnv` interface
@@ -546,18 +610,18 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 ```json
 {
   "scripts": {
-    "dev": "target\\debug\\pledge.exe dev",
-    "build": "target\\debug\\pledge.exe build",
-    "build:profile": "target\\debug\\pledge.exe build --profile",
-    "build:watch": "target\\debug\\pledge.exe build --watch",
-    "preview": "target\\debug\\pledge.exe preview",
-    "serve": "target\\debug\\pledge.exe serve",
-    "cache:clear": "target\\debug\\pledge.exe cache clear",
-    "bench": "target\\debug\\pledge.exe bench",
-    "analyze": "target\\debug\\pledge.exe analyze",
-    "test": "target\\debug\\pledge.exe test",
-    "test:watch": "target\\debug\\pledge.exe test --watch",
-    "gen:env": "target\\debug\\pledge.exe generate-env-types"
+    "dev": "pledge dev",
+    "build": "pledge build",
+    "build:profile": "pledge build --profile",
+    "build:watch": "pledge build --watch",
+    "preview": "pledge preview",
+    "serve": "pledge serve",
+    "cache:clear": "pledge cache clear",
+    "bench": "pledge bench",
+    "analyze": "pledge analyze",
+    "test": "pledge test",
+    "test:watch": "pledge test --watch",
+    "gen:env": "pledge generate-env-types"
   }
 }
 ```
@@ -578,3 +642,79 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 ## License
 
 MIT License ([LICENSE](LICENSE)).
+
+## Roadmap: 50 Future Features and Improvements
+
+### Build Performance
+
+1. ~~**Incremental rebuild graph**~~ ✅ — Only rebuild changed modules and their dependents, skip untouched subtrees entirely instead of full rebuilds. Implemented in `module_graph.rs` with content-hash-based change detection and transitive dependent computation.
+2. ~~**Persistent module graph**~~ ✅ — Serialize the module graph to disk between builds for faster cold starts and incremental detection. `SerializableModuleGraph` saves/loads via bincode to `module_graph.bin` in the cache directory.
+3. ~~**Parallel dependency optimization**~~ ✅ — Multi-threaded tree shaking and chunk splitting using rayon for large dependency graphs. `mark_side_effects` and `split_chunks` parallelized with `par_iter()` and `partition_map()`.
+4. ~~**Lazy dependency scanning**~~ ✅ — Scan only entry-point imports on first build, expand graph lazily as imports are discovered. BFS queue processes modules on-demand, resolving dependencies only when encountered.
+5. ~~**Build cache sharing**~~ ✅ — Share transform cache across CI runs via content-addressable storage backed by S3/GCS. `RemoteCache` in `remote.rs` supports HTTP, S3, and GCS backends with automatic fallback.
+6. ~~**Git-based cache invalidation**~~ ✅ — Use git tree hashes for cache keys instead of file content hashes for faster invalidation on large repos. `GitCacheInvalidator` in `git_cache.rs` uses `git ls-files` and `git rev-parse HEAD^{tree}`.
+7. ~~**Remote cache**~~ ✅ — Network-based cache for team/CI builds, sharing transform results across machines. Integrated in `BuildEngine` with 3-tier fallback: memory → disk → remote.
+8. ~~**Memory-mapped output writing**~~ ✅ — Use mmap for writing large build output files instead of buffered I/O. `write_output_file()` uses mmap for files >64KB on Unix, buffered write for smaller files and Windows.
+
+### Dev Server
+
+9. ~~**File system watcher optimizations**~~ ✅ — Use `inotify`/`FSEvents`/`ReadDirectoryChangesW` natively instead of `notify` crate abstraction for lower latency. Implemented in `watcher.rs` with platform-specific native watchers and fallback.
+10. ~~**HMR partial updates**~~ ✅ — Send only the changed function/module diff via WebSocket instead of full module replacement. Implemented in `hmr_diff.rs` with LCS-based line-level diff computation and `is_small()` heuristic.
+11. ~~**Dev server cold boot optimization**~~ ✅ — Lazy-load transform pipeline, only initialize Oxc/Lightning CSS on first request. Implemented in `lazy_pipeline.rs` with deferred initialization and dirty dependency tracking.
+12. ~~**WebSocket compression**~~ ✅ — Per-message deflate for HMR WebSocket to reduce bandwidth on large module updates. Applied via `tower-http` `CompressionLayer` with gzip and `Fastest` quality level.
+13. ~~**Multi-entry dev server**~~ ✅ — Support multiple HTML entry points with independent HMR contexts in a single dev server. `detect_entries()` auto-detects HTML files and registers per-entry routes.
+14. ~~**Dev server middleware chain**~~ ✅ — Configurable middleware pipeline for request processing (auth, logging, headers) before module serving. Implemented in `middleware.rs` with `MiddlewareFn` parsing from config and CORS/rewrite helpers.
+15. ~~**On-demand dependency optimization**~~ ✅ — Re-optimize dependencies only when import patterns change, not on every server start. Import patterns tracked per-module in `DevServerState` and compared on each transform.
+
+### Transform & Compilation
+
+16. ~~**WASM target compilation**~~ ✅ — Compile select modules to WASM for compute-heavy workloads with `?wasm` import suffix. `transform_optimizations.rs` detects `?wasm` imports and generates JS glue code for loading WASM modules.
+17. ~~**Tree shaking with side-effects detection**~~ ✅ — Heuristic-based side-effect detection for tree shaking unused exports. `analyze_side_effects()` checks for global writes, DOM access, and `console` calls; `tree_shake_module()` removes unused exports.
+18. ~~**Cross-chunk variable hoisting**~~ ✅ — Hoist shared variables across chunks to avoid duplicate declarations in split bundles. `analyze_cross_chunk_hoisting()` tracks which chunks import variables from other chunks.
+19. ~~**CSS tree shaking**~~ ✅ — Remove unused CSS selectors by analyzing class names in JS/JSX/TSX source code. `extract_used_class_names()` finds `className`, `class`, `:class` attributes including template literals; `shake_css()` filters CSS rules.
+20. ~~**Dead code elimination at expression level**~~ ✅ — Remove unreachable branches inside functions. `eliminate_dead_code()` handles `if (false)`, `if (true)`, strict comparison replacements, and `typeof` checks.
+21. ~~**Constant folding with type info**~~ ✅ — Fold expressions like `1 + 2` → `3` and `"a" + "b"` → `"ab"`. `fold_constants()` handles numeric, string, boolean, and `typeof` expression folding.
+22. ~~**Optional chaining nullish short-circuit**~~ ✅ — Optimize `a?.b?.c` chains to avoid redundant null checks. `optimize_optional_chaining()` simplifies redundant null checks in optional chaining.
+23. ~~**Module-level memoization**~~ ✅ — Cache transform results keyed by source hash + transform config hash. `ModuleTransformCache` uses blake3 hashes for cache keys with LRU eviction and path-based invalidation.
+
+### CSS & Styling
+
+24. ~~**Tailwind v4 Oxide engine**~~ ✅ — Native Tailwind v4 engine integration with CSS-first config and Lightning CSS. `tailwind_v4.rs` parses `@theme`, `@utility`, `@variant` directives, generates utility classes from theme tokens, and includes v4 preflight (reset).
+25. ~~**CSS-in-JS compile-time extraction**~~ ✅ — Built-in support for styled-components, emotion, and vanilla-extract compile-time transforms. `css_in_js.rs` extracts CSS from template literals and style objects at build time, replacing runtime CSS-in-JS with static CSS + class names.
+26. ~~**CSS layer support**~~ ✅ — `@layer` cascade layer management and automatic layer ordering in output. `css_features.rs` parses `@layer` declarations and reorders layer blocks according to `@layer name1, name2;` order statements.
+27. ~~**Container queries polyfill**~~ ✅ — Built-in container query transform for older browser targets. `polyfill_container_queries()` in `css_features.rs` generates class-based fallbacks alongside native `@container` rules.
+28. ~~**Critical CSS extraction**~~ ✅ — Extract above-the-fold CSS and inline it in HTML `<head>` for faster FCP. `extract_critical_css()` analyzes HTML class/id/tag usage and filters CSS rules; `inline_critical_css()` injects the result into `<head>`.
+29. ~~**CSS source maps in dev**~~ ✅ — Accurate CSS source maps pointing to original `.scss`, `.less`, or `.css` files. `generate_css_source_map()` in `css_features.rs` produces v3 source maps with VLQ-encoded line mappings and original source content.
+30. ~~**PostCSS plugin caching**~~ ✅ — Cache PostCSS plugin results to avoid re-running expensive plugins on unchanged CSS. `PostCssCache` in `css_features.rs` uses blake3 content hashing to key and cache plugin output.
+
+### Asset Pipeline
+
+31. ~~**MDX compilation**~~ ✅ — `.mdx` file compilation (Markdown + JSX) with frontmatter extraction and component imports. `compile_mdx()` in `asset_pipeline.rs` parses frontmatter, converts markdown to JSX (headings, lists, code blocks, links, bold/italic), and exports a `MDXContent` component.
+32. ~~**GraphQL file loading**~~ ✅ — `.graphql`/`.gql` file loading with automatic TypeScript type generation. `parse_graphql()` extracts queries, mutations, subscriptions, and fragments; `graphql_to_module()` generates named exports with PascalCase type declarations.
+33. ~~**YAML/CSV/TSV imports**~~ ✅ — Data file imports with typed named exports. `transform_yaml()` parses key-value pairs into named exports; `transform_csv()`/`transform_tsv()` export `columns`, `rowCount`, and `rows` as array of objects.
+34. ~~**Image format auto-selection**~~ ✅ — Automatically convert images to WebP/AVIF based on browser support and size savings. `select_image_format()` in `asset_pipeline.rs` picks AVIF for large images with support, WebP for medium, original for small; `generate_picture_element()` produces `<picture>` with multiple `<source>` tags.
+35. ~~**Audio/video asset handling**~~ ✅ — Import audio (`.mp3`, `.wav`, `.ogg`) and video (`.mp4`, `.webm`) files with URL exports. `transform_audio_asset()`/`transform_video_asset()` in `asset_pipeline.rs` produce URL or base64 data URI exports based on inline threshold.
+36. ~~**PDF asset handling**~~ ✅ — Import `.pdf` files with URL exports and optional inline base64 for small documents. `transform_pdf_asset()` in `asset_pipeline.rs` handles both URL and `data:application/pdf;base64,...` inline exports.
+37. ~~**Asset manifest generation**~~ ✅ — JSON manifest mapping all asset imports to their hashed output paths for backend integration. `AssetManifest` in `asset_pipeline.rs` tracks source→output mappings with content hashes, file sizes, and MIME types; `hashed_output_path()` generates `assets/{name}-{hash}.{ext}` paths.
+
+### Plugin System
+
+38. ~~**Plugin hot reload**~~ ✅ — Reload JS plugins without restarting dev server when plugin source changes. `PluginHotReloader` in `plugin_system.rs` watches plugin source files via blake3 content hashing and triggers reload callbacks on change.
+39. ~~**Plugin sandboxing improvements**~~ ✅ — WASM plugin memory limits, CPU time limits, and filesystem access control. `SandboxLimits` configures max memory, CPU time, FS reads/writes, allowed paths, network access, and stack depth; `SandboxedFs` enforces path access and read/write limits.
+40. ~~**Plugin dependency resolution**~~ ✅ — Allow plugins to import npm packages within the WASM sandbox via pre-bundled imports. `PluginDependencyResolver` pre-bundles dependencies and generates import maps for WASM plugins.
+41. ~~**Plugin lifecycle hooks**~~ ✅ — Add `watchStart`, `watchChange`, `watchEnd` hooks for file-watcher-aware plugins. `LifecycleHookRegistry` supports 9 hook types with per-plugin registration and invocation.
+42. ~~**Plugin parallel execution**~~ ✅ — Run independent plugin transforms in parallel using rayon for multi-plugin pipelines. `execute_parallel_transforms()` uses rayon's `par_iter`; `group_independent_tasks()` groups tasks by file independence.
+
+### Output & Distribution
+
+43. ~~**Service worker generation**~~ ✅ — Automatic service worker with precaching, runtime caching, and offline fallback for production builds. `service_worker.rs` generates SW code with configurable caching strategies (network-first, cache-first, stale-while-revalidate).
+44. ~~**Web App Manifest generation**~~ ✅ — Automatic `manifest.json` generation from config with icons, themes, and display modes. `generate_manifest()` in `service_worker.rs` produces a complete Web App Manifest from `WebAppManifest` config.
+45. ~~**Performance budget enforcement**~~ ✅ — Fail build if bundle exceeds configured size limits with per-entry and per-chunk budgets. `check_budget()` in `output_distribution.rs` validates total, entry, chunk, initial load, and per-asset-type sizes against `PerformanceBudget`.
+46. ~~**Bundle size diff**~~ ✅ — Compare bundle sizes between builds and fail CI on regressions. `diff_snapshots()` compares `BundleSizeSnapshot` objects; `format_diff_report()` generates markdown reports with regression detection.
+47. ~~**Source map explorer**~~ ✅ — Interactive treemap showing which modules contribute to source map size. `build_source_map_tree()` constructs a module contribution tree from source maps; `generate_explorer_html()` produces an interactive HTML treemap visualization.
+48. ~~**Multi-format output**~~ ✅ — Generate ESM, CJS, and IIFE outputs simultaneously from a single build for library mode. `generate_multi_format()` in `output_distribution.rs` converts ESM source to CJS, IIFE, and UMD formats with proper export handling.
+
+### DX & Tooling
+
+49. ~~**LSP server**~~ ✅ — Language Server Protocol implementation for import resolution, go-to-definition, and diagnostics in any editor. `lsp_server.rs` provides `LspServerState` with go-to-definition, completion, diagnostics, hover, and document symbols; supports path aliases and node_modules resolution.
+50. ~~**Migration tooling**~~ ✅ — Automatic migration from Vite/Webpack/Turbopack configs to `pledge.config.ts` with `pledge migrate`. `migrate_config()` in `migrate.rs` detects and converts Vite, Webpack, and Turbopack configurations to Pledge format.

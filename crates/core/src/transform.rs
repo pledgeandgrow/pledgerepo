@@ -54,12 +54,17 @@ pub fn transform(
         }
         ModuleKind::Css => transform_css(source, file_path, is_production, config),
         ModuleKind::Json => transform_json(source),
-        ModuleKind::Asset => transform_asset(file_path, source.as_bytes()),
+        ModuleKind::Asset => transform_asset(file_path, source.as_bytes(), is_production, config),
         ModuleKind::Wasm => transform_wasm(file_path),
         ModuleKind::Vue => transform_vue(source, file_path, is_production),
         ModuleKind::Svelte => transform_svelte(source, file_path, is_production),
         ModuleKind::Astro => transform_astro(source, file_path, is_production),
         ModuleKind::Worker => transform_js(source, kind, file_path, is_production, config),
+        ModuleKind::Mdx => transform_mdx(source, file_path),
+        ModuleKind::Graphql => transform_graphql(source),
+        ModuleKind::Yaml => transform_yaml(source),
+        ModuleKind::Csv => transform_csv(source),
+        ModuleKind::Tsv => transform_tsv(source),
         _ => Ok(TransformOutput {
             code: source.to_string(),
             source_map: None,
@@ -174,6 +179,9 @@ fn transform_js(
     // Step 8: Inject React Fast Refresh in dev mode for React components
     let mut code = replace_env_vars(&codegen_result.code, config);
     
+    // Step 8a: Expand import.meta.glob() calls into static module maps
+    code = expand_import_meta_glob(&code, file_path, config);
+    
     // Step 8b: Apply define replacements (compile-time constants)
     if !config.define.is_empty() {
         code = apply_define(&code, &config.define);
@@ -188,9 +196,36 @@ fn transform_js(
         code = transform_worker_imports(&code, file_path);
     }
 
-    // Generate source map if enabled
+    // Step 9b: CSS-in-JS compile-time extraction (styled-components, emotion, vanilla-extract)
+    let extracted_css = if let Some(extraction) = crate::css_in_js::extract_css_in_js(source, file_path) {
+        code = extraction.code;
+        if extraction.css.is_empty() { None } else { Some(extraction.css) }
+    } else {
+        None
+    };
+
+    // Generate source map if enabled, respecting source_map_mode config
     let source_map = if config.source_maps {
-        Some(generate_source_map(file_path, source, &codegen_result.code))
+        use base64::Engine;
+        let mode = &config.build.source_map_mode;
+        match mode.as_str() {
+            "hidden" | "nosources" => {
+                // hidden: generate map but don't add sourceMappingURL comment
+                // nosources: generate map without source content
+                Some(generate_source_map_mode(file_path, source, &codegen_result.code, mode))
+            }
+            "inline" => {
+                // inline: embed source map as base64 data URI in the code
+                let map = generate_source_map(file_path, source, &codegen_result.code);
+                let b64 = base64::engine::general_purpose::STANDARD.encode(map.as_bytes());
+                code.push_str(&format!("\n//# sourceMappingURL=data:application/json;base64,{}", b64));
+                None
+            }
+            _ => {
+                // external (default): generate map, add sourceMappingURL comment
+                Some(generate_source_map(file_path, source, &codegen_result.code))
+            }
+        }
     } else {
         None
     };
@@ -200,7 +235,7 @@ fn transform_js(
         source_map,
         css_modules: None,
         is_css: false,
-        extracted_css: None,
+        extracted_css,
         is_worker,
         dynamic_imports,
     })
@@ -245,8 +280,314 @@ fn apply_define(code: &str, define: &std::collections::HashMap<String, String>) 
     result
 }
 
+/// Expand import.meta.glob() calls into static module maps.
+///
+/// Supports two forms:
+///   - `import.meta.glob('./pages/*.tsx')` → `{ './pages/Home.tsx': () => import('./pages/Home.tsx') }`
+///   - `import.meta.glob('./pages/*.tsx', { eager: true })` → `{ './pages/Home.tsx': module0 }` with static imports
+///
+/// Also supports `{ query: '?raw', import: 'default' }` options for raw string imports.
+fn expand_import_meta_glob(code: &str, file_path: &str, config: &PledgeConfig) -> String {
+    if !code.contains("import.meta.glob") {
+        return code.to_string();
+    }
+
+    let file_dir = Path::new(file_path).parent().unwrap_or(Path::new("."));
+    let root = &config.root;
+
+    let mut result = code.to_string();
+    let mut imports_prefix = String::new();
+
+    // Find all import.meta.glob() calls
+    while let Some(pos) = result.find("import.meta.glob(") {
+        let args_start = pos + "import.meta.glob(".len();
+        // Find the matching closing paren
+        let mut depth = 1;
+        let mut args_end = args_start;
+        for (i, ch) in result[args_start..].char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        args_end = args_start + i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if depth != 0 {
+            break;
+        }
+
+        let args_str = &result[args_start..args_end];
+
+        // Parse the glob pattern (first argument, quoted string)
+        let glob_pattern = match extract_glob_pattern(args_str) {
+            Some(p) => p,
+            None => {
+                // Can't parse — replace with empty object to avoid runtime error
+                result.replace_range(pos..args_end + 1, "{}");
+                continue;
+            }
+        };
+
+        // Parse options (second argument)
+        let eager = args_str.contains("eager:") && args_str.contains("true");
+        let is_raw = args_str.contains("query:") && args_str.contains("raw");
+        let import_filter = if args_str.contains("import:") {
+            extract_import_filter(args_str)
+        } else {
+            "default"
+        };
+
+        // Resolve glob pattern relative to file directory
+        let glob_base = if glob_pattern.starts_with('/') {
+            root.join(glob_pattern.trim_start_matches('/'))
+        } else {
+            file_dir.join(&glob_pattern)
+        };
+
+        // Collect matching files
+        let matched_files = glob_files(&glob_base, root);
+
+        if matched_files.is_empty() {
+            result.replace_range(pos..args_end + 1, "{}");
+            continue;
+        }
+
+        // Generate the module map
+        let mut map_entries = Vec::new();
+        for (i, (rel_path, abs_path)) in matched_files.iter().enumerate() {
+            if eager {
+                // Eager: generate static import
+                let var_name = format!("__pledge_glob_{}", i);
+                if is_raw {
+                    let content = std::fs::read_to_string(abs_path).unwrap_or_default();
+                    imports_prefix.push_str(&format!(
+                        "const {} = {};\n",
+                        var_name,
+                        serde_json::to_string(&content).unwrap_or_else(|_| "\"\"".to_string())
+                    ));
+                } else {
+                    imports_prefix.push_str(&format!(
+                        "import * as {} from '{}';\n",
+                        var_name, rel_path
+                    ));
+                }
+                let export_value = if import_filter == "default" {
+                    format!("{}.default", var_name)
+                } else if import_filter == "*" {
+                    var_name.clone()
+                } else {
+                    format!("{}.{}", var_name, import_filter)
+                };
+                map_entries.push(format!(
+                    "{}: {}",
+                    serde_json::to_string(rel_path).unwrap_or_else(|_| "\"\"".to_string()),
+                    export_value
+                ));
+            } else {
+                // Lazy: generate dynamic import
+                if is_raw {
+                    map_entries.push(format!(
+                        "{}: () => Promise.resolve({})",
+                        serde_json::to_string(rel_path).unwrap_or_else(|_| "\"\"".to_string()),
+                        serde_json::to_string(&std::fs::read_to_string(abs_path).unwrap_or_default())
+                            .unwrap_or_else(|_| "\"\"".to_string())
+                    ));
+                } else {
+                    map_entries.push(format!(
+                        "{}: () => import('{}')",
+                        serde_json::to_string(rel_path).unwrap_or_else(|_| "\"\"".to_string()),
+                        rel_path
+                    ));
+                }
+            }
+        }
+
+        let map_str = format!("{{ {} }}", map_entries.join(", "));
+        result.replace_range(pos..args_end + 1, &map_str);
+    }
+
+    if !imports_prefix.is_empty() {
+        format!("{}\n{}", imports_prefix, result)
+    } else {
+        result
+    }
+}
+
+/// Extract the glob pattern string from import.meta.glob arguments
+fn extract_glob_pattern(args: &str) -> Option<String> {
+    let trimmed = args.trim();
+    for quote in ['"', '\''] {
+        if trimmed.starts_with(quote) {
+            if let Some(end) = trimmed[1..].find(quote) {
+                return Some(trimmed[1..1 + end].to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Extract the import filter from options (e.g., { import: 'default' })
+fn extract_import_filter(args: &str) -> &str {
+    if let Some(pos) = args.find("import:") {
+        let rest = &args[pos + 7..];
+        let trimmed = rest.trim();
+        for quote in ['"', '\''] {
+            if trimmed.starts_with(quote) {
+                if let Some(end) = trimmed[1..].find(quote) {
+                    // Return a static slice — we'll match against known values
+                    let val = &trimmed[1..1 + end];
+                    return match val {
+                        "default" => "default",
+                        "*" => "*",
+                        "named" => "named",
+                        _ => "default",
+                    };
+                }
+            }
+        }
+    }
+    "default"
+}
+
+/// Glob-match files against a pattern with * and ** wildcards
+fn glob_files(pattern: &Path, root: &Path) -> Vec<(String, std::path::PathBuf)> {
+    let pattern_str = pattern.to_string_lossy().replace('\\', "/");
+    let mut results = Vec::new();
+
+    // Split pattern into segments for directory traversal
+    let parts: Vec<&str> = pattern_str.split('/').collect();
+
+    // Find the base directory (everything before the first wildcard)
+    let mut base_dir = std::path::PathBuf::new();
+    let mut wildcard_start = 0;
+    for (i, part) in parts.iter().enumerate() {
+        if part.contains('*') || part.contains('?') {
+            wildcard_start = i;
+            break;
+        }
+        if !part.is_empty() {
+            base_dir = base_dir.join(part);
+        }
+    }
+
+    if !base_dir.is_dir() {
+        return results;
+    }
+
+    // Recursively glob from the base directory
+    glob_recursive(&base_dir, &parts[wildcard_start..], root, &mut results);
+    results.sort_by(|a, b| a.0.cmp(&b.0));
+    results
+}
+
+/// Recursively match files against glob pattern segments
+fn glob_recursive(
+    current_dir: &Path,
+    segments: &[&str],
+    root: &Path,
+    results: &mut Vec<(String, std::path::PathBuf)>,
+) {
+    if segments.is_empty() {
+        return;
+    }
+
+    let segment = segments[0];
+    let rest = &segments[1..];
+
+    if segment == "**" {
+        // ** matches any number of directories
+        // First try matching with zero directories (current dir)
+        glob_recursive(current_dir, rest, root, results);
+        // Then recurse into all subdirectories
+        if let Ok(entries) = std::fs::read_dir(current_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if name == "node_modules" || name == "target" || name.starts_with('.') {
+                        continue;
+                    }
+                    glob_recursive(&path, segments, root, results);
+                }
+            }
+        }
+        return;
+    }
+
+    if let Ok(entries) = std::fs::read_dir(current_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            if path.is_dir() {
+                if rest.is_empty() {
+                    continue;
+                }
+                if match_glob(segment, &name) {
+                    glob_recursive(&path, rest, root, results);
+                }
+            } else if path.is_file() {
+                if rest.is_empty() && match_glob(segment, &name) {
+                    // Make path relative to root
+                    if let Ok(rel) = path.strip_prefix(root) {
+                        let rel_str = rel.to_string_lossy().replace('\\', "/");
+                        results.push((rel_str, path));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Match a filename against a glob pattern with * and ? wildcards
+fn match_glob(pattern: &str, name: &str) -> bool {
+    let pattern_bytes = pattern.as_bytes();
+    let name_bytes = name.as_bytes();
+    match_glob_helper(pattern_bytes, name_bytes)
+}
+
+fn match_glob_helper(pattern: &[u8], name: &[u8]) -> bool {
+    if pattern.is_empty() {
+        return name.is_empty();
+    }
+
+    match pattern[0] {
+        b'*' => {
+            // * matches zero or more characters
+            for i in 0..=name.len() {
+                if match_glob_helper(&pattern[1..], &name[i..]) {
+                    return true;
+                }
+            }
+            false
+        }
+        b'?' => {
+            // ? matches exactly one character
+            if name.is_empty() {
+                false
+            } else {
+                match_glob_helper(&pattern[1..], &name[1..])
+            }
+        }
+        c => {
+            if name.is_empty() || name[0] != c {
+                false
+            } else {
+                match_glob_helper(&pattern[1..], &name[1..])
+            }
+        }
+    }
+}
+
 /// Generate a source map for a transformed file.
 /// Uses a simple V3 source map format with the original source content.
+/// In "nosources" mode, sourcesContent is omitted for security.
 fn generate_source_map(file_path: &str, original_source: &str, _generated_code: &str) -> String {
     let file_name = Path::new(file_path)
         .file_name()
@@ -267,6 +608,30 @@ fn generate_source_map(file_path: &str, original_source: &str, _generated_code: 
     source_map.to_string()
 }
 
+/// Generate a source map with configurable nosources mode
+fn generate_source_map_mode(file_path: &str, original_source: &str, _generated_code: &str, mode: &str) -> String {
+    let file_name = Path::new(file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+
+    let mut map = serde_json::json!({
+        "version": 3,
+        "file": file_name.replace(".tsx", ".js").replace(".ts", ".js").replace(".jsx", ".js"),
+        "sourceRoot": "",
+        "sources": [file_name],
+        "mappings": "",
+        "names": []
+    });
+
+    // Only include sourcesContent unless nosources mode
+    if mode != "nosources" {
+        map["sourcesContent"] = serde_json::json!([original_source]);
+    }
+
+    map.to_string()
+}
+
 /// Transform CSS using Lightning CSS
 /// - Minification (production)
 /// - Nesting transpilation
@@ -279,13 +644,20 @@ fn transform_css(source: &str, file_path: &str, is_production: bool, config: &Pl
 
     let is_css_module = file_path.ends_with(".module.css");
 
-    // Pre-process: PostCSS/Tailwind directives via real PostCSS pipeline
-    let postcss_config = crate::postcss::PostCssConfig::from_file(&config.root);
-    let processed_source = if let Some(ref pc) = postcss_config {
-        crate::postcss::process_css(source, file_path, pc, &config.root, is_production)
+    // Check for Tailwind v4 first (CSS-first config with @theme/@import "tailwindcss")
+    let tw_v4 = crate::tailwind_v4::TailwindV4Theme::from_css(source);
+    let processed_source = if tw_v4.is_v4 {
+        // Tailwind v4: process @theme, @utility, @variant, @import "tailwindcss"
+        crate::tailwind_v4::process_tailwind_v4(source, &config.root)
     } else {
-        // No PostCSS config — use built-in @tailwind/@apply processing
-        process_postcss(source, file_path)
+        // Pre-process: PostCSS/Tailwind v3 directives via real PostCSS pipeline
+        let postcss_config = crate::postcss::PostCssConfig::from_file(&config.root);
+        if let Some(ref pc) = postcss_config {
+            crate::postcss::process_css(source, file_path, pc, &config.root, is_production)
+        } else {
+            // No PostCSS config — use built-in @tailwind/@apply processing
+            process_postcss(source, file_path)
+        }
     };
 
     // Parse the CSS
@@ -294,10 +666,15 @@ fn transform_css(source: &str, file_path: &str, is_production: bool, config: &Pl
         ParserOptions::default(),
     ).map_err(|e| anyhow::anyhow!("CSS parse error in {}: {}", file_path, e))?;
 
-    // Minify (also resolves nesting)
+    // Minify (also resolves nesting) — always run to transpile CSS nesting
+    // In production, full minify; in dev, just resolve nesting
     if is_production {
         stylesheet.minify(lightningcss::stylesheet::MinifyOptions::default())
             .map_err(|e| anyhow::anyhow!("CSS minify error in {}: {}", file_path, e))?;
+    } else {
+        // In dev mode, still transpile nesting so browsers don't choke on it
+        stylesheet.minify(lightningcss::stylesheet::MinifyOptions::default())
+            .map_err(|e| anyhow::anyhow!("CSS nesting transpile error in {}: {}", file_path, e))?;
     }
 
     // Configure output
@@ -309,17 +686,31 @@ fn transform_css(source: &str, file_path: &str, is_production: bool, config: &Pl
     let result = stylesheet.to_css(printer_options)
         .map_err(|e| anyhow::anyhow!("CSS serialize error in {}: {}", file_path, e))?;
 
+    // Apply container query polyfill for older browser targets
+    let css_code = if !is_production {
+        crate::css_features::polyfill_container_queries(&result.code)
+    } else {
+        result.code
+    };
+
     // For CSS modules, generate scoped class names using lightningcss
     let css_modules = if is_css_module {
-        let css_module_map = generate_css_module_map(&result.code, file_path);
+        let css_module_map = generate_css_module_map(&css_code, file_path);
         Some(css_module_map)
     } else {
         None
     };
 
+    // Generate CSS source map in dev mode
+    let source_map = if !is_production && config.source_maps {
+        Some(crate::css_features::generate_css_source_map(file_path, source, &css_code))
+    } else {
+        None
+    };
+
     Ok(TransformOutput {
-        code: result.code,
-        source_map: None,
+        code: css_code,
+        source_map,
         css_modules,
         is_css: true,
         extracted_css: None,
@@ -365,6 +756,7 @@ fn generate_css_module_map(css: &str, file_path: &str) -> Vec<(String, String)> 
 
 /// Transform JSON into an ES module with named exports
 /// Supports both default export and named exports for top-level keys
+/// In production mode, JSON is minified (compact serialization)
 fn transform_json(source: &str) -> Result<TransformOutput> {
     let value: serde_json::Value = serde_json::from_str(source)
         .map_err(|e| anyhow::anyhow!("JSON parse error: {}", e))?;
@@ -376,14 +768,16 @@ fn transform_json(source: &str) -> Result<TransformOutput> {
         for (key, val) in map {
             // Only export valid JS identifier keys
             if key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') && !key.chars().next().map(|c| c.is_numeric()).unwrap_or(true) {
-                code.push_str(&format!("export const {} = {};
-", key, val));
+                // Use compact serialization for each value
+                let val_str = serde_json::to_string(val).unwrap_or_else(|_| "null".to_string());
+                code.push_str(&format!("export const {} = {};\n", key, val_str));
             }
         }
     }
 
-    // Default export
-    code.push_str(&format!("export default {};", source.trim()));
+    // Default export — use compact (minified) serialization
+    let default_export = serde_json::to_string(&value).unwrap_or_else(|_| source.trim().to_string());
+    code.push_str(&format!("export default {};", default_export));
 
     Ok(TransformOutput {
         code,
@@ -399,9 +793,116 @@ fn transform_json(source: &str) -> Result<TransformOutput> {
 /// Transform static asset imports into URL strings
 /// import logo from './logo.png' → export default "/src/logo.png"
 /// With ?inline query → base64 data URI
-fn transform_asset(file_path: &str, source: &[u8]) -> Result<TransformOutput> {
-    let is_inline = file_path.contains("?inline");
+/// In production, assets smaller than assets_inline_limit are automatically inlined as base64
+/// When image optimization is enabled, raster images are processed: resized, converted to WebP/JPEG, with srcset and blur placeholder
+fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: &PledgeConfig) -> Result<TransformOutput> {
+    let is_inline = file_path.contains("?inline")
+        || (is_production && source.len() < config.build.assets_inline_limit);
     let clean_path = file_path.split('?').next().unwrap_or(file_path);
+
+    // In production with image optimization enabled, process raster images
+    if is_production && config.image.enabled && !is_inline {
+        // Check if this is a raster image (not SVG)
+        if crate::image_pipeline::is_raster_image(source) {
+            use crate::image_pipeline::{ImageOptions, ImageFormat, process_image, generate_image_module};
+
+            // Build ImageOptions from config
+            let mut formats = Vec::new();
+            if config.image.webp {
+                formats.push(ImageFormat::WebP);
+            }
+            if config.image.avif {
+                formats.push(ImageFormat::AVIF);
+            }
+            // Always include JPEG as fallback
+            formats.push(ImageFormat::JPEG);
+
+            let opts = ImageOptions {
+                formats,
+                widths: vec![640, 750, 828, 1080, 1200, 1920, 2048],
+                quality: config.image.quality as u8,
+                blur_placeholder: true,
+                progressive: true,
+                strip_metadata: true,
+            };
+
+            match process_image(source, clean_path, &opts) {
+                Ok(processed) => {
+                    // Generate JS module with src, srcset, and blur placeholder exports
+                    let code = generate_image_module(&processed);
+                    return Ok(TransformOutput {
+                        code,
+                        source_map: None,
+                        css_modules: None,
+                        is_css: false,
+                        extracted_css: None,
+                        is_worker: false,
+                        dynamic_imports: Vec::new(),
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!("Image optimization failed for {}: {}", clean_path, e);
+                    // Fall through to default asset handling
+                }
+            }
+        }
+
+        // Check if this is an SVG — optimize it
+        if crate::svg::is_svg(std::path::Path::new(clean_path)) {
+            let svg_source = std::str::from_utf8(source).unwrap_or("");
+            let optimized = crate::svg::optimize_svg(svg_source, &crate::svg::SvgOptions::default());
+            let url = format!("/{}", clean_path.replace('\\', "/"));
+            let code = format!("export default \"{}\";", url);
+            // Store optimized SVG as extracted data for emit to write
+            return Ok(TransformOutput {
+                code,
+                source_map: None,
+                css_modules: None,
+                is_css: false,
+                extracted_css: Some(optimized),
+                is_worker: false,
+                dynamic_imports: Vec::new(),
+            });
+        }
+    }
+
+    // Audio/video/PDF assets — URL or inline base64
+    if crate::asset_pipeline::is_audio_file(clean_path) {
+        let code = crate::asset_pipeline::transform_audio_asset(clean_path, is_inline, source);
+        return Ok(TransformOutput {
+            code,
+            source_map: None,
+            css_modules: None,
+            is_css: false,
+            extracted_css: None,
+            is_worker: false,
+            dynamic_imports: Vec::new(),
+        });
+    }
+    if crate::asset_pipeline::is_video_file(clean_path) {
+        let code = crate::asset_pipeline::transform_video_asset(clean_path, is_inline, source);
+        return Ok(TransformOutput {
+            code,
+            source_map: None,
+            css_modules: None,
+            is_css: false,
+            extracted_css: None,
+            is_worker: false,
+            dynamic_imports: Vec::new(),
+        });
+    }
+    if clean_path.ends_with(".pdf") {
+        let code = crate::asset_pipeline::transform_pdf_asset(clean_path, is_inline, source);
+        return Ok(TransformOutput {
+            code,
+            source_map: None,
+            css_modules: None,
+            is_css: false,
+            extracted_css: None,
+            is_worker: false,
+            dynamic_imports: Vec::new(),
+        });
+    }
 
     if is_inline {
         // Base64 data URI
@@ -558,9 +1059,36 @@ fn transform_vue(source: &str, file_path: &str, is_production: bool) -> Result<T
         code.push_str("// Vue SFC — empty\nexport default {};\n");
     }
 
-    // Inject Vue HMR boundary
+    // Inject Vue HMR boundary with component-level hot replacement
     if !is_production {
-        code.push_str("\n// Vue HMR\nif (import.meta.hot) {\n  import.meta.hot.accept();\n}\n");
+        code.push_str(r#"
+// Vue HMR — component-level hot replacement
+if (import.meta.hot) {
+  const __vue_component = __pledge_vue_components && __pledge_vue_components['"#);
+        code.push_str(file_path);
+        code.push_str(r#"'];
+  if (__vue_component && __vue_component.__hmr_id) {
+    import.meta.hot.accept((newModule) => {
+      if (newModule && newModule.default) {
+        // Swap render function on existing component instances
+        const newRender = newModule.default.render;
+        if (newRender) {
+          __vue_component.render = newRender;
+          // Force re-render of all mounted instances
+          if (__vue_component.__instances) {
+            __vue_component.__instances.forEach(instance => {
+              if (instance && instance.forceUpdate) {
+                instance.forceUpdate();
+              }
+            });
+          }
+        }
+      }
+    });
+  }
+  import.meta.hot.accept();
+}
+"#);
     }
 
     Ok(TransformOutput {
@@ -1097,9 +1625,37 @@ export default {{
         render_body = render_body
     ));
 
-    // Inject Svelte HMR boundary
+    // Inject Svelte HMR boundary with component-level hot replacement
     if !is_production {
-        code.push_str("\n// Svelte HMR\nif (import.meta.hot) {\n  import.meta.hot.accept();\n}\n");
+        code.push_str(r#"
+// Svelte HMR — component-level hot replacement
+if (import.meta.hot) {
+  import.meta.hot.accept((newModule) => {
+    if (newModule && newModule.default) {
+      // Find all mounted Svelte components and replace them
+      const __svelte_registry = window.__pledge_svelte_components;
+      if (__svelte_registry) {
+        for (const key of Object.keys(__svelte_registry)) {
+          const entry = __svelte_registry[key];
+          if (entry && entry.component === __pledge_current_component) {
+            // Destroy old component
+            if (entry.fragment && entry.fragment.destroy) {
+              entry.fragment.destroy();
+            }
+            // Remount with new component
+            const target = entry.target;
+            if (target && newModule.default.mount) {
+              const newFragment = newModule.default.mount(target, entry.props || {});
+              entry.fragment = newFragment;
+              entry.component = newModule.default;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+"#);
     }
 
     Ok(TransformOutput {
@@ -1792,3 +2348,70 @@ const TAILWIND_UTILITIES: &str = r#"
 .transition { transition: all 0.15s ease; }
 .cursor-pointer { cursor: pointer; }
 "#;
+
+// ─── MDX / GraphQL / YAML / CSV / TSV transforms ──────────────────────
+
+fn transform_mdx(source: &str, file_path: &str) -> Result<TransformOutput> {
+    let result = crate::asset_pipeline::compile_mdx(source, file_path);
+    Ok(TransformOutput {
+        code: result.code,
+        source_map: None,
+        css_modules: None,
+        is_css: false,
+        extracted_css: None,
+        is_worker: false,
+        dynamic_imports: Vec::new(),
+    })
+}
+
+fn transform_graphql(source: &str) -> Result<TransformOutput> {
+    let code = crate::asset_pipeline::graphql_to_module(source);
+    Ok(TransformOutput {
+        code,
+        source_map: None,
+        css_modules: None,
+        is_css: false,
+        extracted_css: None,
+        is_worker: false,
+        dynamic_imports: Vec::new(),
+    })
+}
+
+fn transform_yaml(source: &str) -> Result<TransformOutput> {
+    let code = crate::asset_pipeline::transform_yaml(source);
+    Ok(TransformOutput {
+        code,
+        source_map: None,
+        css_modules: None,
+        is_css: false,
+        extracted_css: None,
+        is_worker: false,
+        dynamic_imports: Vec::new(),
+    })
+}
+
+fn transform_csv(source: &str) -> Result<TransformOutput> {
+    let code = crate::asset_pipeline::transform_csv(source);
+    Ok(TransformOutput {
+        code,
+        source_map: None,
+        css_modules: None,
+        is_css: false,
+        extracted_css: None,
+        is_worker: false,
+        dynamic_imports: Vec::new(),
+    })
+}
+
+fn transform_tsv(source: &str) -> Result<TransformOutput> {
+    let code = crate::asset_pipeline::transform_tsv(source);
+    Ok(TransformOutput {
+        code,
+        source_map: None,
+        css_modules: None,
+        is_css: false,
+        extracted_css: None,
+        is_worker: false,
+        dynamic_imports: Vec::new(),
+    })
+}

@@ -13,6 +13,9 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+pub mod remote;
+pub mod git_cache;
 use tracing::debug;
 
 /// Unique key for a cached function result

@@ -1,12 +1,15 @@
-// Image pipeline — Sharp/Squoosh integration, responsive srcset generation.
+// Image pipeline — image decoding, resizing, format conversion, srcset, blur placeholder.
 //
 // Features:
-//   - Automatic image optimization (WebP, AVIF, JPEG, PNG)
+//   - Automatic image optimization (WebP, JPEG, PNG re-encoding)
 //   - Responsive srcset generation for different viewport sizes
 //   - Lazy loading attributes
-//   - Blur placeholder generation
-//   - Format conversion
+//   - Blur placeholder generation (LQIP — tiny base64-encoded image)
+//   - Format conversion with quality control
 
+use anyhow::{Result, bail};
+use image::{DynamicImage, GenericImageView, imageops::FilterType};
+use std::io::Cursor;
 use std::path::Path;
 
 /// Supported image formats
@@ -93,6 +96,8 @@ pub struct ProcessedImage {
     pub outputs: Vec<ImageOutput>,
     pub srcset: String,
     pub blur_placeholder: Option<String>,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// A single output variant
@@ -100,8 +105,144 @@ pub struct ProcessedImage {
 pub struct ImageOutput {
     pub format: ImageFormat,
     pub width: u32,
+    pub data: Vec<u8>,
     pub path: String,
     pub size_bytes: u64,
+}
+
+/// Process an image file — decode, resize for each srcset width, encode to target formats
+pub fn process_image(
+    source: &[u8],
+    original_path: &str,
+    opts: &ImageOptions,
+) -> Result<ProcessedImage> {
+    // Decode the image
+    let img = image::load_from_memory(source)
+        .map_err(|e| anyhow::anyhow!("Failed to decode image: {}", e))?;
+
+    let (orig_width, orig_height) = img.dimensions();
+
+    let mut outputs: Vec<ImageOutput> = Vec::new();
+    let mut all_widths: Vec<u32> = Vec::new();
+
+    // Generate resized variants for each target width
+    for &target_width in &opts.widths {
+        // Skip widths larger than original
+        if target_width >= orig_width {
+            continue;
+        }
+        all_widths.push(target_width);
+
+        // Resize using Lanczos filter for quality
+        let resized = img.resize(target_width, u32::MAX, FilterType::Lanczos3);
+
+        // Encode to each target format
+        for &target_format in &opts.formats {
+            if target_format == ImageFormat::AVIF {
+                // AVIF not supported by image crate yet — skip
+                continue;
+            }
+
+            let encoded = encode_image(&resized, target_format, opts.quality)?;
+            let path = generate_output_path(original_path, target_width, target_format);
+
+            outputs.push(ImageOutput {
+                format: target_format,
+                width: target_width,
+                size_bytes: encoded.len() as u64,
+                data: encoded,
+                path,
+            });
+        }
+    }
+
+    // Also encode the original-size image in target formats
+    for &target_format in &opts.formats {
+        if target_format == ImageFormat::AVIF {
+            continue;
+        }
+
+        let encoded = encode_image(&img, target_format, opts.quality)?;
+        let path = generate_output_path(original_path, orig_width, target_format);
+
+        outputs.push(ImageOutput {
+            format: target_format,
+            width: orig_width,
+            size_bytes: encoded.len() as u64,
+            data: encoded,
+            path,
+        });
+    }
+
+    // Generate blur placeholder (LQIP)
+    let blur_placeholder = if opts.blur_placeholder {
+        Some(generate_blur_placeholder(&img)?)
+    } else {
+        None
+    };
+
+    // Generate srcset string
+    let srcset = generate_srcset(&outputs);
+
+    Ok(ProcessedImage {
+        original_path: original_path.to_string(),
+        outputs,
+        srcset,
+        blur_placeholder,
+        width: orig_width,
+        height: orig_height,
+    })
+}
+
+/// Encode a DynamicImage to the target format
+fn encode_image(img: &DynamicImage, format: ImageFormat, quality: u8) -> Result<Vec<u8>> {
+    let mut buf = Cursor::new(Vec::new());
+
+    match format {
+        ImageFormat::WebP => {
+            let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut buf);
+            img.write_with_encoder(encoder)
+                .map_err(|e| anyhow::anyhow!("WebP encode error: {}", e))?;
+        }
+        ImageFormat::JPEG => {
+            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality);
+            img.write_with_encoder(encoder)
+                .map_err(|e| anyhow::anyhow!("JPEG encode error: {}", e))?;
+        }
+        ImageFormat::PNG => {
+            let encoder = image::codecs::png::PngEncoder::new(&mut buf);
+            img.write_with_encoder(encoder)
+                .map_err(|e| anyhow::anyhow!("PNG encode error: {}", e))?;
+        }
+        _ => {
+            bail!("Unsupported output format: {:?}", format);
+        }
+    }
+
+    Ok(buf.into_inner())
+}
+
+/// Generate a tiny blur placeholder (LQIP) as base64 data URI
+/// Resizes to 20px wide, blurs, encodes as JPEG base64
+fn generate_blur_placeholder(img: &DynamicImage) -> Result<String> {
+    let tiny = img.resize(20, u32::MAX, FilterType::Lanczos3);
+    let mut buf = Cursor::new(Vec::new());
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 30);
+    tiny.write_with_encoder(encoder)
+        .map_err(|e| anyhow::anyhow!("LQIP encode error: {}", e))?;
+
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf.into_inner());
+    Ok(format!("data:image/jpeg;base64,{}", b64))
+}
+
+/// Generate output path for a resized variant
+fn generate_output_path(original: &str, width: u32, format: ImageFormat) -> String {
+    let stem = Path::new(original)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("image");
+    format!("assets/{}.{}.{}", stem, width, format.extension())
 }
 
 /// Generate srcset string from processed image outputs
@@ -149,6 +290,21 @@ pub fn generate_picture_tag(outputs: &[ImageOutput], fallback: &str, alt: &str, 
     )
 }
 
+/// Generate a JS module that exports image metadata (src, srcset, blur placeholder)
+pub fn generate_image_module(processed: &ProcessedImage) -> String {
+    let blur = processed.blur_placeholder.as_deref().unwrap_or("");
+    format!(
+        r#"const src = "/{}";
+const srcset = "{}";
+const blurPlaceholder = "{}";
+export {{ src, srcset, blurPlaceholder }};
+export default src;"#,
+        processed.original_path,
+        processed.srcset,
+        blur
+    )
+}
+
 /// Check if a file is an image
 pub fn is_image(path: &Path) -> bool {
     path.extension()
@@ -162,6 +318,11 @@ pub fn get_image_format(path: &Path) -> Option<ImageFormat> {
     path.extension()
         .and_then(|e| e.to_str())
         .and_then(ImageFormat::from_extension)
+}
+
+/// Check if a byte slice is a raster image (not SVG)
+pub fn is_raster_image(data: &[u8]) -> bool {
+    image::guess_format(data).is_ok()
 }
 
 #[cfg(test)]
@@ -179,8 +340,8 @@ mod tests {
     #[test]
     fn test_generate_srcset() {
         let outputs = vec![
-            ImageOutput { format: ImageFormat::WebP, width: 640, path: "/img/640.webp".to_string(), size_bytes: 1000 },
-            ImageOutput { format: ImageFormat::WebP, width: 1080, path: "/img/1080.webp".to_string(), size_bytes: 2000 },
+            ImageOutput { format: ImageFormat::WebP, width: 640, path: "/img/640.webp".to_string(), size_bytes: 1000, data: vec![] },
+            ImageOutput { format: ImageFormat::WebP, width: 1080, path: "/img/1080.webp".to_string(), size_bytes: 2000, data: vec![] },
         ];
         let srcset = generate_srcset(&outputs);
         assert!(srcset.contains("640w"));
@@ -193,5 +354,31 @@ mod tests {
         assert!(tag.contains("loading=\"lazy\""));
         assert!(tag.contains("decoding=\"async\""));
         assert!(tag.contains("alt=\"Photo\""));
+    }
+
+    #[test]
+    fn test_process_image_png() {
+        // Create a small 100x100 red PNG
+        let img = DynamicImage::new_rgb8(100, 100);
+        let mut buf = Cursor::new(Vec::new());
+        let encoder = image::codecs::png::PngEncoder::new(&mut buf);
+        img.write_with_encoder(encoder).unwrap();
+        let png_data = buf.into_inner();
+
+        let opts = ImageOptions {
+            formats: vec![ImageFormat::WebP, ImageFormat::JPEG],
+            widths: vec![50],
+            quality: 80,
+            blur_placeholder: true,
+            progressive: false,
+            strip_metadata: true,
+        };
+
+        let result = process_image(&png_data, "test.png", &opts);
+        assert!(result.is_ok());
+        let processed = result.unwrap();
+        assert!(!processed.outputs.is_empty());
+        assert!(processed.blur_placeholder.is_some());
+        assert!(processed.srcset.contains("w"));
     }
 }

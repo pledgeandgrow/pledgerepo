@@ -17,11 +17,14 @@ const binaryName = platform() === 'win32' ? 'pledge.exe' : 'pledge';
 // Possible binary locations:
 // 1. Already built in target/release/ (dev mode)
 // 2. Already built in target/debug/ (dev mode)
-// 3. Downloaded to bin/platform-key/ (npm install)
+// 3. Downloaded to bin/{platform-key}/ (npm install with GitHub Releases)
+// 4. Staged in bin/platform/ (npm publish with CI-staged binaries)
+// 5. Direct symlink in bin/ (legacy)
 const candidates = [
   join(__dirname, '..', 'target', 'release', binaryName),
   join(__dirname, '..', 'target', 'debug', binaryName),
   join(__dirname, platformKey, binaryName),
+  join(__dirname, 'platform', platformKey, binaryName),
   join(__dirname, 'pledge'), // direct symlink
 ];
 
@@ -42,8 +45,10 @@ if (!binaryPath) {
   console.error('    2. Your platform is not yet supported: ' + platformKey);
   console.error('');
   console.error('  To build from source:');
-  console.error('    git clone https://github.com/pledgepack/pledgepack');
-  console.error('    cd pledgepack && cargo build --release');
+  console.error('    git clone https://github.com/pledgeandgrow/pledgerepo');
+  console.error('    cd pledgerepo && cargo build --release');
+  console.error('');
+  console.error('  Or re-run: npm rebuild pledgepack');
   console.error('');
   process.exit(1);
 }
@@ -56,4 +61,11 @@ const child = spawn(binaryPath, process.argv.slice(2), {
 
 child.on('exit', (code) => {
   process.exit(code ?? 1);
+});
+
+child.on('error', (err) => {
+  console.error('');
+  console.error('  \x1b[31mpledge\x1b[0m: Failed to launch binary: ' + err.message);
+  console.error('');
+  process.exit(1);
 });
