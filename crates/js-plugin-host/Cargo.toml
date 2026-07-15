@@ -9,4 +9,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
-boa-engine = "0.20"
+boa_engine = "0.20"

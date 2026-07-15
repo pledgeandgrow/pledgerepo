@@ -56,7 +56,7 @@ impl SolidAdapter {
         options.jsx.runtime = JsxRuntime::Automatic;
         options.jsx.development = !is_production;
         // Solid's jsx import source is "solid-js/jsx-runtime"
-        options.jsx.jsx_import_source = "solid-js".to_string();
+        options.jsx.import_source = Some("solid-js".to_string());
 
         let semantic_result = oxc::semantic::SemanticBuilder::new()
             .with_check_syntax_error(false)

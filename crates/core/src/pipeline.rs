@@ -42,21 +42,8 @@ async fn run_prod_build(
     }
 
     // Phase 2: Optimize (tree shaking, code splitting, minification)
-    let optimize_start = std::time::Instant::now();
-    let entry_ids: Vec<crate::ModuleId> = config.entry.iter()
-        .filter_map(|_| engine.modules().values().next().map(|m| m.id))
-        .collect();
-    let mut optimizer = pledgepack_optimizer::Optimizer::new();
-    let chunks = optimizer.optimize(
-        &entry_ids,
-        engine.modules(),
-        engine.graph(),
-    )?;
-    tracing::info!("Optimizer: {} chunks", chunks.len());
-
-    if profile {
-        tracing::info!("[profile] Optimize: {}ms", optimize_start.elapsed().as_millis());
-    }
+    // NOTE: Optimization is handled by the CLI layer which has access to pledgepack-optimizer
+    // This avoids a cyclic dependency between core and optimizer
 
     // Phase 3: Emit output to disk with asset hashing + manifest
     let emit_start = std::time::Instant::now();

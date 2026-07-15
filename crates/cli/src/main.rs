@@ -325,16 +325,91 @@ async fn main() -> Result<()> {
                 );
             }
 
-            // Watch mode: monitor files and rebuild on change
+            // Watch mode: monitor files and rebuild on change with debounce
             if watch {
-                println!("  \x1b[90mWatching for changes...\x1b[0m\n");
+                println!("  \x1b[90mWatching for changes... (Ctrl+C to exit)\x1b[0m\n");
                 use notify::{Watcher, RecursiveMode, EventKind, recommended_watcher};
-                let mut watcher = recommended_watcher(|_res: Result<notify::Event, _>| {})?;
+                use std::sync::mpsc::channel;
+                use std::time::{Duration, Instant};
+                use std::collections::HashSet;
+
+                let (tx, rx) = channel::<notify::Result<notify::Event>>();
+                let mut watcher = recommended_watcher(move |res: notify::Result<notify::Event>| {
+                    let _ = tx.send(res);
+                })?;
+
                 watcher.watch(&config.root, RecursiveMode::Recursive)?;
+
+                let debounce_ms = Duration::from_millis(200);
+                let mut last_rebuild: Option<Instant> = None;
+                let mut pending_paths: HashSet<std::path::PathBuf> = HashSet::new();
+
                 loop {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    // In a real implementation, we'd debounce and rebuild only changed modules
-                    // For now, just keep the process alive
+                    match rx.recv_timeout(Duration::from_millis(100)) {
+                        Ok(Ok(event)) => {
+                            let is_relevant = matches!(
+                                event.kind,
+                                EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+                            );
+                            if !is_relevant { continue; }
+
+                            for path in &event.paths {
+                                let path_str = path.to_string_lossy();
+                                if path_str.contains("node_modules")
+                                    || path_str.contains(".pledge")
+                                    || path_str.contains("target")
+                                    || path_str.contains(".git")
+                                {
+                                    continue;
+                                }
+                                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                                if !matches!(ext, "ts" | "tsx" | "js" | "jsx" | "css" | "scss" | "less" | "vue" | "svelte" | "html" | "json") {
+                                    continue;
+                                }
+                                pending_paths.insert(path.clone());
+                            }
+
+                            last_rebuild = Some(Instant::now());
+                        }
+                        Ok(Err(e)) => {
+                            tracing::warn!("Watch error: {}", e);
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            if let Some(last) = last_rebuild {
+                                if last.elapsed() >= debounce_ms && !pending_paths.is_empty() {
+                                    let changed: Vec<_> = pending_paths.drain().collect();
+                                    let changed_count = changed.len();
+
+                                    for path in &changed {
+                                        let rel = path.strip_prefix(&config.root)
+                                            .unwrap_or(path)
+                                            .to_string_lossy()
+                                            .replace('\\', "/");
+                                        println!("  \x1b[33mchanged:\x1b[0m {}", rel);
+                                    }
+
+                                    println!("  \x1b[36mrebuilding...\x1b[0m");
+                                    let rebuild_start = std::time::Instant::now();
+
+                                    match engine.build().await {
+                                        Ok(_result) => {
+                                            let elapsed = rebuild_start.elapsed();
+                                            println!("  \x1b[32m✓ rebuilt\x1b[0m {} file(s) in {:.0?}\n", changed_count, elapsed);
+                                        }
+                                        Err(e) => {
+                                            println!("  \x1b[31m✗ rebuild failed:\x1b[0m {}\n", e);
+                                        }
+                                    }
+
+                                    last_rebuild = None;
+                                }
+                            }
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            println!("  \x1b[33mWatch channel disconnected, exiting...\x1b[0m");
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -832,7 +907,7 @@ export default App;
                 }
                 Err(e) => {
                     println!("\n  \x1b[31m✗\x1b[0m {}\n", e);
-                    println!("  \x1b[90mSupported: vite.config.{ts,js,mjs}, webpack.config.{ts,js,cjs,mjs}, config-overrides.js, next.config.{ts,js,mjs}\x1b[0m\n");
+                    println!("  \x1b[90mSupported: vite.config.{{ts,js,mjs}}, webpack.config.{{ts,js,cjs,mjs}}, config-overrides.js, next.config.{{ts,js,mjs}}\x1b[0m\n");
                 }
             }
         }
@@ -1028,9 +1103,9 @@ export default App;
 
             println!("  Found {} test file(s)\n", test_files.len());
 
-            let mut passed = 0;
-            let mut failed = 0;
-            let mut skipped = 0;
+            let mut total_passed = 0;
+            let mut total_failed = 0;
+            let mut total_skipped = 0;
 
             for test_file in &test_files {
                 let rel = test_file.strip_prefix(&config.root)
@@ -1038,28 +1113,143 @@ export default App;
                     .to_string_lossy()
                     .replace('\\', "/");
 
-                // In a full implementation, this would run the test file in a
-                // JS runtime (Deno/QuickJS) with a Vitest-compatible test harness
-                // For now, we check if the file exists and is valid TypeScript
-                let source = std::fs::read_to_string(test_file)?;
-                let test_count = source.matches("it(").count() + source.matches("test(").count();
+                let summary = match pledgepack_js_plugin_host::test_runner::run_test_file(test_file) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        println!("  \x1b[31m✗\x1b[0m {} — error: {}", rel, e);
+                        total_failed += 1;
+                        continue;
+                    }
+                };
 
-                if test_count == 0 {
+                if summary.results.is_empty() {
                     println!("  \x1b[90m○ {} (no tests)\x1b[0m", rel);
-                    skipped += 1;
-                } else {
-                    println!("  \x1b[32m✓\x1b[0m {} ({} tests)", rel, test_count);
-                    passed += test_count;
+                    total_skipped += 1;
+                    continue;
                 }
+
+                // Print suite header
+                if !summary.results.is_empty() {
+                    println!("\n  \x1b[90m{}\x1b[0m", rel);
+                }
+
+                for result in &summary.results {
+                    let suite_label = if result.suite.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" \x1b[90m{}\x1b[0m ›", result.suite)
+                    };
+
+                    match result.status {
+                        pledgepack_js_plugin_host::test_runner::TestStatus::Passed => {
+                            println!("    \x1b[32m✓\x1b[0m{} {} \x1b[90m({}ms)\x1b[0m",
+                                suite_label, result.name, result.duration_ms);
+                        }
+                        pledgepack_js_plugin_host::test_runner::TestStatus::Failed => {
+                            println!("    \x1b[31m✗\x1b[0m{} {}", suite_label, result.name);
+                            if let Some(err) = &result.error {
+                                println!("      \x1b[31m  {}\x1b[0m", err);
+                            }
+                        }
+                        pledgepack_js_plugin_host::test_runner::TestStatus::Skipped => {
+                            println!("    \x1b[90m○\x1b[0m{} {} \x1b[90m(skipped)\x1b[0m",
+                                suite_label, result.name);
+                        }
+                    }
+                }
+
+                total_passed += summary.passed;
+                total_failed += summary.failed;
+                total_skipped += summary.skipped;
             }
 
-            println!("\n  \x1b[32mTests:\x1b[0m {} passed, {} skipped, {} failed\n",
-                passed, skipped, failed);
+            println!("\n  \x1b[32mTests:\x1b[0m  {} passed, {} skipped, {} failed\n",
+                total_passed, total_skipped, total_failed);
 
             if watch {
                 println!("  \x1b[90mWatch mode — press Ctrl+C to exit\x1b[0m\n");
+                use notify::{Watcher, RecursiveMode, EventKind, recommended_watcher};
+                use std::sync::mpsc::channel;
+                use std::time::{Duration, Instant};
+
+                let (tx, rx) = channel::<notify::Result<notify::Event>>();
+                let mut watcher = recommended_watcher(move |res: notify::Result<notify::Event>| {
+                    let _ = tx.send(res);
+                })?;
+                watcher.watch(&test_dir, RecursiveMode::Recursive)?;
+
+                let debounce_ms = Duration::from_millis(300);
+                let mut last_change: Option<Instant> = None;
+
                 loop {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    match rx.recv_timeout(Duration::from_millis(100)) {
+                        Ok(Ok(event)) => {
+                            let is_relevant = matches!(
+                                event.kind,
+                                EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+                            );
+                            if !is_relevant { continue; }
+                            let has_src = event.paths.iter().any(|p| {
+                                let s = p.to_string_lossy();
+                                !s.contains("node_modules") && !s.contains(".pledge") && !s.contains("target")
+                            });
+                            if has_src {
+                                last_change = Some(Instant::now());
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            tracing::warn!("Watch error: {}", e);
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            if let Some(last) = last_change {
+                                if last.elapsed() >= debounce_ms {
+                                    println!("\n  \x1b[36mpledge test\x1b[0m — re-running tests...\n");
+                                    total_passed = 0;
+                                    total_failed = 0;
+                                    total_skipped = 0;
+                                    for test_file in &test_files {
+                                        let rel = test_file.strip_prefix(&config.root)
+                                            .unwrap_or(test_file)
+                                            .to_string_lossy()
+                                            .replace('\\', "/");
+                                        let summary = match pledgepack_js_plugin_host::test_runner::run_test_file(test_file) {
+                                            Ok(s) => s,
+                                            Err(e) => {
+                                                println!("  \x1b[31m✗\x1b[0m {} — error: {}", rel, e);
+                                                total_failed += 1;
+                                                continue;
+                                            }
+                                        };
+                                        for result in &summary.results {
+                                            match result.status {
+                                                pledgepack_js_plugin_host::test_runner::TestStatus::Passed => {
+                                                    println!("  \x1b[32m✓\x1b[0m {} › {}", result.suite, result.name);
+                                                }
+                                                pledgepack_js_plugin_host::test_runner::TestStatus::Failed => {
+                                                    println!("  \x1b[31m✗\x1b[0m {} › {}", result.suite, result.name);
+                                                    if let Some(err) = &result.error {
+                                                        println!("    \x1b[31m{}\x1b[0m", err);
+                                                    }
+                                                }
+                                                pledgepack_js_plugin_host::test_runner::TestStatus::Skipped => {
+                                                    println!("  \x1b[90m○\x1b[0m {} › {} (skipped)", result.suite, result.name);
+                                                }
+                                            }
+                                        }
+                                        total_passed += summary.passed;
+                                        total_failed += summary.failed;
+                                        total_skipped += summary.skipped;
+                                    }
+                                    println!("\n  \x1b[32mTests:\x1b[0m  {} passed, {} skipped, {} failed\n",
+                                        total_passed, total_skipped, total_failed);
+                                    last_change = None;
+                                }
+                            }
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            break;
+                        }
+                    }
                 }
             }
 

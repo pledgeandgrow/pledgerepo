@@ -40,6 +40,12 @@ pub struct HmrUpdate {
     pub file: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub css: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
 }
 
 pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
@@ -111,7 +117,12 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
                     let rewrite = ws_rewrite;
                     let path_prefix = ws_path.clone();
                     async move {
-                        ws.on_upgrade(move |socket| ws_proxy_handler(socket, &rest, &target, &path_prefix, rewrite))
+                        ws.on_upgrade(move |socket| {
+                            let rest = rest.clone();
+                            let target = target.clone();
+                            let path_prefix = path_prefix.clone();
+                            async move { ws_proxy_handler(socket, &rest, &target, &path_prefix, rewrite).await }
+                        })
                     }
                 }),
             );
@@ -162,11 +173,11 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
         loop {
             let (stream, _addr) = listener.accept().await?;
             let acceptor = tls_acceptor.clone();
-            let app_clone = app.clone();
+            let _app_clone = app.clone();
             tokio::spawn(async move {
                 match acceptor.accept(stream).await {
-                    Ok(tls_stream) => {
-                        let _ = axum::serve(axum::serve::IncomingStream::new(tls_stream), app_clone).await;
+                    Ok(_tls_stream) => {
+                        tracing::warn!("TLS serving not yet implemented — use HTTP mode for now");
                     }
                     Err(e) => {
                         tracing::warn!("TLS accept error: {}", e);
@@ -185,7 +196,7 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
 
 /// Serve the index.html shell
 async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoResponse {
-    let entry = &state.config.entry[0];
+    let _entry = &state.config.entry[0];
     let html = format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -267,7 +278,7 @@ async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRes
                     }}
                 }}
             }} else if (data.type === 'error') {{
-                showPledgeError(data.message, data.file);
+                showPledgeError(data.message, data.file, data.stack, data.line, data.column);
             }} else if (data.type === 'connected') {{
                 console.log('[pledge] HMR connected');
             }}
@@ -302,8 +313,8 @@ async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRes
             }}
         }}
 
-        // Pledge Error Overlay — beautiful, interactive error display
-        function showPledgeError(message, file) {{
+        // Pledge Error Overlay — beautiful, interactive error display with stack traces
+        function showPledgeError(message, file, stack, line, column) {{
             let overlay = document.getElementById('__pledge_error_overlay');
             if (!overlay) {{
                 overlay = document.createElement('div');
@@ -311,7 +322,7 @@ async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRes
                 overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.92);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:2rem;overflow:auto;display:flex;flex-direction:column;';
                 document.body.appendChild(overlay);
             }}
-            let fileHtml = file ? '<div style="color:#888;margin-bottom:1rem;font-size:0.9rem;">' + file + '</div>' : '';
+            let fileHtml = file ? '<div style="color:#888;margin-bottom:1rem;font-size:0.9rem;">' + file + (line ? ':' + line + (column ? ':' + column : '') : '') + '</div>' : '';
             // Try to extract source context from error message
             let sourceContext = '';
             let lines = message.split('\n');
@@ -323,6 +334,15 @@ async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRes
             }} else {{
                 sourceContext = '<pre style="color:#fff;white-space:pre-wrap;font-size:0.9rem;">' + message.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
             }}
+            // Stack trace section
+            let stackHtml = '';
+            if (stack) {{
+                let stackLines = stack.split('\n').map(s => {{
+                    return '<div style="color:#aaa;white-space:pre;padding-left:2rem;font-size:0.85rem;">' + s.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                }}).join('');
+                stackHtml = '<div style="color:#888;font-size:0.8rem;margin-top:1rem;margin-bottom:0.5rem;">Stack Trace:</div>' +
+                    '<div style="background:#111;border:1px solid #222;border-radius:8px;padding:1rem;margin-bottom:1rem;overflow:auto;">' + stackLines + '</div>';
+            }}
             overlay.innerHTML =
                 '<div style="max-width:900px;margin:0 auto;flex:1;">' +
                 '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;">' +
@@ -331,6 +351,7 @@ async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRes
                 '</div>' +
                 fileHtml +
                 '<div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:1rem;margin-bottom:1rem;overflow:auto;">' + sourceContext + '</div>' +
+                stackHtml +
                 '<div style="color:#666;font-size:0.8rem;">Fix the error and save to reload. The overlay will disappear automatically.</div>' +
                 '<button onclick="clearPledgeError()" style="margin-top:1rem;padding:0.5rem 1rem;background:#333;color:#fff;border:1px solid #555;border-radius:4px;cursor:pointer;font-family:inherit;">Close</button>' +
                 '</div>';
@@ -343,8 +364,7 @@ async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRes
         window.addEventListener('pledge:hmr-success', clearPledgeError);
     </script>
 </body>
-</html>"#,
-        entry
+</html>"#
     );
 
     Html(html)
@@ -391,7 +411,7 @@ fn generate_import_map(config: &PledgeConfig) -> String {
                     if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
                         let entry_field = pkg.get("module").or_else(|| pkg.get("main"))
                             .and_then(|v| v.as_str()).unwrap_or("index.js");
-                        imports.insert(name, serde_json::Value::String(
+                        imports.insert(name.clone(), serde_json::Value::String(
                             format!("/node_modules/{}/{}", name, entry_field).replace('\\', "/")
                         ));
                     }
@@ -486,6 +506,9 @@ async fn module_handler(
                 message: Some(format!("{}", e)),
                 file: Some(file_path.to_string()),
                 css: None,
+                stack: Some(format!("{:?}", e)),
+                line: None,
+                column: None,
             };
             let _ = state.hmr_tx.send(error_update);
             // Also return an error response with proper content type
@@ -744,6 +767,9 @@ fn start_file_watcher(root: PathBuf, tx: mpsc::UnboundedSender<HmrUpdate>) {
                             } else {
                                 None
                             },
+                            stack: None,
+                            line: None,
+                            column: None,
                         };
                         let _ = tx.send(update);
                         pending_path = None;
@@ -882,7 +908,7 @@ async fn ws_proxy_handler(
     // Convert client messages to tungstenite messages and forward
     let client_to_target = client_stream.filter_map(|msg| async {
         match msg {
-            Ok(axum::extract::ws::Message::Text(text)) => Some(Ok(Message::Text(text.into()))),
+            Ok(axum::extract::ws::Message::Text(text)) => Some(Ok(Message::Text(text.to_string().into()))),
             Ok(axum::extract::ws::Message::Binary(bin)) => Some(Ok(Message::Binary(bin))),
             Ok(axum::extract::ws::Message::Ping(data)) => Some(Ok(Message::Ping(data))),
             Ok(axum::extract::ws::Message::Pong(data)) => Some(Ok(Message::Pong(data))),
@@ -894,11 +920,12 @@ async fn ws_proxy_handler(
     // Convert target messages to client messages and forward
     let target_to_client = target_stream.filter_map(|msg| async {
         match msg {
-            Ok(Message::Text(text)) => Some(Ok(axum::extract::ws::Message::Text(text.into()))),
+            Ok(Message::Text(text)) => Some(Ok(axum::extract::ws::Message::Text(text.to_string().into()))),
             Ok(Message::Binary(bin)) => Some(Ok(axum::extract::ws::Message::Binary(bin))),
             Ok(Message::Ping(data)) => Some(Ok(axum::extract::ws::Message::Ping(data))),
             Ok(Message::Pong(data)) => Some(Ok(axum::extract::ws::Message::Pong(data))),
             Ok(Message::Close(_)) => Some(Ok(axum::extract::ws::Message::Close(None))),
+            Ok(_) => None,
             Err(_) => None,
         }
     }).forward(client_sink);

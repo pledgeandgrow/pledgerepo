@@ -8,6 +8,7 @@
 //   5. Output bundles (dev: serve modules, prod: optimize + chunk)
 
 pub mod analyzer;
+pub mod api;
 pub mod compression;
 pub mod config;
 pub mod config_validate;

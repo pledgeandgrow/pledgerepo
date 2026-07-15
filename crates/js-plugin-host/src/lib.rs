@@ -3,6 +3,8 @@
 // Provides a JavaScript plugin interface that mirrors Vite's plugin hooks:
 //   - resolveId(source, importer) → { id, external } | null
 //   - load(id) → { code, map } | null
+
+pub mod test_runner;
 //   - transform(code, id) → { code, map } | null
 //   - transformIndexHtml(html) → html | tags[]
 //   - configureServer(server) → void
@@ -93,7 +95,7 @@ impl JsPluginHost {
         let mut context = Context::default();
         
         // Inject console.log support for plugin debugging
-        let console_log = NativeFunction::from_fn(|_this, _args, ctx| {
+        let console_log = NativeFunction::from_copy_closure(|_this, _args, ctx| {
             let msg = _args.iter().map(|v| v.to_string(ctx).map(|s| s.to_std_string_escaped()).unwrap_or_default()).collect::<Vec<_>>().join(" ");
             info!("[plugin console] {}", msg);
             Ok(JsValue::undefined())
