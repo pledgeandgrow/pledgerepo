@@ -7,7 +7,7 @@
     "pledge": "./bin/pledge.js"
   },
   "author": "Pledge and Grow",
-  "license": "MPL-2.0",
+  "license": "MIT",
   "scripts": {
     "dev": "pledge dev",
     "build": "pledge build",

@@ -577,8 +577,4 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 
 ## License
 
-Mozilla Public License, Version 2.0 ([LICENSE](LICENSE)).
-
-MPL-2.0 is a file-level copyleft license — you can use Pledge freely in any project
-(open-source or proprietary), but modifications to Pledge's own source files must be
-shared back if distributed. Includes a built-in patent grant.
+MIT License ([LICENSE](LICENSE)).
