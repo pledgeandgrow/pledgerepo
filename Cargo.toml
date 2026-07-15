@@ -1,0 +1,94 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/cli",
+    "crates/core",
+    "crates/cache",
+    "crates/resolver",
+    "crates/dev-server",
+    "crates/optimizer",
+    "crates/plugin-host",
+    "crates/js-plugin-host",
+    "crates/adapter-react",
+    "crates/adapter-solid",
+    "crates/adapter-next",
+    "crates/adapter-tanstack",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["pledgepack"]
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP server
+axum = "0.8"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+
+# WebSocket for HMR
+tokio-tungstenite = "0.26"
+
+# Oxc for JS/TS/JSX compilation
+oxc = { version = "0.36", features = ["full"] }
+
+# Lightning CSS
+lightningcss = "1.0.0-alpha.71"
+
+# Hashing (for cache keys)
+blake3 = "1"
+
+# Base64 encoding for inline assets
+base64 = "0.22"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# WASM runtime (for plugin system)
+wasmtime = "29"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# File watching
+notify = "8"
+
+# Parallelism
+rayon = "1"
+dashmap = "6"
+
+# Internal crates
+pledgepack-core = { path = "crates/core" }
+pledgepack-cache = { path = "crates/cache" }
+pledgepack-resolver = { path = "crates/resolver" }
+pledgepack-dev-server = { path = "crates/dev-server" }
+pledgepack-optimizer = { path = "crates/optimizer" }
+pledgepack-plugin-host = { path = "crates/plugin-host" }
+pledgepack-js-plugin-host = { path = "crates/js-plugin-host" }
+pledgepack-adapter-react = { path = "crates/adapter-react" }
+pledgepack-adapter-solid = { path = "crates/adapter-solid" }
+pledgepack-adapter-next = { path = "crates/adapter-next" }
+pledgepack-adapter-tanstack = { path = "crates/adapter-tanstack" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 1

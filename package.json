@@ -1,0 +1,64 @@
+{
+  "name": "pledgepack",
+  "version": "0.1.0",
+  "description": "A Rust+Zig bundler with incremental computation, WASM plugins, and Rollup-quality output",
+  "type": "module",
+  "bin": {
+    "pledge": "./bin/pledge.js"
+  },
+  "author": "Pledge and Grow",
+  "license": "MIT",
+  "scripts": {
+    "dev": "pledge dev",
+    "build": "pledge build",
+    "build:profile": "pledge build --profile",
+    "build:watch": "pledge build --watch",
+    "preview": "pledge preview",
+    "serve": "pledge serve",
+    "cache:clear": "pledge cache clear",
+    "bench": "pledge bench",
+    "analyze": "pledge analyze",
+    "test": "pledge test",
+    "test:watch": "pledge test --watch",
+    "gen:env": "pledge generate-env-types",
+    "postinstall": "node ./bin/postinstall.js"
+  },
+  "files": [
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "bundler",
+    "build-tool",
+    "dev-server",
+    "hmr",
+    "rust",
+    "zig",
+    "wasm",
+    "vite",
+    "webpack",
+    "rollup",
+    "esbuild",
+    "turbopack",
+    "react",
+    "vue",
+    "svelte",
+    "solid",
+    "next",
+    "remix",
+    "astro",
+    "qwik"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pledgeandgrow/pledgerepo.git"
+  },
+  "homepage": "https://github.com/pledgeandgrow/pledgerepo",
+  "bugs": {
+    "url": "https://github.com/pledgeandgrow/pledgerepo/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

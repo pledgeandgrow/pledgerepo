@@ -1,0 +1,34 @@
+# Scoop manifest for Pledgepack
+# Install with: scoop install pledgepack
+
+{
+  "version": "0.1.0",
+  "description": "A Rust+Zig bundler with incremental computation, WASM plugins, and Rollup-quality output",
+  "homepage": "https://pledgepack.dev",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/pledgepack/pledgepack/releases/download/v0.1.0/pledgepack-win32-x64.zip",
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "arm64": {
+      "url": "https://github.com/pledgepack/pledgepack/releases/download/v0.1.0/pledgepack-win32-arm64.zip",
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "bin": "pledge.exe",
+  "checkver": {
+    "url": "https://github.com/pledgepack/pledgepack/releases/latest",
+    "regex": "tag/v([\\d.]+)"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/pledgepack/pledgepack/releases/download/v$version/pledgepack-win32-x64.zip"
+      },
+      "arm64": {
+        "url": "https://github.com/pledgepack/pledgepack/releases/download/v$version/pledgepack-win32-arm64.zip"
+      }
+    }
+  }
+}

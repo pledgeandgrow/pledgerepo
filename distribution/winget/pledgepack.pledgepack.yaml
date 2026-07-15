@@ -1,0 +1,42 @@
+# Winget manifest for Pledgepack
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+
+PackageIdentifier: pledgepack.pledgepack
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: Pledgepack
+PublisherUrl: https://pledgepack.dev
+PublisherSupportUrl: https://github.com/pledgepack/pledgepack/issues
+PackageName: Pledgepack
+PackageUrl: https://pledgepack.dev
+License: MIT
+LicenseUrl: https://github.com/pledgepack/pledgepack/blob/main/LICENSE
+ShortDescription: A Rust+Zig bundler with incremental computation, WASM plugins, and Rollup-quality output
+Description: |-
+  Pledgepack is a next-generation bundler built with Rust and Zig that offers:
+  - Incremental computation with function-level caching
+  - WASM plugin system for framework compilers
+  - Rollup-quality tree-shaking and chunk splitting
+  - Built-in dev server with HMR
+  - Zero-config framework detection
+Tags:
+  - bundler
+  - build-tool
+  - dev-server
+  - rust
+  - zig
+  - wasm
+  - vite
+  - webpack
+  - rollup
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://github.com/pledgepack/pledgepack/releases/download/v0.1.0/pledgepack-win32-x64.zip
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+  - Architecture: arm64
+    InstallerType: zip
+    InstallerUrl: https://github.com/pledgepack/pledgepack/releases/download/v0.1.0/pledgepack-win32-arm64.zip
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+ManifestType: singleton
+ManifestVersion: 1.6.0

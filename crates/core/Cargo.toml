@@ -1,0 +1,41 @@
+[package]
+name = "pledgepack-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+blake3 = { workspace = true }
+dashmap = { workspace = true }
+rayon = { workspace = true }
+tokio = { workspace = true }
+
+# Oxc for JS/TS/JSX transforms
+oxc = { workspace = true }
+
+# Lightning CSS for CSS transforms, minification, CSS modules
+lightningcss = { workspace = true }
+
+# Base64 for inline asset encoding
+base64 = { workspace = true }
+
+# Hashing for CSS module class names
+blake3 = "1"
+
+# Cache (function-level incremental cache with disk persistence)
+pledgepack-cache = { path = "../cache" }
+
+# FFI to Zig native library
+pledgepack-native-sys = { path = "../../native-sys" }
+
+# Optimizer (tree shaking, code splitting)
+pledgepack-optimizer = { path = "../optimizer" }
+
+# Compression (gzip + brotli)
+flate2 = "1"
+brotli = "7"

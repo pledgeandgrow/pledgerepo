@@ -1,0 +1,42 @@
+# Build artifacts
+.pledge/
+/target
+/zig-out
+/zig-cache
+dist/
+
+# Dependencies
+node_modules/
+
+# Cache
+node_modules/.pledge-cache
+node_modules/.pledge-deps/
+
+# Environment files (may contain secrets)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+
+# Certificates (for HTTPS dev server)
+*.pem
+*.key
+*.crt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Generated type declarations
+pledge-env.d.ts

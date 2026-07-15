@@ -1,0 +1,21 @@
+# Exclude everything not needed in the npm package
+# Only bin/, README.md, and LICENSE are published
+
+src/
+crates/
+native-sys/
+target/
+docs/
+.git/
+.github/
+pledge.config.ts
+pledge.json
+index.html
+.env
+.env.local
+node_modules/
+Cargo.toml
+Cargo.lock
+*.md
+!README.md
+!LICENSE

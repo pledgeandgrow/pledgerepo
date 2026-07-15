@@ -1,0 +1,11 @@
+[package]
+name = "pledgepack-optimizer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+pledgepack-core = { workspace = true }

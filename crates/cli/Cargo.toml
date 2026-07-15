@@ -1,0 +1,33 @@
+[package]
+name = "pledgepack-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pledge"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+pledgepack-core = { workspace = true }
+pledgepack-dev-server = { workspace = true }
+pledgepack-cache = { workspace = true }
+pledgepack-resolver = { workspace = true }
+pledgepack-plugin-host = { workspace = true }
+pledgepack-js-plugin-host = { workspace = true }
+pledgepack-adapter-react = { workspace = true }
+pledgepack-optimizer = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+notify = { workspace = true }
+rayon = { workspace = true }
+dialoguer = "0.11"
+console = "0.15"
+atty = "0.2"
