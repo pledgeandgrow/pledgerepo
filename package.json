@@ -1,6 +1,6 @@
 {
   "name": "pledgepack",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A Rust+Zig bundler with incremental computation, WASM plugins, and Rollup-quality output",
   "type": "module",
   "bin": {
@@ -63,12 +63,6 @@
   },
   "engines": {
     "node": ">=18"
-  },
-  "optionalDependencies": {
-    "@pledgejs/pledgepack-darwin-arm64": "0.1.0",
-    "@pledgejs/pledgepack-darwin-x64": "0.1.0",
-    "@pledgejs/pledgepack-linux-x64-gnu": "0.1.0",
-    "@pledgejs/pledgepack-win32-x64-msvc": "0.1.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
