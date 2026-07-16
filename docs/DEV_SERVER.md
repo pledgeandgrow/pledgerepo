@@ -389,3 +389,31 @@ pledge serve   # Serve dist/ on :4000
 - Import patterns tracked per-module in `DevServerState`
 - Re-optimizes dependencies only when import patterns change
 - Not on every server start — faster cold boots
+
+## `pledge dashboard` — Build Telemetry (#101)
+
+The dashboard command serves an interactive web UI for build observability:
+
+```
+pledge dashboard [--port 4300]
+```
+
+- Serves at `localhost:4300` (configurable via `--port`)
+- Reads build history from `.pledge/history.json` (populated during `pledge build`)
+- Displays SVG chart with build duration trends and cache hit rates
+- Shows recent build summary table with status, duration, module counts
+- No build history required to run — shows empty state if no builds recorded
+
+### Build History Records
+Each `pledge build` records telemetry data:
+```json
+{
+  "timestamp": "2024-01-15T10:30:00Z",
+  "duration_ms": 1234,
+  "success": true,
+  "modules_built": 42,
+  "modules_cached": 18,
+  "cache_hit_rate": 0.3,
+  "bundle_size": 245678
+}
+```

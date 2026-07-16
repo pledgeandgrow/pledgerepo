@@ -1,0 +1,110 @@
+// Build event webhooks (#105)
+//
+// POST build results to external services on completion.
+// Supports Slack/Discord notification format.
+
+use crate::config::WebhookConfig;
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
+
+/// Build event payload sent to webhook endpoints
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildEvent {
+    pub event: String,
+    pub success: bool,
+    pub duration_ms: u128,
+    pub modules_built: usize,
+    pub modules_cached: usize,
+    pub bundle_size: usize,
+    pub chunk_count: usize,
+    pub timestamp: u64,
+    pub error: Option<String>,
+}
+
+/// Send build event webhook
+pub async fn send_webhook(
+    config: &WebhookConfig,
+    event: BuildEvent,
+) -> Result<()> {
+    if !config.enabled {
+        return Ok(());
+    }
+
+    let url = if event.success {
+        config.on_build.as_ref()
+    } else {
+        config.on_error.as_ref().or(config.on_build.as_ref())
+    };
+
+    let Some(url) = url else {
+        return Ok(());
+    };
+
+    // Detect Slack/Discord webhook URL format
+    let is_slack = url.contains("hooks.slack.com");
+    let is_discord = url.contains("discord.com/api/webhooks");
+
+    let body = if is_slack {
+        format_slack_payload(&event)
+    } else if is_discord {
+        format_discord_payload(&event)
+    } else {
+        serde_json::to_string(&event)?
+    };
+
+    let client = reqwest::Client::new();
+    let mut req = client.post(url).body(body).header("Content-Type", "application/json");
+
+    for (key, value) in &config.headers {
+        req = req.header(key, value);
+    }
+
+    match req.send().await {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                info!("Webhook sent to {}", url);
+            } else {
+                warn!("Webhook returned status {} from {}", resp.status(), url);
+            }
+        }
+        Err(e) => {
+            warn!("Failed to send webhook to {}: {}", url, e);
+        }
+    }
+
+    Ok(())
+}
+
+/// Format event as Slack message
+fn format_slack_payload(event: &BuildEvent) -> String {
+    let status_emoji = if event.success { "white_check_mark" } else { "x" };
+    let color = if event.success { "good" } else { "danger" };
+
+    let error_field = event.error.as_ref()
+        .map(|e| format!(r#","fields":[{{"title":"Error","value":"{}","short":false}}]"#, e))
+        .unwrap_or_default();
+
+    format!(
+        r#"{{"attachments":[{{"color":"{}","fields":[{{"title":"Status","value":":{}: {}","short":true}},{{"title":"Duration","value":"{}ms","short":true}},{{"title":"Modules","value":"{} built, {} cached","short":true}},{{"title":"Bundle Size","value":"{} bytes","short":true}}{}]}}]}}"#,
+        color, status_emoji, if event.success { "Build succeeded" } else { "Build failed" },
+        event.duration_ms, event.modules_built, event.modules_cached, event.bundle_size,
+        error_field,
+    )
+}
+
+/// Format event as Discord message
+fn format_discord_payload(event: &BuildEvent) -> String {
+    let color = if event.success { 3066993 } else { 15158332 };
+    let title = if event.success { "Build Succeeded" } else { "Build Failed" };
+
+    let error_field = event.error.as_ref()
+        .map(|e| format!(r#","description":"{}""#, e))
+        .unwrap_or_default();
+
+    format!(
+        r#"{{"embeds":[{{"title":"{}","color":{}{},"fields":[{{"name":"Duration","value":"{}ms","inline":true}},{{"name":"Modules","value":"{} built, {} cached","inline":true}},{{"name":"Bundle Size","value":"{} bytes","inline":true}}]}}]}}"#,
+        title, color, error_field,
+        event.duration_ms, event.modules_built, event.modules_cached, event.bundle_size,
+    )
+}

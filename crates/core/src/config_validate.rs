@@ -6,7 +6,7 @@ pub const VALID_FIELDS: &[&str] = &[
     "cache", "devServer", "sourceMaps", "resolveAlias", "proxy", "profile",
     "outputFormat", "conditions", "envPrefix", "envDts", "htmlEntry",
     "compressGzip", "compressBrotli", "image", "edgeTarget", "plugins",
-    "appDir",
+    "appDir", "build", "webhooks", "i18n", "css", "a11y", "encrypt", "budgets",
 ];
 
 /// Valid devServer fields.
@@ -37,6 +37,59 @@ pub const VALID_OUTPUT_FORMATS: &[&str] = &[
 /// Valid edge target values.
 pub const VALID_EDGE_TARGETS: &[&str] = &[
     "cloudflare", "vercel", "deno",
+];
+
+/// Valid build fields.
+pub const VALID_BUILD_FIELDS: &[&str] = &[
+    "manualChunks", "inlineDynamicImports", "sourceMapMode", "assetsInlineLimit",
+    "jsonMinify", "modulePreload", "preload", "prefetch", "modulePreloadPolyfill",
+    "fontSubsetting", "svgSprite", "envInline", "preloadStrategy",
+    "verifyOutput", "incrementalOutput", "wasmSimd",
+];
+
+/// Valid preload strategy values.
+pub const VALID_PRELOAD_STRATEGIES: &[&str] = &[
+    "eager", "lazy", "manual",
+];
+
+/// Valid WASM SIMD values.
+pub const VALID_WASM_SIMD_MODES: &[&str] = &[
+    "auto", "always", "never",
+];
+
+/// Valid webhook fields.
+pub const VALID_WEBHOOK_FIELDS: &[&str] = &[
+    "enabled", "onBuild", "onError", "headers",
+];
+
+/// Valid i18n fields.
+pub const VALID_I18N_FIELDS: &[&str] = &[
+    "enabled", "locales", "defaultLocale", "messagePattern",
+];
+
+/// Valid CSS fields.
+pub const VALID_CSS_FIELDS: &[&str] = &[
+    "rtl",
+];
+
+/// Valid RTL mode values.
+pub const VALID_RTL_MODES: &[&str] = &[
+    "auto", "manual", "off",
+];
+
+/// Valid a11y fields.
+pub const VALID_A11Y_FIELDS: &[&str] = &[
+    "enabled", "failOnError", "checkAlt", "checkAria", "checkContrast",
+];
+
+/// Valid encrypt fields.
+pub const VALID_ENCRYPT_FIELDS: &[&str] = &[
+    "enabled", "keys", "key",
+];
+
+/// Valid budget fields.
+pub const VALID_BUDGET_FIELDS: &[&str] = &[
+    "enabled", "maxBundleSize", "maxChunkSize", "maxChunkCount", "entryBudgets",
 ];
 
 #[derive(Debug, Clone)]
@@ -149,6 +202,151 @@ pub fn validate_config_json(config: &serde_json::Value) -> Vec<ValidationError> 
                             message: format!("Invalid edgeTarget: '{}'", et),
                             suggestion: suggestion.map(|s| format!("Did you mean '{}'? Valid: {}", s, VALID_EDGE_TARGETS.join(", "))),
                         });
+                    }
+                }
+            }
+
+            // Validate nested build fields
+            if key == "build" {
+                if let Some(b_obj) = _value.as_object() {
+                    for b_key in b_obj.keys() {
+                        if !VALID_BUILD_FIELDS.contains(&b_key.as_str()) {
+                            let suggestion = find_closest_match(b_key, VALID_BUILD_FIELDS);
+                            errors.push(ValidationError {
+                                field: format!("build.{}", b_key),
+                                message: format!("Unknown build field: '{}'", b_key),
+                                suggestion: suggestion.map(|s| format!("Did you mean '{}'?", s)),
+                            });
+                        }
+                    }
+                    // Validate preloadStrategy value
+                    if let Some(ps) = b_obj.get("preloadStrategy").and_then(|v| v.as_str()) {
+                        if !VALID_PRELOAD_STRATEGIES.contains(&ps) {
+                            let suggestion = find_closest_match(ps, VALID_PRELOAD_STRATEGIES);
+                            errors.push(ValidationError {
+                                field: "build.preloadStrategy".to_string(),
+                                message: format!("Invalid preloadStrategy: '{}'", ps),
+                                suggestion: suggestion.map(|s| format!("Did you mean '{}'? Valid: {}", s, VALID_PRELOAD_STRATEGIES.join(", "))),
+                            });
+                        }
+                    }
+                    // Validate wasmSimd value
+                    if let Some(ws) = b_obj.get("wasmSimd").and_then(|v| v.as_str()) {
+                        if !VALID_WASM_SIMD_MODES.contains(&ws) {
+                            let suggestion = find_closest_match(ws, VALID_WASM_SIMD_MODES);
+                            errors.push(ValidationError {
+                                field: "build.wasmSimd".to_string(),
+                                message: format!("Invalid wasmSimd: '{}'", ws),
+                                suggestion: suggestion.map(|s| format!("Did you mean '{}'? Valid: {}", s, VALID_WASM_SIMD_MODES.join(", "))),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Validate nested webhooks fields (#105)
+            if key == "webhooks" {
+                if let Some(w_obj) = _value.as_object() {
+                    for w_key in w_obj.keys() {
+                        if !VALID_WEBHOOK_FIELDS.contains(&w_key.as_str()) {
+                            let suggestion = find_closest_match(w_key, VALID_WEBHOOK_FIELDS);
+                            errors.push(ValidationError {
+                                field: format!("webhooks.{}", w_key),
+                                message: format!("Unknown webhooks field: '{}'", w_key),
+                                suggestion: suggestion.map(|s| format!("Did you mean '{}'?", s)),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Validate nested i18n fields (#106)
+            if key == "i18n" {
+                if let Some(i_obj) = _value.as_object() {
+                    for i_key in i_obj.keys() {
+                        if !VALID_I18N_FIELDS.contains(&i_key.as_str()) {
+                            let suggestion = find_closest_match(i_key, VALID_I18N_FIELDS);
+                            errors.push(ValidationError {
+                                field: format!("i18n.{}", i_key),
+                                message: format!("Unknown i18n field: '{}'", i_key),
+                                suggestion: suggestion.map(|s| format!("Did you mean '{}'?", s)),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Validate nested css fields (#107)
+            if key == "css" {
+                if let Some(c_obj) = _value.as_object() {
+                    for c_key in c_obj.keys() {
+                        if !VALID_CSS_FIELDS.contains(&c_key.as_str()) {
+                            let suggestion = find_closest_match(c_key, VALID_CSS_FIELDS);
+                            errors.push(ValidationError {
+                                field: format!("css.{}", c_key),
+                                message: format!("Unknown css field: '{}'", c_key),
+                                suggestion: suggestion.map(|s| format!("Did you mean '{}'?", s)),
+                            });
+                        }
+                    }
+                    // Validate rtl value
+                    if let Some(rtl) = c_obj.get("rtl").and_then(|v| v.as_str()) {
+                        if !VALID_RTL_MODES.contains(&rtl) {
+                            let suggestion = find_closest_match(rtl, VALID_RTL_MODES);
+                            errors.push(ValidationError {
+                                field: "css.rtl".to_string(),
+                                message: format!("Invalid rtl mode: '{}'", rtl),
+                                suggestion: suggestion.map(|s| format!("Did you mean '{}'? Valid: {}", s, VALID_RTL_MODES.join(", "))),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Validate nested a11y fields (#108)
+            if key == "a11y" {
+                if let Some(a_obj) = _value.as_object() {
+                    for a_key in a_obj.keys() {
+                        if !VALID_A11Y_FIELDS.contains(&a_key.as_str()) {
+                            let suggestion = find_closest_match(a_key, VALID_A11Y_FIELDS);
+                            errors.push(ValidationError {
+                                field: format!("a11y.{}", a_key),
+                                message: format!("Unknown a11y field: '{}'", a_key),
+                                suggestion: suggestion.map(|s| format!("Did you mean '{}'?", s)),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Validate nested encrypt fields (#109)
+            if key == "encrypt" {
+                if let Some(e_obj) = _value.as_object() {
+                    for e_key in e_obj.keys() {
+                        if !VALID_ENCRYPT_FIELDS.contains(&e_key.as_str()) {
+                            let suggestion = find_closest_match(e_key, VALID_ENCRYPT_FIELDS);
+                            errors.push(ValidationError {
+                                field: format!("encrypt.{}", e_key),
+                                message: format!("Unknown encrypt field: '{}'", e_key),
+                                suggestion: suggestion.map(|s| format!("Did you mean '{}'?", s)),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Validate nested budgets fields (#102)
+            if key == "budgets" {
+                if let Some(b_obj) = _value.as_object() {
+                    for b_key in b_obj.keys() {
+                        if !VALID_BUDGET_FIELDS.contains(&b_key.as_str()) {
+                            let suggestion = find_closest_match(b_key, VALID_BUDGET_FIELDS);
+                            errors.push(ValidationError {
+                                field: format!("budgets.{}", b_key),
+                                message: format!("Unknown budgets field: '{}'", b_key),
+                                suggestion: suggestion.map(|s| format!("Did you mean '{}'?", s)),
+                            });
+                        }
                     }
                 }
             }

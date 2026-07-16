@@ -44,6 +44,10 @@
    ├── Check performance budgets (if configured)
    ├── Generate bundle size diff (if previous snapshot exists)
    ├── Multi-format output (if library mode configured — ESM/CJS/IIFE/UMD)
+   ├── Record build telemetry (#101) — save to .pledge/history.json
+   ├── Check bundle size budgets (#102) — if --check-budgets flag or budgets.enabled
+   ├── Lint HTML for accessibility (#108) — if a11y.enabled
+   ├── Send build event webhooks (#105) — if webhooks.onBuild/onError configured
    └── Compress output (gzip .gz + brotli .br files)
 ```
 
@@ -59,6 +63,8 @@ During step 3 (transform), the following optimizations are applied in order:
 5. Cross-chunk variable hoisting — analyze_cross_chunk_hoisting() prepares shared variable declarations
 6. Module-level memoization — ModuleTransformCache checks content + config hash before re-transforming
 7. WASM target compilation — ?wasm import suffix generates JS glue code for WASM modules
+8. i18n import transform (#106) — ${locale} patterns replaced with runtime locale detection shims
+9. String encryption (#109) — sensitive string values encrypted with XOR + base64, runtime decrypt shim injected
 ```
 
 ## CSS Processing Pipeline
@@ -74,6 +80,7 @@ During step 3 (transform), the following optimizations are applied in order:
 8. Critical CSS — extract_critical_css() + inline_critical_css() for faster FCP
 9. CSS source maps — generate_css_source_map() maps to original source
 10. PostCSS plugin caching — blake3 content hash for incremental processing
+11. RTL CSS auto-generation (#107) — if css.rtl is 'auto' or 'manual', generates [dir="rtl"] scoped CSS from LTR output using logical property mappings
 ```
 
 ## Asset Pipeline
@@ -458,3 +465,171 @@ export default defineConfig({
 - **Auto-update**: `test.update_snapshots: true` or `-u` flag updates stale snapshots
 - **Storage**: `.snap` files stored in `test.snapshot_dir` (default: `__snapshots__`)
 - **Mismatch reporting**: Detailed diff shown on snapshot mismatch
+
+## Observability & Monitoring (#101–#105)
+
+### Build Telemetry Dashboard (#101)
+
+`pledge dashboard` serves an interactive web UI at `localhost:4300` showing build history:
+
+```
+.pledge/history.json — persistent build records (max 100 entries)
+```
+
+Each build record includes:
+- Timestamp, duration (ms), success/failure status
+- Modules built vs cached, cache hit rate
+- Bundle size (bytes)
+- Error message (if failed)
+
+The dashboard renders an SVG chart with build duration trend, cache hit rate, and a summary table of recent builds.
+
+### Bundle Size Budget CI (#102)
+
+`pledge build --check-budgets` or `budgets: { enabled: true }` in config:
+
+```typescript
+export default defineConfig({
+  budgets: {
+    enabled: true,
+    maxBundleSize: 500_000,   // 500KB total
+    maxChunkSize: 250_000,    // 250KB per chunk
+    maxChunkCount: 10,        // max 10 chunks
+    entryBudgets: {           // per-entry overrides
+      'src/index.tsx': 200_000,
+    },
+  },
+});
+```
+
+**CI integration**: When `GITHUB_ACTIONS` env is set, violations are emitted as `::error` annotations:
+```
+::error file=dist/src/index.js::Bundle size budget exceeded: 320KB > 250KB
+```
+
+### Performance Regression Detection (#103)
+
+`pledge bench --baseline <ref> --threshold <pct>`:
+
+```
+pledge bench --baseline main --threshold 10
+```
+
+- Runs 5 build iterations, takes median duration
+- Compares against stored baseline in `.pledge/bench.json`
+- Exits non-zero if regression exceeds threshold (default: 10%)
+- Use `pledge bench --save-baseline <ref>` to store a new baseline
+
+### Module Dependency Graph (#104)
+
+`pledge analyze --graph` generates an interactive force-directed dependency graph:
+
+- Canvas-based physics simulation (Verlet integration)
+- Nodes color-coded by type: entry (green), CSS (blue), module (gray), circular (red)
+- Edges represent import relationships
+- Circular dependencies detected via DFS and highlighted
+- Served at `localhost:4200`
+
+### Build Event Webhooks (#105)
+
+```typescript
+export default defineConfig({
+  webhooks: {
+    enabled: true,
+    onBuild: 'https://hooks.slack.com/services/...',
+    onError: 'https://discord.com/api/webhooks/...',
+    headers: { 'Authorization': 'Bearer token' },
+  },
+});
+```
+
+- Auto-detects Slack vs Discord from URL format
+- Slack: formatted as attachment with color-coded status, fields for duration/modules/bundle size
+- Discord: formatted as embed with color, title, description, and fields
+- Sent asynchronously after build completion
+
+## Internationalization & Accessibility (#106–#109)
+
+### i18n-Aware Bundling (#106)
+
+```typescript
+export default defineConfig({
+  i18n: {
+    enabled: true,
+    locales: ['en', 'fr', 'ar'],
+    defaultLocale: 'en',
+    messagePattern: './locales/${locale}.json',
+  },
+});
+```
+
+- Import patterns containing `${locale}` are transformed at build time
+- Only the default locale's messages are bundled; other locales loaded via dynamic import
+- Runtime shim detects `document.documentElement.lang` or `navigator.language`
+
+### RTL CSS Auto-Generation (#107)
+
+```typescript
+export default defineConfig({
+  css: {
+    rtl: 'auto',  // 'auto' | 'manual' | 'off'
+  },
+});
+```
+
+When enabled, for each CSS file emitted, a corresponding `.rtl.css` file is generated:
+
+| LTR Property | RTL Property |
+|---|---|
+| `margin-left` | `margin-inline-start` |
+| `margin-right` | `margin-inline-end` |
+| `padding-left` | `padding-inline-start` |
+| `padding-right` | `padding-inline-end` |
+| `text-align: left` | `text-align: start` |
+| `text-align: right` | `text-align: end` |
+| `left: 10px` | `inset-inline-start: 10px` |
+| `right: 10px` | `inset-inline-end: 10px` |
+| `border-left` | `border-inline-start` |
+| ... 20+ mappings | |
+
+RTL output is scoped with `[dir="rtl"]` selector.
+
+### Accessibility Linting (#108)
+
+```typescript
+export default defineConfig({
+  a11y: {
+    enabled: true,
+    failOnError: true,
+    checkAlt: true,
+    checkAria: true,
+    checkContrast: false,
+  },
+});
+```
+
+Checks performed on HTML output:
+- **img-alt**: `<img>` tags missing `alt` attribute
+- **button-aria-label**: Interactive `<button>` without text content or `aria-label`
+- **input-label**: `<input>` without associated `<label>` or `aria-label`
+- **html-lang**: `<html>` missing `lang` attribute
+- **html-title**: Document missing `<title>` element
+- **color-contrast**: Insufficient contrast ratios (optional)
+
+### Build-Time String Encryption (#109)
+
+```typescript
+export default defineConfig({
+  encrypt: {
+    enabled: true,
+    key: 'a1b2c3d4e5f6...',  // hex-encoded XOR key
+    keys: ['API_KEY', 'SECRET_TOKEN'],  // variable names to encrypt
+  },
+});
+```
+
+- Scans code for string literals assigned to configured variable names
+- Encrypts values using XOR cipher with base64 encoding
+- Injects `__pledge_decrypt()` runtime shim in bundle output
+- Encrypted values appear as `__pledge_decrypt("base64string")` in output
+- Prevents plain-text secrets from appearing in bundle source

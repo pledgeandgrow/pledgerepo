@@ -3,89 +3,118 @@ use std::path::PathBuf;
 
 /// Top-level configuration for the Pledge bundler.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PledgeConfig {
     /// Entry points (e.g., ["src/index.tsx"])
+    #[serde(default)]
     pub entry: Vec<String>,
 
     /// Output directory (default: ".pledge")
+    #[serde(default = "default_out_dir")]
     pub out_dir: PathBuf,
 
     /// Root directory of the project (default: cwd)
+    #[serde(default)]
     pub root: PathBuf,
 
     /// Whether this is a dev or production build
+    #[serde(default)]
     pub mode: BuildMode,
 
     /// Framework adapter ("react", "vue", "svelte", "solid", "auto")
+    #[serde(default)]
     pub framework: Framework,
 
     /// Path aliases from tsconfig/jsconfig
+    #[serde(default)]
     pub alias: Vec<PathAlias>,
 
     /// File extensions to resolve (default: [".tsx", ".ts", ".jsx", ".js", ".json", ".css"])
+    #[serde(default)]
     pub extensions: Vec<String>,
 
     /// Whether to enable the persistent filesystem cache
+    #[serde(default)]
     pub cache: CacheConfig,
 
     /// Dev server configuration
+    #[serde(default)]
     pub dev_server: DevServerConfig,
 
     /// Whether to enable source maps
+    #[serde(default)]
     pub source_maps: bool,
 
     /// Resolve aliases (e.g., { "@": "./src" })
+    #[serde(default)]
     pub resolve_alias: Vec<PathAlias>,
 
     /// Proxy rules for dev server (path prefix → target URL)
+    #[serde(default)]
     pub proxy: Vec<ProxyConfig>,
 
     /// Build profiling (timing per phase)
+    #[serde(default)]
     pub profile: bool,
 
     /// Output format ("esm" or "cjs")
+    #[serde(default)]
     pub output_format: OutputFormat,
 
     /// Conditions for package.json exports resolution
+    #[serde(default)]
     pub conditions: Vec<String>,
 
     /// Environment variable prefixes to inject (default: ["PLEDGE_"])
+    #[serde(default)]
     pub env_prefix: Vec<String>,
 
     /// Whether to generate .d.ts for import.meta.env (default: true)
+    #[serde(default)]
     pub env_dts: bool,
 
     /// HTML entry point (default: "index.html")
+    #[serde(default)]
     pub html_entry: Option<String>,
 
     /// Whether to generate .gz compressed output (default: false)
+    #[serde(default)]
     pub compress_gzip: bool,
 
     /// Whether to generate .br compressed output (default: false)
+    #[serde(default)]
     pub compress_brotli: bool,
 
     /// Image optimization config
+    #[serde(default)]
     pub image: ImageConfig,
 
     /// Edge deployment target ("cloudflare", "vercel", "deno", or null)
+    #[serde(default)]
     pub edge_target: Option<String>,
 
     /// Plugin paths (JS/TS plugins to load)
+    #[serde(default)]
     pub plugins: Vec<String>,
 
     /// Library mode configuration (for building npm packages)
+    #[serde(default)]
     pub library: Option<LibraryConfig>,
 
     /// HTTPS configuration for dev server
+    #[serde(default)]
     pub https: Option<HttpsConfig>,
 
     /// Node.js polyfills for browser builds
+    #[serde(default)]
     pub node_polyfills: bool,
 
     /// Compile-time constant replacement (define plugin)
+    #[serde(default)]
     pub define: std::collections::HashMap<String, String>,
 
     /// Watch mode configuration for production builds
+    #[serde(default)]
     pub watch: WatchConfig,
 
     /// Build configuration for chunk splitting, source maps, asset inlining
@@ -108,6 +137,34 @@ pub struct PledgeConfig {
     ///   2. app/      — flat structure at project root
     #[serde(default)]
     pub app_dir: Option<String>,
+
+    /// Build event webhooks (#105)
+    /// POST build results to external services on completion
+    #[serde(default)]
+    pub webhooks: WebhookConfig,
+
+    /// i18n-aware bundling (#106)
+    /// Split bundles by locale, only load current locale's strings
+    #[serde(default)]
+    pub i18n: I18nConfig,
+
+    /// CSS RTL auto-generation (#107)
+    #[serde(default)]
+    pub css: CssConfig,
+
+    /// Accessibility linting during build (#108)
+    #[serde(default)]
+    pub a11y: A11yConfig,
+
+    /// Build-time string encryption (#109)
+    /// Encrypt sensitive strings in source at build time
+    #[serde(default)]
+    pub encrypt: EncryptConfig,
+
+    /// Bundle size budgets (#102)
+    /// Exit non-zero on budget violations in CI
+    #[serde(default)]
+    pub budgets: BudgetConfig,
 }
 
 /// Test configuration (Vitest-compatible)
@@ -160,6 +217,10 @@ pub struct TestConfig {
 
 fn default_test_environment() -> String {
     "node".to_string()
+}
+
+fn default_out_dir() -> PathBuf {
+    PathBuf::from(".pledge")
 }
 
 fn default_test_isolation() -> String {
@@ -254,6 +315,36 @@ pub struct BuildConfig {
     /// Enable SVG sprite generation (default: false)
     #[serde(default)]
     pub svg_sprite: bool,
+
+    /// Inline process.env.* variables at build time (default: true in production)
+    /// Replaces process.env.NODE_ENV with "production" / "development" and
+    /// tree-shakes unreachable branches (if (DEV) { ... } eliminated)
+    #[serde(default = "default_true")]
+    pub env_inline: bool,
+
+    /// Module preloading strategy for entry chunks (default: "lazy")
+    /// "eager" — preload all entry + async chunks via <link rel="modulepreload">
+    /// "lazy" — only preload entry chunks, async chunks loaded on demand
+    /// "manual" — don't auto-generate preload tags, user controls via HTML
+    #[serde(default = "default_preload_strategy")]
+    pub preload_strategy: String,
+
+    /// Verify build output integrity after emit (default: false)
+    /// Checks all chunks exist, no broken import references, all assets resolved
+    #[serde(default)]
+    pub verify_output: bool,
+
+    /// Incremental output: skip writing unchanged chunks in watch mode (default: true)
+    /// Compares content hashes and only writes files that changed
+    #[serde(default = "default_true")]
+    pub incremental_output: bool,
+
+    /// WASM SIMD optimization (default: "auto")
+    /// "auto" — detect SIMD support from build target, generate optimized WASM
+    /// "always" — always generate SIMD-optimized WASM instantiation
+    /// "never" — always use non-SIMD fallback
+    #[serde(default = "default_wasm_simd")]
+    pub wasm_simd: String,
 }
 
 fn default_source_map_mode() -> String {
@@ -266,6 +357,14 @@ fn default_assets_inline_limit() -> usize {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_preload_strategy() -> String {
+    "lazy".to_string()
+}
+
+fn default_wasm_simd() -> String {
+    "auto".to_string()
 }
 
 impl Default for BuildConfig {
@@ -282,6 +381,11 @@ impl Default for BuildConfig {
             module_preload_polyfill: false,
             font_subsetting: false,
             svg_sprite: false,
+            env_inline: true,
+            preload_strategy: "lazy".to_string(),
+            verify_output: false,
+            incremental_output: true,
+            wasm_simd: "auto".to_string(),
         }
     }
 }
@@ -312,6 +416,7 @@ pub struct PathAlias {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CacheConfig {
     /// Enable filesystem cache (default: true)
     pub enabled: bool,
@@ -350,16 +455,22 @@ impl Default for CacheConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DevServerConfig {
     /// Port (default: 3000)
+    #[serde(default = "default_dev_port")]
     pub port: u16,
     /// Host (default: "localhost")
+    #[serde(default = "default_dev_host")]
     pub host: String,
     /// Enable HMR (default: true)
+    #[serde(default = "default_true")]
     pub hmr: bool,
     /// Open browser on start (default: false)
+    #[serde(default)]
     pub open: bool,
     /// HTTPS support (default: false)
+    #[serde(default)]
     pub https: bool,
     /// Public directory for static assets (default: "public")
     #[serde(default = "default_public_dir")]
@@ -367,6 +478,14 @@ pub struct DevServerConfig {
     /// Middleware functions to apply to the dev server (JS source code)
     #[serde(default)]
     pub middleware: Vec<String>,
+}
+
+fn default_dev_port() -> u16 {
+    3000
+}
+
+fn default_dev_host() -> String {
+    "localhost".to_string()
 }
 
 fn default_public_dir() -> String {
@@ -406,6 +525,7 @@ pub struct ProxyConfig {
 
 /// Image optimization configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ImageConfig {
     /// Enable image optimization (default: false)
     pub enabled: bool,
@@ -469,6 +589,7 @@ pub struct HttpsConfig {
 
 /// Watch mode configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct WatchConfig {
     /// Enable watch mode
     pub enabled: bool,
@@ -481,6 +602,167 @@ impl Default for WatchConfig {
         Self {
             enabled: false,
             debounce_ms: 100,
+        }
+    }
+}
+
+/// Webhook configuration for build events (#105)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WebhookConfig {
+    /// Enable webhooks (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// URL to POST build results to on completion
+    #[serde(default)]
+    pub on_build: Option<String>,
+    /// URL to POST build errors to
+    #[serde(default)]
+    pub on_error: Option<String>,
+    /// Additional headers to send
+    #[serde(default)]
+    pub headers: std::collections::HashMap<String, String>,
+}
+
+/// i18n configuration for locale-aware bundling (#106)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct I18nConfig {
+    /// Enable i18n-aware bundling (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Supported locales (e.g., ["en", "fr", "ja"])
+    #[serde(default)]
+    pub locales: Vec<String>,
+    /// Default locale (default: "en")
+    #[serde(default = "default_locale")]
+    pub default_locale: String,
+    /// Message file pattern (default: "./messages.${locale}.json")
+    #[serde(default = "default_message_pattern")]
+    pub message_pattern: String,
+}
+
+impl Default for I18nConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            locales: Vec::new(),
+            default_locale: default_locale(),
+            message_pattern: default_message_pattern(),
+        }
+    }
+}
+
+fn default_locale() -> String {
+    "en".to_string()
+}
+
+fn default_message_pattern() -> String {
+    "./messages.${locale}.json".to_string()
+}
+
+/// CSS configuration for RTL auto-generation (#107)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CssConfig {
+    /// RTL CSS generation mode: "auto", "manual", "off" (default: "off")
+    #[serde(default = "default_rtl_mode")]
+    pub rtl: String,
+}
+
+impl Default for CssConfig {
+    fn default() -> Self {
+        Self {
+            rtl: default_rtl_mode(),
+        }
+    }
+}
+
+fn default_rtl_mode() -> String {
+    "off".to_string()
+}
+
+/// Accessibility linting configuration (#108)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct A11yConfig {
+    /// Enable a11y linting during build (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Fail build on a11y errors (default: true)
+    #[serde(default = "default_true")]
+    pub fail_on_error: bool,
+    /// Check for missing alt attributes on images
+    #[serde(default = "default_true")]
+    pub check_alt: bool,
+    /// Check for ARIA labels on interactive elements
+    #[serde(default = "default_true")]
+    pub check_aria: bool,
+    /// Check for sufficient color contrast
+    #[serde(default)]
+    pub check_contrast: bool,
+}
+
+impl Default for A11yConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            fail_on_error: true,
+            check_alt: true,
+            check_aria: true,
+            check_contrast: false,
+        }
+    }
+}
+
+/// Build-time string encryption configuration (#109)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EncryptConfig {
+    /// Enable string encryption (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Keys to encrypt (from process.env or define)
+    #[serde(default)]
+    pub keys: Vec<String>,
+    /// Encryption key (32-byte hex string). If not set, generated at build time.
+    #[serde(default)]
+    pub key: Option<String>,
+}
+
+impl Default for EncryptConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            keys: Vec::new(),
+            key: None,
+        }
+    }
+}
+
+/// Bundle size budget configuration (#102)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BudgetConfig {
+    /// Enable budget checking (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Maximum total bundle size in bytes (0 = no limit)
+    #[serde(default)]
+    pub max_bundle_size: usize,
+    /// Maximum per-chunk size in bytes (0 = no limit)
+    #[serde(default)]
+    pub max_chunk_size: usize,
+    /// Maximum number of chunks (0 = no limit)
+    #[serde(default)]
+    pub max_chunk_count: usize,
+    /// Per-entry-point budgets (entry name → max bytes)
+    #[serde(default)]
+    pub entry_budgets: std::collections::HashMap<String, usize>,
+}
+
+impl Default for BudgetConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_bundle_size: 0,
+            max_chunk_size: 0,
+            max_chunk_count: 0,
+            entry_budgets: std::collections::HashMap::new(),
         }
     }
 }
@@ -543,6 +825,12 @@ impl Default for PledgeConfig {
             build: BuildConfig::default(),
             test: TestConfig::default(),
             app_dir: None,
+            webhooks: WebhookConfig::default(),
+            i18n: I18nConfig::default(),
+            css: CssConfig::default(),
+            a11y: A11yConfig::default(),
+            encrypt: EncryptConfig::default(),
+            budgets: BudgetConfig::default(),
         }
     }
 }
@@ -743,10 +1031,29 @@ impl PledgeConfig {
             }
 
             if in_string {
-                result.push(b as char);
                 if b == string_char {
+                    // Convert closing single-quote/backtick to double-quote
+                    if string_char != b'"' {
+                        result.push('"');
+                    } else {
+                        result.push(b as char);
+                    }
                     in_string = false;
+                } else if b == b'\r' {
+                    // Skip \r inside strings (CRLF line endings)
+                } else if b == b'"' && string_char != b'"' {
+                    // Escape double quotes inside single-quoted/backtick strings
+                    result.push('\\');
+                    result.push('"');
+                } else {
+                    result.push(b as char);
                 }
+                i += 1;
+                continue;
+            }
+
+            // Skip \r outside strings (CRLF line endings)
+            if b == b'\r' {
                 i += 1;
                 continue;
             }
@@ -777,14 +1084,6 @@ impl PledgeConfig {
                 } else {
                     result.push(b as char);
                 }
-                i += 1;
-                continue;
-            }
-
-            // Convert single-quoted/backtick strings to double-quoted
-            if in_string && b == string_char && string_char != b'"' {
-                result.push('"');
-                in_string = false;
                 i += 1;
                 continue;
             }

@@ -718,3 +718,175 @@ MIT License ([LICENSE](LICENSE)).
 
 49. ~~**LSP server**~~ ✅ — Language Server Protocol implementation for import resolution, go-to-definition, and diagnostics in any editor. `lsp_server.rs` provides `LspServerState` with go-to-definition, completion, diagnostics, hover, and document symbols; supports path aliases and node_modules resolution.
 50. ~~**Migration tooling**~~ ✅ — Automatic migration from Vite/Webpack/Turbopack configs to `pledge.config.ts` with `pledge migrate`. `migrate_config()` in `migrate.rs` detects and converts Vite, Webpack, and Turbopack configurations to Pledge format.
+
+---
+
+## Roadmap v2: 50 New Goals
+
+### Build Output & Optimization
+
+51. **Build-time environment variable injection** — Replace static env vars at transform time. `process.env.NODE_ENV` → `"production"` inlined. Tree-shake unreachable env branches (`if (DEV)` blocks eliminated). `env: { inline: true }` config.
+
+52. **Module preloading strategy** — Configurable preloading for critical path chunks. `preload: { strategy: 'eager' | 'lazy' | 'manual' }` config. Generates `<link rel="modulepreload">` for entry chunks in HTML output.
+
+53. **Build output verification** — Post-build integrity check: verify all chunks exist, no broken import references, all assets resolved. `pledge build --verify` flag. Fails build on missing output files.
+
+54. **Incremental output diff** — Only write changed chunks to disk between watch-mode rebuilds. Compare content hashes, skip unchanged files. Reduces I/O during `pledge build --watch`.
+
+55. **WASM SIMD auto-detection** — Detect WASM SIMD support in build target and generate SIMD-optimized WASM modules when available. Fallback to non-SIMD for older browsers. `wasm: { simd: 'auto' }` config.
+
+### TypeScript & Type Safety
+
+56. **Type checking during build** — Integrated `tsc` type checking in `pledge build` without separate `tsc --noEmit` step. `typeCheck: true` config. Fail build on type errors with formatted output.
+
+57. **Type-aware tree shaking** — Use TypeScript type info to safely remove unused exports. Detect when exports are only used in type positions (`import type`) and exclude them from runtime bundle.
+
+58. **Path mapping auto-resolution** — Read `tsconfig.json` paths/bases and auto-configure `resolve.alias`. No manual alias config needed. `tsconfig: { auto_paths: true }` config.
+
+59. **`.d.ts` bundling for library mode** — Bundle TypeScript declarations into a single `.d.ts` file for library output. Tree-shake unused type declarations. `library: { declarations: 'bundled' }` config.
+
+60. **Type-safe plugin API** — TypeScript types for pledgepack plugins with `Plugin` interface, hook signatures, and return types. Published as `pledgepack/plugins` entry point.
+
+### Testing & Quality
+
+61. **Browser-based test runner** — Run tests in real browsers via Playwright/Puppeteer integration. `pledge test --browser` flag. DOM testing with real layout, CSS evaluation, and visual assertions.
+
+62. **Visual regression testing** — Screenshot comparison between builds. `pledge test --visual` flag. Pixel diff with threshold config. Baseline storage in `.pledge/visual-baselines/`.
+
+63. **Dependency-graph-aware test re-run** — `pledge test --watch` only re-runs tests affected by changed files, not all tests. Uses module graph to determine test impact set. Faster watch-mode feedback.
+
+64. **Test parallelization across cores** — Run test files in parallel using rayon thread pool. `test: { parallel: true, max_workers: 4 }` config. Shared state isolation per worker.
+
+65. **Mutation testing** — `pledge test --mutate` injects code mutations to measure test effectiveness. Reports mutation score per file. Stryker-compatible output format.
+
+### CSS & Styling
+
+66. **CSS Modules with composes** — Full CSS Modules `composes` directive support. `composes: button from './buttons.css'`. Scoped class name resolution across files.
+
+67. **Dark mode CSS generation** — Auto-generate dark mode variants from `prefers-color-scheme` queries. `css: { dark_mode: 'auto' }` config. CSS custom property-based theme switching.
+
+68. **CSS custom properties optimization** — Detect and inline static CSS custom properties. Remove unused `:root` variables. Minify variable names in production.
+
+69. **Scoped CSS for React** — CSS scoping without CSS Modules using automatic attribute selectors. `css: { scope: 'attribute' }` config. `data-v-xxxxx` attribute-based scoping like Vue.
+
+70. **CSS nesting polyfill** — Native CSS nesting (`& > .child`) polyfill for older browsers. Lightning CSS-based transformation with browser target config.
+
+### Performance & Optimization
+
+71. **Automatic route-based chunk splitting** — Analyze route imports and split chunks per-route. Common shared chunks extracted automatically. `splitChunks: { strategy: 'route-aware' }` config.
+
+72. **Module prefetch directives** — Auto-generate `<link rel="modulepreload">` for route dependencies. `<link rel="prefetch">` for likely-next routes. `prefetch: { strategy: 'hover' | 'viewport' | 'load' }` config.
+
+73. **Tree shaking of CSS-in-JS runtime** — Remove styled-components/emotion runtime when all styles are extracted at build time. Zero runtime CSS-in-JS in production.
+
+74. **WASM module streaming compilation** — Compile WASM modules with `WebAssembly.streaming()` instead of buffer-based instantiation. Faster WASM load times.
+
+75. **Precompute module hash at transform time** — Compute content hash during transform pass, not as a separate emit pass. Eliminates redundant file reads in the emit phase.
+
+### Assets & Media
+
+76. **Font subsetting** — Subset fonts to only include characters used in the project. `assets: { font_subset: true }` config. Reduces font file size by 60-90%.
+
+77. **SVG sprite generation** — Combine SVG files into a single sprite sheet with `<symbol>` elements. `import logo from './logo.svg?sprite'` syntax. Reduces HTTP requests.
+
+78. **Video poster frame extraction** — Auto-extract poster frame from video files. `import { src, poster } from './video.mp4'` exports both URL and poster image.
+
+79. **Responsive image srcset generation** — Auto-generate `srcset` with multiple resolutions. `assets: { responsive: { widths: [400, 800, 1200] } }` config. `<img srcset="...">` output.
+
+80. **Asset inlining threshold** — Configurable threshold for inlining assets as base64 data URIs. `assets: { inline_threshold: '4kb' }` config. Assets below threshold inlined automatically.
+
+### Security & Integrity
+
+81. **Subresource Integrity (SRI) hashes** — Generate `integrity` attributes for `<script>` and `<link>` tags. `security: { sri: true }` config. SHA-384 hash output.
+
+82. **Content Security Policy generation** — Auto-generate CSP headers from build output. Hash-based CSP for inline scripts. `security: { csp: 'auto' }` config. Output as `_headers` file.
+
+83. **Dependency vulnerability scanning** — Scan `node_modules` for known vulnerabilities during build. `pledge doctor` includes security audit. CVE database lookup.
+
+84. **License compliance checking** — Scan dependencies for license compatibility. `pledge doctor --licenses` flag. Whitelist/blacklist license types in config.
+
+### Dev Experience
+
+85. **Error overlay with source maps** — Interactive error overlay in dev server showing original source code with error location. Stack trace mapping to original files. Click-to-open in editor.
+
+86. **Build progress streaming** — Real-time build progress over WebSocket in dev mode. Per-module transform status. `pledge dev` shows which modules are transforming.
+
+87. **Config file hot reload** — Reload `pledge.config.ts` changes without restarting dev server. Watch config file and re-initialize engine on change.
+
+88. **Friendly error messages with suggestions** — Enhanced error messages with "Did you mean...?" for import paths, config fields, and CLI commands. Color-coded severity levels.
+
+89. **`pledge why` command** — Analyze why a module is included in the bundle. Shows import chain from entry to target module. `pledge why lodash` output shows full dependency path.
+
+### Deployment & Output
+
+90. **Build output manifest** — `pledge build --manifest` generates `manifest.json` mapping entry points to chunks, assets, and their hashed paths. Useful for CDN cache invalidation and backend asset injection.
+
+91. **Docker image generation** — Generate Dockerfile + .dockerignore for production deployment. Multi-stage build with minimal final image. `pledge build --docker` flag.
+
+92. **Base path configuration** — `base: '/my-app/'` config for deploying under a subpath. All asset URLs and import paths adjusted automatically.
+
+93. **CSS critical path extraction** — Analyze above-the-fold CSS from HTML entry and inline it in `<head>`. `css: { critical: true }` config. Reduces First Contentful Paint (FCP).
+
+### Ecosystem & Extensibility
+
+94. **Plugin preset system** — `presets: ['react', 'tailwind']` config applies a bundle of plugins with sensible defaults. Community presets installable via npm. `pledgepack-preset-*` naming convention.
+
+95. **Vite plugin compatibility layer** — Run existing Vite plugins unmodified in pledgepack. `plugins: [{ vite: 'vite-plugin-svg' }]` config. Automatic API translation.
+
+96. **Rollup plugin adapter** — Run Rollup plugins in pledgepack via compatibility shim. `plugins: [{ rollup: '@rollup/plugin-json' }]` config. Widens plugin ecosystem instantly.
+
+97. **Custom transformer pipeline** — `transform: { pipeline: ['oxc', 'custom-transform', 'minify'] }` config. Insert custom transform steps at any point in the pipeline. WASM or JS transformers.
+
+### Monorepo & Workspaces
+
+98. **Workspace-aware resolution** — Auto-detect npm/pnpm/yarn workspaces. Resolve `@myorg/ui` to local workspace package, not npm registry. `workspaces: true` config.
+
+99. **Cross-package HMR** — Hot reload changes in workspace packages and propagate to consuming app. No manual rebuild of dependent packages needed.
+
+100. **Shared build cache across workspace** — Cache transform results in a shared `.pledge/` at workspace root. All packages share the same cache directory. Faster incremental builds across packages.
+
+### Observability & Monitoring
+
+101. **Build telemetry dashboard** — `pledge dashboard` serves a web UI showing build history, cache hit rates, module counts, and build times over time. Data persisted in `.pledge/history.json`.
+
+102. **Bundle size budget CI integration** — `pledge build --check-budgets` exits non-zero on budget violations. GitHub Actions annotation format output. PR comment generation with size diff.
+
+103. **Performance regression detection** — Compare build times across commits. `pledge bench --baseline <ref>` flag. Warns when build time increases by more than configured threshold.
+
+104. **Module dependency graph visualization** — `pledge analyze --graph` generates interactive force-directed graph of module dependencies. Circular dependency detection highlighted in red.
+
+105. **Build event webhooks** — `webhooks: { on_build: 'https://api.example.com/build-done' }` config. POST build results to external service on completion. Slack/Discord notification support.
+
+### Internationalization & Accessibility
+
+106. **i18n-aware bundling** — Split bundles by locale. `i18n: { locales: ['en', 'fr', 'ja'], defaultLocale: 'en' }` config. Only load current locale's strings. `import messages from './messages.${locale}.json'` pattern.
+
+107. **RTL CSS auto-generation** — Auto-generate RTL CSS from LTR stylesheets using logical properties. `css: { rtl: 'auto' }` config. `direction: rtl` support without manual CSS duplication.
+
+108. **a11y linting during build** — Check for common accessibility issues in HTML output. Missing `alt` attributes, insufficient color contrast, missing ARIA labels. `a11y: { enabled: true }` config.
+
+109. **Build-time string encryption** — Encrypt sensitive strings in source at build time, decrypt at runtime via injected shim. `encrypt: { keys: ['API_KEY'] }` config. Prevents plain-text secrets in bundles.
+
+### Advanced Features
+
+110. **Web Components compilation** — Compile Custom Elements with Shadow DOM from `.wc.tsx` files. Automatic `customElements.define()` registration. Shadow DOM CSS scoping.
+
+111. **Web Worker bundling** — `import worker from './worker.ts?worker'` syntax. Bundle web workers as separate chunks with proper import URL generation. `new Worker(new URL('./worker.ts', import.meta.url))` pattern.
+
+112. **Shared worker bundling** — `import worker from './worker.ts?sharedworker'` syntax. Bundle shared workers accessible across multiple browser tabs. Proper `SharedWorker` constructor output.
+
+113. **Service worker caching strategies** — Configurable caching per route pattern: cache-first, network-first, stale-while-revalidate. `sw: { caching: [{ pattern: '/api/*', strategy: 'network-first' }] }` config. Extends existing SW generation.
+
+114. **Import glob expansion** — `import.meta.glob('./pages/*.tsx')` syntax. Expands to a map of file paths to lazy import functions at build time. `glob: { eager: false }` config for preloading all or lazy loading.
+
+115. **Module federation support** — Share modules across independently deployed apps. `federation: { name: 'host', remotes: { app1: 'http://cdn/app1.js' } }` config. Webpack Module Federation-compatible.
+
+116. **GraphQL code generation** — `pledge build --codegen` generates TypeScript types from `.graphql` files. Schema-first development with type-safe queries. `graphql: { schema: 'schema.graphql' }` config.
+
+117. **Environment-specific builds** — `pledge build --env staging` loads `.env.staging` and sets `process.env.NODE_ENV = 'staging'`. Multiple environment configs without code changes.
+
+118. **Post-build optimization hooks** — `plugins: [{ name: 'seo', postBuild: true }]` API. Plugins run after build to optimize HTML meta tags, generate sitemaps, or submit to search engines.
+
+119. **Conditional exports resolution** — Read `package.json` `exports` field with conditions. `exports: { conditions: ['production', 'browser'] }` config. Correct entry point per environment.
+
+120. **Build concurrency control** — `build: { parallel: 4 }` config limits concurrent module transforms. Prevents OOM on large projects. Auto-detects optimal concurrency based on CPU cores.

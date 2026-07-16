@@ -35,7 +35,7 @@ User source files (src/*.tsx, *.ts)
 
 ```
 pledgepack-cli
-├── pledgepack-core (engine, config, transform, pipeline, env, html, compression, analyzer, edge, dep_bundler, polyfills, transform_optimizations, css_features, css_in_js, tailwind_v4, asset_pipeline, plugin_system, output_distribution, service_worker, lsp_server, migrate, module_graph, remote, git_cache, watcher, hmr_diff, lazy_pipeline, middleware, doctor, config_validate)
+├── pledgepack-core (engine, config, transform, pipeline, env, html, compression, analyzer, edge, dep_bundler, polyfills, transform_optimizations, css_features, css_in_js, tailwind_v4, asset_pipeline, plugin_system, output_distribution, service_worker, lsp_server, migrate, module_graph, remote, git_cache, watcher, hmr_diff, lazy_pipeline, middleware, doctor, config_validate, telemetry, budgets, bench, webhooks, i18n, rtl, a11y, encrypt)
 │   ├── pledgepack-cache (function-level cache, memory + disk)
 │   ├── pledgepack-native-sys (FFI to Zig)
 │   ├── oxc (parser, semantic, transformer, codegen)
@@ -385,3 +385,16 @@ Source string
 - **HMR partial updates** (`crates/core/src/hmr_diff.rs`): LCS-based line-level diff via WebSocket
 - **Cold boot optimization** (`crates/core/src/lazy_pipeline.rs`): Deferred Oxc/Lightning CSS initialization
 - **Middleware chain** (`crates/core/src/middleware.rs`): Configurable request processing pipeline
+
+### Observability & Monitoring (#101–#105)
+- **Build telemetry dashboard** (`crates/core/src/telemetry.rs`): `pledge dashboard` command serves interactive web UI at `localhost:4300` with build history chart, cache hit rate, module counts, and build durations. Build records persisted to `.pledge/history.json` (max 100 entries).
+- **Bundle size budget CI** (`crates/core/src/budgets.rs`): `pledge build --check-budgets` flag verifies total bundle size, per-chunk size, chunk count, and per-entry budgets. Exits non-zero on violations. Emits GitHub Actions `::error` annotations when `GITHUB_ACTIONS` env is set. Generates PR comment markdown with chunk size table.
+- **Performance regression detection** (`crates/core/src/bench.rs`): `pledge bench --baseline <ref>` compares median build time against stored baseline. `--threshold` flag sets regression percentage (default 10%). Baseline results persisted in `.pledge/bench.json` keyed by git ref.
+- **Module dependency graph** (`crates/core/src/analyzer.rs`): `pledge analyze --graph` generates interactive force-directed graph HTML with canvas-based physics simulation. Circular dependencies detected via DFS and highlighted in red. Legend distinguishes entry, CSS, module, and circular nodes.
+- **Build event webhooks** (`crates/core/src/webhooks.rs`): `webhooks: { onBuild: URL, onError: URL }` config sends POST requests after builds. Auto-detects Slack and Discord webhook URL formats and generates appropriate message payloads. Custom headers supported via `webhooks.headers`.
+
+### Internationalization & Accessibility (#106–#109)
+- **i18n-aware bundling** (`crates/core/src/i18n.rs`): `i18n: { locales: [...], defaultLocale: 'en', messagePattern: './messages.${locale}.json' }` config enables locale-based bundle splitting. Transforms `${locale}` import patterns into runtime locale detection shims. Only the current locale's strings are loaded at runtime.
+- **RTL CSS auto-generation** (`crates/core/src/rtl.rs`): `css: { rtl: 'auto' }` config auto-generates RTL CSS from LTR stylesheets using CSS logical properties. Converts `margin-left` → `margin-inline-start`, `padding-right` → `padding-inline-end`, `text-align: left` → `text-align: start`, and 20+ other physical-to-logical mappings. Generated as `[dir="rtl"]` scoped CSS files alongside LTR output.
+- **Accessibility linting** (`crates/core/src/a11y.rs`): `a11y: { enabled: true, failOnError: true }` config checks HTML output for missing `alt` attributes on images, missing ARIA labels on interactive elements, insufficient color contrast, missing `<html lang>`, missing `<title>`, and form inputs without labels. Exits non-zero when `failOnError` is true and errors are found.
+- **Build-time string encryption** (`crates/core/src/encrypt.rs`): `encrypt: { keys: ['API_KEY'], key: '<hex>' }` config encrypts sensitive string values at build time using XOR cipher with base64 encoding. Injects a runtime `__pledge_decrypt()` shim that decrypts values at runtime. Prevents plain-text secrets from appearing in bundle output.

@@ -89,6 +89,14 @@ enum Commands {
         /// Watch mode — rebuild on file change
         #[arg(long)]
         watch: bool,
+
+        /// Verify build output integrity after emit
+        #[arg(long)]
+        verify: bool,
+
+        /// Check bundle size budgets and exit non-zero on violations (#102)
+        #[arg(long)]
+        check_budgets: bool,
     },
 
     /// Preview a production build with compression
@@ -144,6 +152,10 @@ enum Commands {
         /// Port to serve the analysis on
         #[arg(short, long)]
         port: Option<u16>,
+
+        /// Generate interactive dependency graph instead of treemap (#104)
+        #[arg(long)]
+        graph: bool,
     },
 
     /// Run tests (Vitest-compatible API)
@@ -168,7 +180,22 @@ enum Commands {
     },
 
     /// Run benchmarks
-    Bench,
+    Bench {
+        /// Compare against a baseline ref (git commit hash or name) (#103)
+        #[arg(long)]
+        baseline: Option<String>,
+
+        /// Regression threshold percentage (default: 10.0) (#103)
+        #[arg(long)]
+        threshold: Option<f64>,
+    },
+
+    /// Serve the build telemetry dashboard (#101)
+    Dashboard {
+        /// Port to serve the dashboard on
+        #[arg(short, long)]
+        port: Option<u16>,
+    },
 
     /// Generate TypeScript declarations for env variables
     GenerateEnvTypes,
@@ -232,7 +259,7 @@ async fn main() -> Result<()> {
             pledgepack_dev_server::serve(engine, &config).await?;
         }
 
-        Commands::Build { out_dir, no_sourcemap, profile, watch } => {
+        Commands::Build { out_dir, no_sourcemap, profile, watch, verify, check_budgets } => {
             if let Some(out) = out_dir {
                 config.out_dir = out.into_std_path_buf();
             }
@@ -241,6 +268,12 @@ async fn main() -> Result<()> {
             }
             if profile {
                 config.profile = true;
+            }
+            if verify {
+                config.build.verify_output = true;
+            }
+            if check_budgets {
+                config.budgets.enabled = true;
             }
             config.mode = pledgepack_core::config::BuildMode::Production;
 
@@ -378,6 +411,99 @@ async fn main() -> Result<()> {
             }
 
             let total_ms = profile_start.elapsed().as_millis();
+
+            // Record build telemetry (#101)
+            let out_dir_full = config.root.join(&config.out_dir);
+            let bundle_size: u64 = if out_dir_full.exists() {
+                std::fs::read_dir(&out_dir_full)
+                    .ok()
+                    .map(|entries| {
+                        entries.filter_map(|e| e.ok())
+                            .filter_map(|e| e.metadata().ok())
+                            .map(|m| m.len())
+                            .sum()
+                    })
+                    .unwrap_or(0)
+            } else { 0 };
+            let _ = pledgepack_core::telemetry::record_build(
+                &config.root,
+                total_ms,
+                result.modules_built,
+                result.modules_cached,
+                bundle_size as usize,
+                "production",
+                chunks.len(),
+                true,
+                None,
+            );
+
+            // Send build webhook (#105)
+            if config.webhooks.enabled {
+                let event = pledgepack_core::webhooks::BuildEvent {
+                    event: "build.complete".to_string(),
+                    success: true,
+                    duration_ms: total_ms,
+                    modules_built: result.modules_built,
+                    modules_cached: result.modules_cached,
+                    bundle_size: bundle_size as usize,
+                    chunk_count: chunks.len(),
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0),
+                    error: None,
+                };
+                let _ = pledgepack_core::webhooks::send_webhook(&config.webhooks, event).await;
+            }
+
+            // Check bundle size budgets (#102)
+            if config.budgets.enabled {
+                let chunk_sizes: Vec<(String, usize)> = chunks.iter()
+                    .map(|c| {
+                        let size: usize = c.modules.iter()
+                            .filter_map(|mid| engine.modules().get(mid))
+                            .map(|m| m.source.len())
+                            .sum();
+                        (c.id.clone(), size)
+                    })
+                    .collect();
+                let violations = pledgepack_core::budgets::check_budgets(
+                    &out_dir_full,
+                    &config.budgets,
+                    &chunk_sizes,
+                )?;
+
+                if !violations.is_empty() {
+                    // GitHub Actions annotation format
+                    if std::env::var("GITHUB_ACTIONS").is_ok() {
+                        print!("{}", pledgepack_core::budgets::format_github_annotations(&violations));
+                    }
+                    // Print violations
+                    for v in &violations {
+                        println!("  \x1b[31m✗ budget\x1b[0m {}", v.message);
+                    }
+                    anyhow::bail!("Budget check failed with {} violation(s)", violations.len());
+                } else {
+                    println!("  \x1b[32m✓ budgets\x1b[0m all within limits");
+                }
+            }
+
+            // a11y linting (#108)
+            if config.a11y.enabled {
+                let html_path = config.root.join(&config.out_dir).join("index.html");
+                if html_path.exists() {
+                    let html_content = std::fs::read_to_string(&html_path)?;
+                    let violations = pledgepack_core::a11y::lint_html(&html_content, &config.a11y)?;
+                    if !violations.is_empty() {
+                        print!("{}", pledgepack_core::a11y::format_violations(&violations));
+                        if config.a11y.fail_on_error && violations.iter().any(|v| v.severity == pledgepack_core::a11y::Severity::Error) {
+                            anyhow::bail!("a11y linting failed with {} error(s)", violations.iter().filter(|v| v.severity == pledgepack_core::a11y::Severity::Error).count());
+                        }
+                    } else {
+                        println!("  \x1b[32m✓ a11y\x1b[0m no violations found");
+                    }
+                }
+            }
 
             if config.profile {
                 println!("  \x1b[32m✓\x1b[0m Build profile:\n");
@@ -1105,7 +1231,7 @@ export default App;
             }
         },
 
-        Commands::Bench => {
+        Commands::Bench { baseline, threshold } => {
             println!("\n  \x1b[36mpledge bench\x1b[0m — benchmarking build performance\n");
 
             config.mode = pledgepack_core::config::BuildMode::Production;
@@ -1140,9 +1266,43 @@ export default App;
             println!("    Max:    {}ms", max);
             println!("    Avg:    {}ms", avg);
             println!("    Median: {}ms\n", median);
+
+            // Performance regression detection (#103)
+            if let Some(ref baseline_ref) = baseline {
+                let threshold = threshold.unwrap_or(10.0);
+                let report = pledgepack_core::bench::compare_with_baseline(
+                    &config.root,
+                    baseline_ref,
+                    median,
+                    threshold,
+                )?;
+
+                if let Some(ref r) = report {
+                    println!("{}", r.format());
+                } else {
+                    println!("  \x1b[32m✓ No regression\x1b[0m baseline={} median={}ms", baseline_ref, median);
+                }
+            }
+
+            // Record benchmark result
+            let git_ref = std::process::Command::new("git")
+                .args(["rev-parse", "--short", "HEAD"])
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| "current".to_string());
+
+            let _ = pledgepack_core::bench::record_bench(
+                &config.root,
+                &git_ref,
+                median,
+                times.len(),
+                0,
+            );
         }
 
-        Commands::Analyze { port } => {
+        Commands::Analyze { port, graph } => {
             println!("\n  \x1b[36mpledge analyze\x1b[0m — analyzing bundle...\n");
 
             config.mode = pledgepack_core::config::BuildMode::Production;
@@ -1151,7 +1311,20 @@ export default App;
             let _ = engine.build().await?;
 
             let analysis = pledgepack_core::analyzer::analyze_build(&engine)?;
-            let html_output = pledgepack_core::analyzer::generate_analysis_html(&analysis);
+            let html_output = if graph {
+                // Generate interactive dependency graph (#104)
+                let cycles = pledgepack_core::analyzer::detect_circular_deps(&analysis);
+                if !cycles.is_empty() {
+                    println!("  \x1b[33m⚠ {} circular dependency(s) detected:\x1b[0m", cycles.len());
+                    for cycle in &cycles {
+                        println!("    \x1b[31m{}\x1b[0m", cycle.join(" → "));
+                    }
+                    println!();
+                }
+                pledgepack_core::analyzer::generate_dependency_graph_html(&analysis)
+            } else {
+                pledgepack_core::analyzer::generate_analysis_html(&analysis)
+            };
 
             let port = port.unwrap_or(4200);
 
@@ -1386,6 +1559,40 @@ export default App;
                 let listener = tokio::net::TcpListener::bind(&addr).await?;
                 axum::serve(listener, app).await?;
             }
+        }
+
+        Commands::Dashboard { port } => {
+            let port = port.unwrap_or(4300);
+            println!("\n  \x1b[36mpledge dashboard\x1b[0m — build telemetry\n");
+
+            let history = pledgepack_core::telemetry::BuildHistory::load(&config.root)?;
+
+            if history.builds.is_empty() {
+                println!("  \x1b[33mNo build history found\x1b[0m — run `pledge build` first\n");
+                return Ok(());
+            }
+
+            let recent = history.recent(10);
+            println!("  \x1b[90m{} build(s) recorded\x1b[0m\n", history.builds.len());
+            for r in recent.iter().rev() {
+                let status = if r.success { "\x1b[32m✓\x1b[0m" } else { "\x1b[31m✗\x1b[0m" };
+                println!("    {} {}ms — {} modules, {:.0}% cache hit",
+                    status, r.duration_ms, r.modules_built + r.modules_cached,
+                    r.cache_hit_rate * 100.0,
+                );
+            }
+
+            let html_output = pledgepack_core::telemetry::generate_dashboard_html(&history);
+            println!("\n  \x1b[90mDashboard: http://localhost:{}\x1b[0m\n", port);
+
+            let app = axum::Router::new()
+                .route("/", axum::routing::get(move || async move {
+                    axum::response::Html(html_output.clone())
+                }));
+
+            let addr = format!("127.0.0.1:{}", port);
+            let listener = tokio::net::TcpListener::bind(&addr).await?;
+            axum::serve(listener, app).await?;
         }
 
         Commands::GenerateEnvTypes => {

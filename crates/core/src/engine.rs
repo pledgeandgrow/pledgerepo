@@ -7,7 +7,7 @@
 use crate::config::PledgeConfig;
 use crate::module::{ModuleId, ResolvedModule};
 use crate::module_graph::SerializableModuleGraph;
-use anyhow::Result;
+use anyhow::{Result, bail};
 use pledgepack_native_sys::Graph;
 use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
@@ -620,8 +620,24 @@ impl BuildEngine {
             &self.config,
         )?;
 
+        // i18n-aware bundling: transform locale imports (#106)
+        let code = if self.config.i18n.enabled {
+            crate::i18n::transform_i18n_imports(&transform_output.code, &self.config.i18n)
+        } else {
+            transform_output.code
+        };
+
+        // Build-time string encryption (#109)
+        let code = if self.config.encrypt.enabled {
+            crate::encrypt::encrypt_strings(&code, &self.config.encrypt)
+                .map(|(c, _)| c)
+                .unwrap_or(code)
+        } else {
+            code
+        };
+
         Ok(CachedOutput {
-            code: transform_output.code,
+            code,
             source_map: transform_output.source_map,
             deps,
             is_css: transform_output.is_css,
@@ -664,10 +680,26 @@ impl BuildEngine {
                     &config,
                 )?;
 
+                // i18n-aware bundling: transform locale imports (#106)
+                let code = if config.i18n.enabled {
+                    crate::i18n::transform_i18n_imports(&transform_output.code, &config.i18n)
+                } else {
+                    transform_output.code
+                };
+
+                // Build-time string encryption (#109)
+                let code = if config.encrypt.enabled {
+                    crate::encrypt::encrypt_strings(&code, &config.encrypt)
+                        .map(|(c, _)| c)
+                        .unwrap_or(code)
+                } else {
+                    code
+                };
+
                 Ok((
                     *id,
                     CachedOutput {
-                        code: transform_output.code,
+                        code,
                         source_map: transform_output.source_map,
                         deps,
                         is_css: transform_output.is_css,
@@ -706,7 +738,8 @@ impl BuildEngine {
     /// Emit production build artifacts to the output directory.
     /// Writes each module as a separate file with content hashes and generates index.html + manifest.json.
     /// Supports CSS code splitting, CSS extraction from JS, manual chunks, inline dynamic imports,
-    /// module preload directives, preload/prefetch links, multi-script entry, and build manifest.
+    /// module preload directives with configurable strategy (#52), preload/prefetch links,
+    /// multi-script entry, build manifest, incremental output diff (#54), and build verification (#53).
     pub fn emit(&self) -> Result<()> {
         let out_dir = &self.config.out_dir;
         // Clean output directory to remove stale files from previous builds
@@ -756,6 +789,48 @@ impl BuildEngine {
                     std::fs::create_dir_all(parent)?;
                 }
 
+                // Compute entry/async status early (needed for incremental output check)
+                let original_rel = rel.to_string_lossy().replace('\\', "/");
+                let is_entry = entries.iter().any(|e| {
+                    let entry_normalized = e.replace('\\', "/");
+                    original_rel == *e || original_rel == entry_normalized
+                        || original_rel.ends_with(&entry_normalized)
+                });
+                let is_async = !cached.is_css && !cached.dynamic_imports.is_empty()
+                    && !self.config.build.inline_dynamic_imports
+                    && !is_entry;
+
+                // Incremental output (#54): skip writing if file exists with identical content
+                if self.config.build.incremental_output && out_path.exists() {
+                    if let Ok(existing) = std::fs::read_to_string(&out_path) {
+                        if existing == cached.code {
+                            tracing::debug!("Skipped unchanged: {}", out_path.display());
+                            // Still track for manifest/HTML
+                            if is_css {
+                                css_files.push(hashed_rel.clone());
+                            } else {
+                                if is_async {
+                                    async_chunks.push(hashed_rel.clone());
+                                } else {
+                                    js_files.push(hashed_rel.clone());
+                                }
+                            }
+                            if is_entry {
+                                entry_chunks.push((original_rel.clone(), hashed_rel.clone()));
+                            }
+                            manifest_entries.insert(original_rel.clone(), ManifestEntry {
+                                file: hashed_rel.clone(),
+                                is_entry,
+                                is_css,
+                                is_async,
+                                imports: if !is_css { cached.dynamic_imports.clone() } else { Vec::new() },
+                                css: if is_css { Some(hashed_rel.clone()) } else { None },
+                            });
+                            continue;
+                        }
+                    }
+                }
+
                 // Write the transformed code using mmap for large files
                 write_output_file(&out_path, &cached.code)?;
                 tracing::info!("Emitted: {}", out_path.display());
@@ -774,6 +849,19 @@ impl BuildEngine {
                 // Track CSS files for HTML injection
                 if is_css {
                     css_files.push(hashed_rel.clone());
+
+                    // RTL CSS auto-generation for standalone CSS files (#107)
+                    if crate::rtl::should_generate_rtl(&self.config.css) {
+                        let css_content = std::fs::read_to_string(&out_path).unwrap_or_default();
+                        if let Some(rtl_css) = crate::rtl::generate_rtl_css(&css_content, &self.config.css) {
+                            let rtl_path = out_path.with_extension({
+                                let ext = out_path.extension().and_then(|e| e.to_str()).unwrap_or("css");
+                                format!("{}.rtl", ext)
+                            });
+                            std::fs::write(&rtl_path, &rtl_css)?;
+                            tracing::info!("RTL CSS: {}", rtl_path.display());
+                        }
+                    }
                 } else {
                     // CSS extraction from JS: if this JS module has extracted CSS, write it as a separate .css file
                     if let Some(ref extracted_css) = cached.extracted_css {
@@ -786,16 +874,19 @@ impl BuildEngine {
                         std::fs::write(&css_out_path, extracted_css)?;
                         css_files.push(css_rel.clone());
                         tracing::info!("Extracted CSS: {}", css_out_path.display());
+
+                        // RTL CSS auto-generation (#107)
+                        if crate::rtl::should_generate_rtl(&self.config.css) {
+                            if let Some(rtl_css) = crate::rtl::generate_rtl_css(extracted_css, &self.config.css) {
+                                let rtl_name = format!("{}.{}.rtl.css", css_stem, css_hash_hex);
+                                let rtl_out_path = out_path.with_file_name(rtl_name);
+                                std::fs::write(&rtl_out_path, &rtl_css)?;
+                                tracing::info!("RTL CSS: {}", rtl_out_path.display());
+                            }
+                        }
                     }
 
-                    // Check if this is an async chunk (dynamic import)
-                    let is_async = !cached.dynamic_imports.is_empty()
-                        && !self.config.build.inline_dynamic_imports
-                        && !entries.iter().any(|e| {
-                            let entry_path = self.config.root.join(e);
-                            module.path == entry_path
-                        });
-
+                    // Track async vs sync chunks (using pre-computed is_async)
                     if is_async {
                         async_chunks.push(hashed_rel.clone());
                     } else {
@@ -803,19 +894,12 @@ impl BuildEngine {
                     }
                 }
 
-                // Track manifest entry (original path → hashed path + metadata)
-                let original_rel = rel.to_string_lossy().replace('\\', "/");
-                let is_entry = entries.iter().any(|e| {
-                    let entry_normalized = e.replace('\\', "/");
-                    original_rel == *e || original_rel == entry_normalized
-                        || original_rel.ends_with(&entry_normalized)
-                });
-
+                // Track manifest entry (using pre-computed original_rel, is_entry, is_async)
                 manifest_entries.insert(original_rel.clone(), ManifestEntry {
                     file: hashed_rel.clone(),
                     is_entry,
                     is_css,
-                    is_async: !is_css && !cached.dynamic_imports.is_empty() && !self.config.build.inline_dynamic_imports,
+                    is_async,
                     imports: if !is_css { cached.dynamic_imports.clone() } else { Vec::new() },
                     css: if is_css { Some(hashed_rel.clone()) } else { None },
                 });
@@ -922,14 +1006,44 @@ impl BuildEngine {
             }
         }
 
-        // Module preload directives for async chunks
-        let module_preloads: String = if self.config.build.module_preload {
-            async_chunks.iter()
-                .map(|chunk| format!(r#"    <link rel="modulepreload" href="/{}" />"#, chunk))
-                .collect::<Vec<_>>()
-                .join("\n")
-        } else {
-            String::new()
+        // Module preload directives — strategy-based (#52)
+        // "eager": preload all entry + async chunks
+        // "lazy":  only preload entry chunks (default), async chunks loaded on demand
+        // "manual": skip auto-generation, user controls via HTML
+        let module_preloads: String = match self.config.build.preload_strategy.as_str() {
+            "manual" => String::new(),
+            "eager" => {
+                let mut chunks_to_preload: Vec<&String> = Vec::new();
+                // Preload entry chunks first
+                for (_, hashed) in &entry_chunks {
+                    chunks_to_preload.push(hashed);
+                }
+                // Then async chunks
+                for chunk in &async_chunks {
+                    if !chunks_to_preload.contains(&chunk) {
+                        chunks_to_preload.push(chunk);
+                    }
+                }
+                if self.config.build.module_preload {
+                    chunks_to_preload.iter()
+                        .map(|chunk| format!(r#"    <link rel="modulepreload" href="/{}" />"#, chunk))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                } else {
+                    String::new()
+                }
+            }
+            _ => {
+                // "lazy" (default) — only preload entry chunks
+                if self.config.build.module_preload {
+                    entry_chunks.iter()
+                        .map(|(_, hashed)| format!(r#"    <link rel="modulepreload" href="/{}" />"#, hashed))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                } else {
+                    String::new()
+                }
+            }
         };
 
         // Preload directives for critical assets (fonts, images)
@@ -1009,6 +1123,111 @@ impl BuildEngine {
             script_tags
         );
         std::fs::write(out_dir.join("index.html"), html)?;
+
+        // Build output verification (#53)
+        if self.config.build.verify_output {
+            self.verify_build_output(out_dir, &manifest_entries)?;
+        }
+
+        Ok(())
+    }
+
+    /// Verify build output integrity (#53).
+    /// Checks that all manifest entries exist on disk, no broken import references,
+    /// and all referenced assets are present in the output directory.
+    fn verify_build_output(
+        &self,
+        out_dir: &std::path::Path,
+        manifest_entries: &std::collections::HashMap<String, ManifestEntry>,
+    ) -> Result<()> {
+        tracing::info!("Verifying build output...");
+
+        let mut errors: Vec<String> = Vec::new();
+        let mut checked = 0;
+
+        for (original, entry) in manifest_entries {
+            let file_path = out_dir.join(&entry.file);
+
+            // Check 1: file exists
+            if !file_path.exists() {
+                errors.push(format!(
+                    "Missing output file: {} (referenced by {})",
+                    entry.file, original
+                ));
+                continue;
+            }
+
+            // Check 2: file is not empty
+            let metadata = std::fs::metadata(&file_path)?;
+            if metadata.len() == 0 {
+                errors.push(format!("Empty output file: {}", entry.file));
+                continue;
+            }
+
+            // Check 3: for JS files, verify import references resolve
+            if !entry.is_css && !entry.is_async {
+                if let Ok(content) = std::fs::read_to_string(&file_path) {
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("import ") || trimmed.starts_with("export ") {
+                            if let Some(from_pos) = trimmed.find(" from \"") {
+                                let rest = &trimmed[from_pos + 7..];
+                                if let Some(end) = rest.find('"') {
+                                    let import_path = &rest[..end];
+                                    if import_path.starts_with("./") || import_path.starts_with("../") {
+                                        let resolved = file_path.parent()
+                                            .map(|p| p.join(import_path.replace(".js", "").replace(".ts", "").replace(".tsx", "")))
+                                            .unwrap_or_default();
+                                        let found = [".js", ".mjs", ".css", ".json"]
+                                            .iter()
+                                            .any(|ext| resolved.with_extension(ext.trim_start_matches('.')).exists());
+                                        if !found && !resolved.exists() {
+                                            errors.push(format!(
+                                                "Broken import in {}: \"{}\" does not resolve to any output file",
+                                                entry.file, import_path
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Check 4: for CSS files referenced in manifest, verify they exist
+            if let Some(ref css) = entry.css {
+                let css_path = out_dir.join(css);
+                if !css_path.exists() {
+                    errors.push(format!(
+                        "Missing CSS file: {} (referenced by {})",
+                        css, original
+                    ));
+                }
+            }
+
+            checked += 1;
+        }
+
+        // Check 5: verify index.html exists
+        if !out_dir.join("index.html").exists() {
+            errors.push("Missing index.html in output directory".to_string());
+        }
+
+        // Check 6: verify manifest.json exists
+        if !out_dir.join("manifest.json").exists() {
+            errors.push("Missing manifest.json in output directory".to_string());
+        }
+
+        if errors.is_empty() {
+            tracing::info!("Build verification passed: {} files checked, all OK", checked);
+        } else {
+            tracing::error!("Build verification failed with {} error(s):", errors.len());
+            for err in &errors {
+                tracing::error!("  ✗ {}", err);
+            }
+            bail!("Build output verification failed: {} error(s)", errors.len());
+        }
 
         Ok(())
     }

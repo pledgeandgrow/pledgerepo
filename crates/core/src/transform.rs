@@ -55,7 +55,7 @@ pub fn transform(
         ModuleKind::Css => transform_css(source, file_path, is_production, config),
         ModuleKind::Json => transform_json(source),
         ModuleKind::Asset => transform_asset(file_path, source.as_bytes(), is_production, config),
-        ModuleKind::Wasm => transform_wasm(file_path),
+        ModuleKind::Wasm => transform_wasm(file_path, config),
         ModuleKind::Vue => transform_vue(source, file_path, is_production),
         ModuleKind::Svelte => transform_svelte(source, file_path, is_production),
         ModuleKind::Astro => transform_astro(source, file_path, is_production),
@@ -130,9 +130,10 @@ fn transform_js(
             options.jsx.import_source = Some("vue".to_string());
         }
         _ => {
-            // React: classic runtime
-            options.jsx.runtime = JsxRuntime::Classic;
-            options.jsx.development = false;
+            // React: automatic JSX runtime (React 17+)
+            options.jsx.runtime = JsxRuntime::Automatic;
+            options.jsx.development = !is_production;
+            options.jsx.import_source = Some("react".to_string());
         }
     }
 
@@ -178,11 +179,16 @@ fn transform_js(
 
     // Step 8: Inject React Fast Refresh in dev mode for React components
     let mut code = replace_env_vars(&codegen_result.code, config);
-    
-    // Step 8a: Expand import.meta.glob() calls into static module maps
+
+    // Step 8a: Inline process.env.* variables at build time (#51)
+    if config.build.env_inline {
+        code = inline_process_env(&code, is_production);
+    }
+
+    // Step 8b: Expand import.meta.glob() calls into static module maps
     code = expand_import_meta_glob(&code, file_path, config);
-    
-    // Step 8b: Apply define replacements (compile-time constants)
+
+    // Step 8c: Apply define replacements (compile-time constants)
     if !config.define.is_empty() {
         code = apply_define(&code, &config.define);
     }
@@ -255,6 +261,141 @@ fn replace_env_vars(code: &str, config: &PledgeConfig) -> String {
 
     let env = EnvVars::load(&config.root, mode, &config.env_prefix);
     env.inject_into_code(code, &config.env_prefix)
+}
+
+/// Inline process.env.* variables at build time (#51).
+/// Replaces process.env.NODE_ENV with "production" or "development",
+/// and inlines other process.env.* variables from the actual environment.
+/// Also eliminates dead branches that become unreachable after inlining
+/// (e.g., `if (process.env.NODE_ENV !== "production") { ... }` in production).
+fn inline_process_env(code: &str, is_production: bool) -> String {
+    let mut result = code.to_string();
+
+    // Replace process.env.NODE_ENV first — most common case
+    let node_env = if is_production { "\"production\"" } else { "\"development\"" };
+    result = result.replace("process.env.NODE_ENV", node_env);
+
+    // Replace other common process.env.* variables from the actual environment
+    for (key, value) in std::env::vars() {
+        let pattern = format!("process.env.{}", key);
+        if result.contains(&pattern) {
+            // Determine replacement type: booleans/numbers as-is, strings quoted
+            let replacement = if value == "true" || value == "false" {
+                value.clone()
+            } else if value.parse::<f64>().is_ok() {
+                value.clone()
+            } else {
+                format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+            };
+            result = result.replace(&pattern, &replacement);
+        }
+    }
+
+    // Eliminate dead branches after env var inlining:
+    // if (false) { ... } → removed
+    // if (true) { ... } else { ... } → keep if-block, remove else-block
+    // if ("production" !== "production") { ... } → removed
+    // if ("production" === "production") { ... } → keep if-block
+    result = eliminate_dead_branches(&result);
+
+    result
+}
+
+/// Eliminate dead branches that result from env var inlining.
+/// Handles simple if-statements with constant conditions.
+fn eliminate_dead_branches(code: &str) -> String {
+    let mut result = code.to_string();
+
+    // Pattern: if (false) { ... } — remove the entire if block
+    // We need to find matching braces, handling nesting
+    while let Some(pos) = result.find("if (false)") {
+        if let Some((block_start, block_end)) = find_block_after(&result, pos + "if (false)".len()) {
+            // Also check for trailing else and remove it too if it's an if-false
+            let after = &result[block_end..];
+            if after.trim_start().starts_with("else") {
+                let else_start = block_end + after.find("else").unwrap();
+                let after_else = &result[else_start + 4..];
+                // else { ... } — keep the else block content (unwrapped)
+                if let Some((else_bs, else_be)) = find_block_after(&result, else_start + 4) {
+                    let else_content = result[else_bs + 1..else_be].to_string();
+                    result.replace_range(pos..else_be + 1, else_content.trim());
+                    continue;
+                }
+            }
+            // No else — just remove the if block
+            result.replace_range(pos..block_end + 1, "");
+        } else {
+            break;
+        }
+    }
+
+    // Pattern: if (true) { ... } else { ... } — keep if-block, remove else
+    while let Some(pos) = result.find("if (true)") {
+        if let Some((block_start, block_end)) = find_block_after(&result, pos + "if (true)".len()) {
+            let after = &result[block_end..];
+            if after.trim_start().starts_with("else") {
+                let else_start = block_end + after.find("else").unwrap();
+                // Remove from end of if-block to end of else-block
+                if let Some((_, else_be)) = find_block_after(&result, else_start + 4) {
+                    // Keep the if-block content, remove the else
+                    let if_content = result[block_start + 1..block_end].to_string();
+                    result.replace_range(pos..else_be + 1, if_content.trim());
+                    continue;
+                }
+            }
+            // No else — unwrap the if-block: if (true) { X } → X
+            let if_content = result[block_start + 1..block_end].to_string();
+            result.replace_range(pos..block_end + 1, if_content.trim());
+        } else {
+            break;
+        }
+    }
+
+    result
+}
+
+/// Find the { ... } block starting after the given position, handling nested braces.
+/// Returns (open_brace_pos, close_brace_pos) or None if no block found.
+fn find_block_after(code: &str, start: usize) -> Option<(usize, usize)> {
+    let mut pos = start;
+    // Skip whitespace to find opening brace
+    while pos < code.len() && code.as_bytes()[pos].is_ascii_whitespace() {
+        pos += 1;
+    }
+    if pos >= code.len() || code.as_bytes()[pos] != b'{' {
+        return None;
+    }
+    let block_start = pos;
+    let mut depth = 1;
+    pos += 1;
+    while pos < code.len() && depth > 0 {
+        match code.as_bytes()[pos] {
+            b'{' => depth += 1,
+            b'}' => depth -= 1,
+            b'"' => {
+                // Skip string literals
+                pos += 1;
+                while pos < code.len() && code.as_bytes()[pos] != b'"' {
+                    if code.as_bytes()[pos] == b'\\' { pos += 1; }
+                    pos += 1;
+                }
+            }
+            b'\'' => {
+                pos += 1;
+                while pos < code.len() && code.as_bytes()[pos] != b'\'' {
+                    if code.as_bytes()[pos] == b'\\' { pos += 1; }
+                    pos += 1;
+                }
+            }
+            _ => {}
+        }
+        pos += 1;
+    }
+    if depth == 0 {
+        Some((block_start, pos - 1))
+    } else {
+        None
+    }
 }
 
 /// Replace compile-time constants defined in config.define.
@@ -938,12 +1079,50 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
 
 /// Transform WASM imports into async instantiation
 /// import wasm from './module.wasm' → export default async function() { ... }
-fn transform_wasm(file_path: &str) -> Result<TransformOutput> {
+/// Supports SIMD auto-detection (#55): generates runtime feature detection
+/// that uses WebAssembly.validate() to check for SIMD support, then loads
+/// the appropriate WASM module variant.
+fn transform_wasm(file_path: &str, config: &PledgeConfig) -> Result<TransformOutput> {
     let url = format!("/{}", file_path.replace('\\', "/"));
-    let code = format!(r#"export default async function() {{
-  const {{ instance }} = await WebAssembly.instantiateStreaming(fetch("{}"));
+    let simd_mode = &config.build.wasm_simd;
+
+    let code = match simd_mode.as_str() {
+        "always" => {
+            // Always use SIMD-optimized instantiation
+            format!(r#"export default async function() {{
+  const {{ instance }} = await WebAssembly.instantiateStreaming(fetch("{}"), {{}});
   return instance.exports;
-}}"#, url);
+}}"#, url)
+        }
+        "never" => {
+            // Always use non-SIMD fallback
+            format!(r#"export default async function() {{
+  const response = await fetch("{}");
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const {{ instance }} = await WebAssembly.instantiate(bytes, {{}});
+  return instance.exports;
+}}"#, url)
+        }
+        _ => {
+            // "auto" — runtime feature detection via WebAssembly.validate()
+            // Generate SIMD test module (a simple v128.const instruction)
+            // If validation passes, browser supports WASM SIMD
+            let simd_url = format!("{}.simd.wasm", url.trim_end_matches(".wasm"));
+            format!(r#"// WASM SIMD auto-detection (#55)
+const _simdTest = new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,12,1,10,0,65,0,253,15,253,15,11]);
+const _hasSimd = (() => {{
+  try {{ return WebAssembly.validate(_simdTest); }} catch {{ return false; }}
+}})();
+export default async function() {{
+  const url = _hasSimd ? "{}" : "{}";
+  const response = await fetch(url);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const {{ instance }} = await WebAssembly.instantiate(bytes, {{}});
+  return instance.exports;
+}}"#, simd_url, url)
+        }
+    };
+
     Ok(TransformOutput {
         code,
         source_map: None,

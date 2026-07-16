@@ -773,3 +773,16 @@ Complete all 60 roadmap items across HMR, build optimization, image pipeline, te
 ### DX & Tooling (49-50) ✅
 49. LSP server — `lsp_server.rs` (go-to-definition, diagnostics, hover, symbols)
 50. Migration tooling — `migrate_config()` in `migrate.rs`
+
+### Observability & Monitoring (101-105) ✅
+101. Build telemetry dashboard — `telemetry.rs` — `pledge dashboard` command, web UI at `localhost:4300`, build history persisted to `.pledge/history.json` (max 100 entries), SVG chart with duration/cache-hit-rate trends
+102. Bundle size budget CI — `budgets.rs` — `pledge build --check-budgets` flag, `budgets` config with `maxBundleSize`/`maxChunkSize`/`maxChunkCount`/`entryBudgets`, GitHub Actions `::error` annotations, PR comment markdown
+103. Performance regression detection — `bench.rs` — `pledge bench --baseline <ref>` and `--threshold <pct>` flags, median of 5 runs, baseline stored in `.pledge/bench.json`, exits non-zero on regression
+104. Module dependency graph — `analyzer.rs` — `pledge analyze --graph` flag, interactive force-directed graph with canvas physics, circular dependency detection via DFS, color-coded nodes (entry/CSS/module/circular)
+105. Build event webhooks — `webhooks.rs` — `webhooks` config with `onBuild`/`onError` URLs, auto-detects Slack/Discord formats, custom headers, async POST after build
+
+### Internationalization & Accessibility (106-109) ✅
+106. i18n-aware bundling — `i18n.rs` — `i18n` config with `locales`/`defaultLocale`/`messagePattern`, `${locale}` import pattern transforms, runtime locale detection shim, only default locale bundled
+107. RTL CSS auto-generation — `rtl.rs` — `css: { rtl: 'auto' }` config, 20+ physical-to-logical property mappings, generates `[dir="rtl"]` scoped `.rtl.css` files for both standalone and extracted CSS
+108. Accessibility linting — `a11y.rs` — `a11y` config with `enabled`/`failOnError`/`checkAlt`/`checkAria`/`checkContrast`, checks img-alt, button-aria-label, input-label, html-lang, html-title, color-contrast
+109. Build-time string encryption — `encrypt.rs` — `encrypt` config with `key`/`keys`, XOR cipher + base64 encoding, `__pledge_decrypt()` runtime shim injected, prevents plain-text secrets in bundle output
