@@ -149,12 +149,49 @@ pub fn format_pr_comment(violations: &[BudgetViolation], chunk_sizes: &[(String,
     md
 }
 
-fn format_bytes(bytes: usize) -> String {
-    if bytes < 1024 {
-        format!("{}B", bytes)
-    } else if bytes < 1024 * 1024 {
-        format!("{:.1}KB", bytes as f64 / 1024.0)
+/// Format budget violations and chunk sizes as a comfy-table for CLI output
+pub fn format_budget_table(violations: &[BudgetViolation], chunk_sizes: &[(String, usize)]) -> String {
+    let mut table = comfy_table::Table::new();
+    table
+        .load_preset(comfy_table::presets::UTF8_FULL)
+        .apply_modifier(comfy_table::modifiers::UTF8_ROUND_CORNERS)
+        .set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+
+    if violations.is_empty() {
+        table
+            .set_header(vec!["Status", "Message"])
+            .add_row(vec!["✓", "All budgets within limits"]);
     } else {
-        format!("{:.1}MB", bytes as f64 / (1024.0 * 1024.0))
+        table
+            .set_header(vec!["Field", "Actual", "Limit", "Message"])
+            .add_rows(
+                violations.iter().map(|v| {
+                    vec![
+                        v.field.clone(),
+                        format_bytes(v.actual),
+                        format_bytes(v.limit),
+                        v.message.clone(),
+                    ]
+                }),
+            );
     }
+
+    // Add chunk sizes section
+    let mut chunk_table = comfy_table::Table::new();
+    chunk_table
+        .load_preset(comfy_table::presets::UTF8_FULL)
+        .apply_modifier(comfy_table::modifiers::UTF8_ROUND_CORNERS)
+        .set_content_arrangement(comfy_table::ContentArrangement::Dynamic)
+        .set_header(vec!["Chunk", "Size"])
+        .add_rows(
+            chunk_sizes.iter().map(|(name, size)| {
+                vec![name.clone(), format_bytes(*size)]
+            }),
+        );
+
+    format!("{}\n\n{}", table, chunk_table)
+}
+
+fn format_bytes(bytes: usize) -> String {
+    crate::format_size(bytes)
 }

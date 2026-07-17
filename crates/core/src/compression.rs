@@ -96,6 +96,23 @@ impl CompressionStats {
         }
         self.brotli_bytes as f64 / self.original_bytes as f64
     }
+
+    /// Format compression stats as a comfy-table for CLI output
+    pub fn format_stats_table(&self) -> String {
+        let mut table = comfy_table::Table::new();
+        table
+            .load_preset(comfy_table::presets::UTF8_FULL)
+            .apply_modifier(comfy_table::modifiers::UTF8_ROUND_CORNERS)
+            .set_content_arrangement(comfy_table::ContentArrangement::Dynamic)
+            .set_header(vec!["Metric", "Value"])
+            .add_row(vec!["Files Compressed", &self.files_compressed.to_string()])
+            .add_row(vec!["Original Size", &format_bytes(self.original_bytes)])
+            .add_row(vec!["Gzip Size", &format_bytes(self.gzipped_bytes)])
+            .add_row(vec!["Gzip Ratio", &format!("{:.1}%", self.gzip_ratio() * 100.0)])
+            .add_row(vec!["Brotli Size", &format_bytes(self.brotli_bytes)])
+            .add_row(vec!["Brotli Ratio", &format!("{:.1}%", self.brotli_ratio() * 100.0)]);
+        table.to_string()
+    }
 }
 
 /// Collect files that should be compressed (JS, CSS, HTML, JSON, SVG)
@@ -161,11 +178,5 @@ fn compress_brotli(input: &Path, output: &str) -> Result<usize> {
 
 /// Format bytes as a human-readable string
 fn format_bytes(bytes: usize) -> String {
-    if bytes < 1024 {
-        format!("{}B", bytes)
-    } else if bytes < 1024 * 1024 {
-        format!("{:.1}KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{:.1}MB", bytes as f64 / (1024.0 * 1024.0))
-    }
+    crate::format_size(bytes)
 }

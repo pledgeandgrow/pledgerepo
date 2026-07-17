@@ -97,6 +97,16 @@ enum Commands {
         /// Check bundle size budgets and exit non-zero on violations (#102)
         #[arg(long)]
         check_budgets: bool,
+
+        /// Environment-specific build (#117)
+        /// Loads .env.{env} and sets process.env.NODE_ENV accordingly
+        #[arg(long)]
+        env: Option<String>,
+
+        /// GraphQL code generation (#116)
+        /// Generates TypeScript types from .graphql schema files
+        #[arg(long)]
+        codegen: bool,
     },
 
     /// Preview a production build with compression
@@ -206,6 +216,21 @@ enum Commands {
         #[arg(short, long)]
         shell: Option<String>,
     },
+
+    /// Generate man pages for package managers (Homebrew, Scoop, etc.)
+    Manpages {
+        /// Output directory for man page files
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
+    /// Generate JSON Schema for pledge.config.ts / pledge.json
+    /// Useful for IDE autocompletion and config validation
+    Schema {
+        /// Output file path (default: stdout)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -218,6 +243,11 @@ enum CacheAction {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Install miette's graphical error handler for rich diagnostics
+    miette::set_hook(Box::new(|_| {
+        Box::new(miette::MietteHandlerOpts::new().build())
+    })).ok();
+
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -236,6 +266,29 @@ async fn main() -> Result<()> {
         PledgeConfig::load(&root_path)?
     };
     config.root = std::fs::canonicalize(&root_path).unwrap_or(root_path);
+
+    // Feature 94: Apply plugin presets
+    if !config.presets.is_empty() {
+        pledgepack_core::ecosystem::apply_presets(&mut config)?;
+        tracing::info!("Applied {} presets", config.presets.len());
+    }
+
+    // Feature 98: Detect workspace for monorepo support
+    if let Some(ref ws_config) = config.workspaces {
+        if ws_config.enabled {
+            if let Some(ws) = pledgepack_core::ecosystem::detect_workspace(&config.root) {
+                tracing::info!("Workspace detected: {} packages ({})",
+                    ws.packages.len(), ws.package_manager);
+
+                // Feature 100: Shared cache at workspace root
+                if ws_config.shared_cache {
+                    let shared_cache = pledgepack_core::ecosystem::resolve_shared_cache_dir(&ws, ws_config);
+                    config.cache.dir = shared_cache;
+                    tracing::info!("Shared cache: {}", config.cache.dir.display());
+                }
+            }
+        }
+    }
 
     match cli.command {
         Commands::Dev { port, host, open } => {
@@ -259,7 +312,7 @@ async fn main() -> Result<()> {
             pledgepack_dev_server::serve(engine, &config).await?;
         }
 
-        Commands::Build { out_dir, no_sourcemap, profile, watch, verify, check_budgets } => {
+        Commands::Build { out_dir, no_sourcemap, profile, watch, verify, check_budgets, env, codegen } => {
             if let Some(out) = out_dir {
                 config.out_dir = out.into_std_path_buf();
             }
@@ -276,6 +329,65 @@ async fn main() -> Result<()> {
                 config.budgets.enabled = true;
             }
             config.mode = pledgepack_core::config::BuildMode::Production;
+
+            // Feature 117: Environment-specific builds
+            if let Some(ref env_name) = env {
+                let env_vars = pledgepack_core::advanced::load_env_file(&config.root, env_name);
+                let node_env = pledgepack_core::advanced::resolve_node_env(&env_vars, true);
+                println!("  \x1b[90m→\x1b[0m Environment: {} (NODE_ENV={})", env_name, node_env);
+                // Apply env vars to config define
+                for (key, val) in &env_vars {
+                    config.define.insert(
+                        format!("process.env.{}", key),
+                        format!("\"{}\"", val),
+                    );
+                }
+                config.define.insert(
+                    "process.env.NODE_ENV".to_string(),
+                    format!("\"{}\"", node_env),
+                );
+            }
+
+            // Feature 116: GraphQL code generation
+            if codegen {
+                if let Some(ref gql_cfg) = config.graphql {
+                    if !gql_cfg.schema.is_empty() {
+                        let schema_path = config.root.join(&gql_cfg.schema);
+                        if schema_path.exists() {
+                            let schema_source = std::fs::read_to_string(&schema_path)?;
+                            let codegen_cfg = pledgepack_core::advanced::GraphqlCodegenConfig {
+                                schema: gql_cfg.schema.clone(),
+                                output: gql_cfg.output.clone(),
+                                typescript: true,
+                                react_hooks: gql_cfg.react_hooks,
+                            };
+                            let types = pledgepack_core::advanced::generate_graphql_types(&schema_source, &codegen_cfg)?;
+                            let out_dir = config.root.join(&gql_cfg.output);
+                            std::fs::create_dir_all(&out_dir)?;
+                            std::fs::write(out_dir.join("graphql-types.ts"), &types)?;
+                            println!("  \x1b[32m✓\x1b[0m GraphQL types generated → {}/graphql-types.ts", gql_cfg.output);
+                        } else {
+                            println!("  \x1b[33m⚠\x1b[0m GraphQL schema not found: {}", schema_path.display());
+                        }
+                    } else {
+                        println!("  \x1b[33m⚠\x1b[0m GraphQL schema path not configured");
+                    }
+                } else {
+                    println!("  \x1b[33m⚠\x1b[0m GraphQL config not set — add `graphql: {{ schema: 'schema.graphql' }}` to pledge.config.ts");
+                }
+            }
+
+            // Feature 115: Module federation bootstrap
+            if let Some(ref fed_cfg) = config.federation {
+                if let Some(parsed) = pledgepack_core::advanced::parse_federation_config(fed_cfg) {
+                    let bootstrap = pledgepack_core::advanced::generate_federation_host_bootstrap(&parsed);
+                    let bootstrap_path = config.out_dir.join("__pledge_federation__.js");
+                    // Write after build — store for now
+                    std::fs::create_dir_all(&config.out_dir)?;
+                    std::fs::write(&bootstrap_path, &bootstrap)?;
+                    tracing::info!("Module federation: host '{}' with {} remotes", parsed.name, parsed.remotes.len());
+                }
+            }
 
             println!("\n  \x1b[36mpledge\x1b[0m building for production...\n");
 
@@ -505,13 +617,98 @@ async fn main() -> Result<()> {
                 }
             }
 
+            // Feature 118: Post-build optimization hooks
+            {
+                let out_dir_full = config.root.join(&config.out_dir);
+                let html_path = out_dir_full.join("index.html");
+                let chunk_names: Vec<String> = chunks.iter().map(|c| c.id.clone()).collect();
+                let ctx = pledgepack_core::advanced::PostBuildContext {
+                    out_dir: out_dir_full.clone(),
+                    html_path: if html_path.exists() { Some(html_path) } else { None },
+                    chunks: chunk_names,
+                    assets: vec![],
+                };
+                let pb_result = pledgepack_core::advanced::run_post_build_hooks(&ctx)?;
+                if pb_result.sitemap_generated {
+                    println!("  \x1b[32m✓ post-build\x1b[0m sitemap.xml generated");
+                }
+                if pb_result.html_modified {
+                    println!("  \x1b[32m✓ post-build\x1b[0m HTML meta tags injected: {} tag(s)", pb_result.meta_tags_added.len());
+                }
+                for warning in &pb_result.warnings {
+                    println!("  \x1b[33m⚠ post-build\x1b[0m {}", warning);
+                }
+            }
+
+            // Feature 113: Service worker caching strategies
+            if let Some(ref sw_cfg) = config.sw {
+                if !sw_cfg.caching.is_empty() {
+                    let runtime_rules: Vec<pledgepack_core::service_worker::RuntimeCacheRule> = sw_cfg.caching.iter()
+                        .map(|r| pledgepack_core::service_worker::RuntimeCacheRule {
+                            pattern: r.pattern.clone(),
+                            strategy: match r.strategy.as_str() {
+                                "cache-first" => pledgepack_core::service_worker::CacheStrategy::CacheFirst,
+                                "network-first" => pledgepack_core::service_worker::CacheStrategy::NetworkFirst,
+                                "stale-while-revalidate" => pledgepack_core::service_worker::CacheStrategy::StaleWhileRevalidate,
+                                "network-only" => pledgepack_core::service_worker::CacheStrategy::NetworkOnly,
+                                "cache-only" => pledgepack_core::service_worker::CacheStrategy::CacheOnly,
+                                _ => pledgepack_core::service_worker::CacheStrategy::NetworkFirst,
+                            },
+                        })
+                        .collect();
+                    let sw_config = pledgepack_core::service_worker::ServiceWorkerConfig {
+                        cache_name: sw_cfg.cache_name.clone(),
+                        precache: vec![],
+                        runtime_caching: runtime_rules,
+                        offline_fallback: sw_cfg.offline_fallback.clone(),
+                        skip_waiting: true,
+                        clients_claim: true,
+                    };
+                    let sw_code = pledgepack_core::service_worker::generate_service_worker(&sw_config);
+                    let sw_path = config.root.join(&config.out_dir).join("sw.js");
+                    std::fs::write(&sw_path, &sw_code)?;
+                    println!("  \x1b[32m✓ service worker\x1b[0m {} caching rule(s) → sw.js", sw_cfg.caching.len());
+                }
+            }
+
+            // #81: SRI (Subresource Integrity) hashes
+            // #82: CSP (Content Security Policy) generation
+            if let Some(ref sec_cfg) = config.security {
+                let out_dir_full = config.root.join(&config.out_dir);
+                let html_path = out_dir_full.join("index.html");
+
+                if sec_cfg.sri && html_path.exists() {
+                    let html = std::fs::read_to_string(&html_path)?;
+                    let html_with_sri = pledgepack_core::security::inject_sri_into_html(&html, &out_dir_full);
+                    std::fs::write(&html_path, &html_with_sri)?;
+                    println!("  \x1b[32m✓ SRI\x1b[0m integrity hashes injected into HTML");
+                }
+
+                if sec_cfg.csp == "auto" {
+                    if html_path.exists() {
+                        let html = std::fs::read_to_string(&html_path)?;
+                        let csp = pledgepack_core::security::generate_csp_from_build(&html, &out_dir_full);
+                        tracing::info!("CSP generated: {}", csp);
+                        println!("  \x1b[32m✓ CSP\x1b[0m _headers file generated");
+                    }
+                }
+            }
+
             if config.profile {
                 println!("  \x1b[32m✓\x1b[0m Build profile:\n");
-                println!("    Parse + Transform: {}ms", result.duration_ms);
-                println!("    Optimize:          {}ms", optimize_ms);
-                println!("    Emit:              {}ms", emit_ms);
-                println!("    Dep Pre-bundle:    {}ms", dep_ms);
-                println!("    Total:             {}ms\n", total_ms);
+                let mut profile_table = comfy_table::Table::new();
+                profile_table
+                    .load_preset(comfy_table::presets::UTF8_FULL)
+                    .apply_modifier(comfy_table::modifiers::UTF8_ROUND_CORNERS)
+                    .set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+                profile_table
+                    .set_header(vec!["Phase", "Time (ms)"])
+                    .add_row(vec!["Parse + Transform", &result.duration_ms.to_string()])
+                    .add_row(vec!["Optimize", &optimize_ms.to_string()])
+                    .add_row(vec!["Emit", &emit_ms.to_string()])
+                    .add_row(vec!["Dep Pre-bundle", &dep_ms.to_string()])
+                    .add_row(vec!["Total", &total_ms.to_string()]);
+                println!("{}\n", profile_table);
             } else {
                 println!(
                     "  \x1b[32m✓\x1b[0m Built {} modules ({} cached) in {}ms\n",
@@ -1079,6 +1276,27 @@ export default App;
             } else {
                 println!("\n  \x1b[32mAll checks passed!\x1b[0m\n");
             }
+
+            // #83: Dependency vulnerability scanning
+            println!("  \x1b[1mSecurity Audit\x1b[0m");
+            let vulns = pledgepack_core::security::scan_vulnerabilities(root);
+            println!("{}", pledgepack_core::security::format_vulnerability_report(&vulns));
+            println!();
+
+            // #84: License compliance checking
+            println!("  \x1b[1mLicense Compliance\x1b[0m");
+            let licenses = pledgepack_core::security::scan_licenses(root);
+            if licenses.is_empty() {
+                println!("  \x1b[90m— no node_modules found (run npm install first)\x1b[0m");
+            } else {
+                let result = pledgepack_core::security::check_license_compliance(
+                    &licenses,
+                    &[], // no whitelist by default
+                    &["GPL-3.0", "AGPL-3.0"], // blacklist copyleft by default
+                );
+                println!("{}", pledgepack_core::security::format_license_report(&result));
+            }
+            println!();
         }
 
         Commands::Migrate { dry_run } => {
@@ -1262,10 +1480,20 @@ export default App;
             let median = times[times.len() / 2];
 
             println!("\n  \x1b[32mBenchmark Results\x1b[0m ({} runs)\n", runs);
-            println!("    Min:    {}ms", min);
-            println!("    Max:    {}ms", max);
-            println!("    Avg:    {}ms", avg);
-            println!("    Median: {}ms\n", median);
+
+            let mut bench_table = comfy_table::Table::new();
+            bench_table
+                .load_preset(comfy_table::presets::UTF8_FULL)
+                .apply_modifier(comfy_table::modifiers::UTF8_ROUND_CORNERS)
+                .set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
+            bench_table
+                .set_header(vec!["Metric", "Time (ms)"])
+                .add_row(vec!["Min", &min.to_string()])
+                .add_row(vec!["Max", &max.to_string()])
+                .add_row(vec!["Avg", &avg.to_string()])
+                .add_row(vec!["Median", &median.to_string()]);
+            println!("{}", bench_table);
+            println!();
 
             // Performance regression detection (#103)
             if let Some(ref baseline_ref) = baseline {
@@ -1645,13 +1873,108 @@ export default App;
             clap_complete::generate(shell_enum, &mut cmd, bin_name, &mut std::io::stdout());
             println!("\n  \x1b[32m✓\x1b[0m Add the output to your shell's completion directory or source it in your rc file.\n");
         }
+
+        Commands::Manpages { output } => {
+            use clap::CommandFactory;
+
+            let out_dir = output.unwrap_or_else(|| PathBuf::from("."));
+            std::fs::create_dir_all(&out_dir)?;
+
+            let cmd = Cli::command();
+            let bin_name = "pledge";
+
+            println!("\n  \x1b[36mpledge manpages\x1b[0m — generating man pages in {}\n", out_dir.display());
+
+            // Generate main man page
+            let man = clap_mangen::Man::new(cmd.clone());
+            let mut buffer: Vec<u8> = Vec::new();
+            man.render(&mut buffer)?;
+            let man_path = out_dir.join(format!("{}.1", bin_name));
+            std::fs::write(&man_path, &buffer)?;
+            println!("  \x1b[32m✓\x1b[0m {}", man_path.display());
+
+            // Generate subcommand man pages
+            for sub in cmd.get_subcommands() {
+                let name = sub.get_name();
+                let sub_man = clap_mangen::Man::new(sub.clone());
+                let mut sub_buffer: Vec<u8> = Vec::new();
+                if sub_man.render(&mut sub_buffer).is_ok() {
+                    let sub_path = out_dir.join(format!("{}-{}.1", bin_name, name));
+                    if std::fs::write(&sub_path, &sub_buffer).is_ok() {
+                        println!("  \x1b[32m✓\x1b[0m {}", sub_path.display());
+                    }
+                }
+            }
+
+            println!("\n  \x1b[32m✓\x1b[0m Man pages generated. Install to /usr/local/share/man/man1/\n");
+        }
+
+        Commands::Schema { output } => {
+            let schema = pledgepack_core::generate_config_schema();
+            let pretty = serde_json::to_string_pretty(&schema)?;
+
+            if let Some(path) = output {
+                std::fs::write(&path, &pretty)?;
+                println!("  \x1b[32m✓\x1b[0m JSON Schema written to {}", path.display());
+            } else {
+                println!("{}", pretty);
+            }
+        }
     }
 
     Ok(())
 }
 
-/// Recursively collect test files matching a pattern
-fn collect_test_files(dir: &std::path::Path, _pattern: &str, files: &mut Vec<PathBuf>) -> Result<()> {
+/// Recursively collect test files matching a pattern using globset
+fn collect_test_files(dir: &std::path::Path, pattern: &str, files: &mut Vec<PathBuf>) -> Result<()> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+
+    // Build a GlobSet from the pattern (may contain brace expansion like {test,spec})
+    let glob = match globset::Glob::new(pattern) {
+        Ok(g) => g,
+        Err(_) => {
+            // Fall back to simple matching if glob pattern is invalid
+            return collect_test_files_fallback(dir, pattern, files);
+        }
+    };
+    let matcher = glob.compile_matcher();
+
+    fn walk(dir: &std::path::Path, matcher: &globset::GlobMatcher, files: &mut Vec<PathBuf>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+
+                if path.is_dir() {
+                    if path.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "node_modules" || n.starts_with('.'))
+                        .unwrap_or(false)
+                    {
+                        continue;
+                    }
+                    walk(&path, matcher, files);
+                } else if path.is_file() {
+                    let rel = path.strip_prefix(dir).unwrap_or(&path);
+                    let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    if matcher.is_match(&rel_str) {
+                        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        if matches!(ext, "ts" | "tsx" | "js" | "jsx") {
+                            files.push(path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    walk(dir, &matcher, files);
+    Ok(())
+}
+
+/// Fallback test file collection using simple string matching
+fn collect_test_files_fallback(dir: &std::path::Path, _pattern: &str, files: &mut Vec<PathBuf>) -> Result<()> {
     if !dir.is_dir() {
         return Ok(());
     }
@@ -1661,7 +1984,6 @@ fn collect_test_files(dir: &std::path::Path, _pattern: &str, files: &mut Vec<Pat
         let path = entry.path();
 
         if path.is_dir() {
-            // Skip node_modules and hidden dirs
             if path.file_name()
                 .and_then(|n| n.to_str())
                 .map(|n| n == "node_modules" || n.starts_with('.'))
@@ -1669,7 +1991,7 @@ fn collect_test_files(dir: &std::path::Path, _pattern: &str, files: &mut Vec<Pat
             {
                 continue;
             }
-            collect_test_files(&path, _pattern, files)?;
+            collect_test_files_fallback(&path, _pattern, files)?;
         } else if path.is_file() {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if name.contains(".test.") || name.contains(".spec.") {

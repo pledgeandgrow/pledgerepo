@@ -286,6 +286,9 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
     // HTTPS support
     if let Some(ref https_config) = config.https {
         info!("Dev server running at https://{}", addr);
+        if let Ok(ip) = local_ip_address::local_ip() {
+            info!("  → Network: https://{}:{}", ip, port);
+        }
         let cert_path = &https_config.cert;
         let key_path = &https_config.key;
 
@@ -328,6 +331,9 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
         axum::serve(tls_listener, app).await?;
     } else {
         info!("Dev server running at http://{}", addr);
+        if let Ok(ip) = local_ip_address::local_ip() {
+            info!("  → Network: http://{}:{}", ip, port);
+        }
         let listener = tokio::net::TcpListener::bind(&addr).await?;
         axum::serve(listener, app).await?;
     }
@@ -1213,6 +1219,7 @@ __existing.textContent = __css;
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
+            content_hash: None,
         };
         // Fall through to JS handling by re-running the logic below
         return serve_js_module(&path, &transform_output.code, &state).await;
@@ -2296,24 +2303,9 @@ fn guess_content_type(path: &str) -> &'static str {
 }
 
 /// Open the default browser to the given URL.
-/// Uses platform-specific commands: `start` on Windows, `open` on macOS, `xdg-open` on Linux.
+/// Uses the `opener` crate for cross-platform support (Windows, macOS, Linux, WSL).
 fn open_browser(url: &str) {
-    #[cfg(target_os = "windows")]
-    let cmd = "cmd";
-    #[cfg(target_os = "windows")]
-    let args = ["/C", "start", "", url];
-
-    #[cfg(target_os = "macos")]
-    let cmd = "open";
-    #[cfg(target_os = "macos")]
-    let args = [url];
-
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-    let cmd = "xdg-open";
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-    let args = [url];
-
-    match std::process::Command::new(cmd).args(&args).spawn() {
+    match opener::open(url) {
         Ok(_) => info!("Opened browser at {}", url),
         Err(e) => tracing::warn!("Failed to open browser: {}", e),
     }

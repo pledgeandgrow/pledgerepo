@@ -13,10 +13,11 @@ members = [
     "crates/adapter-solid",
     "crates/adapter-next",
     "crates/adapter-tanstack",
+    "crates/adapter-pledgestack",
 ]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.6"
 edition = "2024"
 license = "MIT"
 authors = ["pledgepack"]
@@ -73,6 +74,7 @@ inquire = "0.7"
 
 # File watching
 notify = "8"
+notify-debouncer-full = "0.7"
 
 # C library bindings (native file watcher on Linux)
 libc = "0.2"
@@ -88,6 +90,42 @@ tikv-jemallocator = { version = "0.6", features = ["profiling"] }
 # Typed UTF-8 paths
 camino = "1"
 
+# Fast glob pattern matching
+globset = "0.4"
+
+# Regular expression engine
+regex = "1"
+
+# Memory-mapped file I/O
+memmap2 = "0.9"
+
+# CLI tables
+comfy-table = "7"
+
+# YAML parsing
+serde_yaml = "0.9"
+
+# Source-context error diagnostics
+miette = { version = "7", features = ["fancy"] }
+
+# Man page generation
+clap_mangen = "0.2"
+
+# Human-readable file sizes
+humansize = "2"
+
+# Diff algorithm for HMR patches
+similar = { version = "2", features = ["text"] }
+
+# Cross-platform browser opening
+opener = "0.7"
+
+# Local IP address detection for network URL display
+local-ip-address = "0.6"
+
+# JSON Schema generation for config validation/IDE support
+schemars = "1"
+
 # Internal crates
 pledgepack-core = { path = "crates/core" }
 pledgepack-cache = { path = "crates/cache" }
@@ -100,6 +138,7 @@ pledgepack-adapter-react = { path = "crates/adapter-react" }
 pledgepack-adapter-solid = { path = "crates/adapter-solid" }
 pledgepack-adapter-next = { path = "crates/adapter-next" }
 pledgepack-adapter-tanstack = { path = "crates/adapter-tanstack" }
+pledgepack-adapter-pledgestack = { path = "crates/adapter-pledgestack" }
 
 [profile.release]
 opt-level = 3

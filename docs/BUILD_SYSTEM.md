@@ -48,6 +48,8 @@
    ├── Check bundle size budgets (#102) — if --check-budgets flag or budgets.enabled
    ├── Lint HTML for accessibility (#108) — if a11y.enabled
    ├── Send build event webhooks (#105) — if webhooks.onBuild/onError configured
+   ├── Inject SRI hashes (#81) — if security.sri enabled
+   ├── Generate CSP _headers file (#82) — if security.csp == "auto"
    └── Compress output (gzip .gz + brotli .br files)
 ```
 
@@ -81,6 +83,11 @@ During step 3 (transform), the following optimizations are applied in order:
 9. CSS source maps — generate_css_source_map() maps to original source
 10. PostCSS plugin caching — blake3 content hash for incremental processing
 11. RTL CSS auto-generation (#107) — if css.rtl is 'auto' or 'manual', generates [dir="rtl"] scoped CSS from LTR output using logical property mappings
+12. Dark mode CSS (#67) — generate_dark_mode_css() auto-generates dark variants from prefers-color-scheme or custom property inversion
+13. Custom property optimization (#68) — optimize_custom_properties() inlines static vars, removes unused, minifies names (production)
+14. Scoped CSS for React (#69) — scope_css_with_attribute() adds data-v-xxxxx attribute selectors
+15. CSS Modules composes (#66) — parse_composes() + strip_composes() for cross-file composition resolution
+16. CSS-in-JS runtime tree shaking (#73) — strip_css_in_js_runtime() removes runtime imports after static extraction
 ```
 
 ## Asset Pipeline
@@ -90,8 +97,14 @@ MDX files        → compile_mdx() — Markdown + JSX with frontmatter
 GraphQL files    → parse_graphql() + graphql_to_module() with TypeScript types
 YAML/CSV/TSV     → transform_yaml() / transform_csv() / transform_tsv() with typed exports
 Images           → select_image_format() — WebP/AVIF auto-selection, generate_picture_element()
+                   Responsive srcset (#79) — config.image.responsive_widths for custom breakpoints
+                   Asset inlining (#80) — assets under build.assets_inline_limit auto-inlined as base64
 Audio/Video      → transform_audio_asset() / transform_video_asset() with URL exports
+                   Video poster (#78) — transform_video_asset() exports poster URL alongside src
 PDF              → transform_pdf_asset() with inline base64 support
+SVG              → optimize_svg() + ?sprite suffix (#77) generates <symbol> sprite sheet
+Fonts            → optimize_fonts() (#76) with FontSubsetConfig, wired via build.font_subsetting
+WASM             → transform_wasm() (#74) with WebAssembly.instantiateStreaming() + SIMD auto-detection
 All assets       → AssetManifest with content-hashed output paths
 ```
 
@@ -172,10 +185,70 @@ TransformOptions {
 - `@apply` expansion → 80+ utility class mappings
 - Processed before Lightning CSS parsing
 
-### Web Workers
+### Web Workers (#111, #112)
 - `new Worker(new URL('./worker.ts', import.meta.url))` → `new Worker('/src/worker.js')`
 - `new SharedWorker(new URL(...))` patterns also supported
 - `.worker.js` / `.worker.ts` extensions detected as `ModuleKind::Worker`
+- `?worker` import suffix: `import MyWorker from './worker.ts?worker'` → `const MyWorker = function() { return new Worker('/src/worker.js'); }`
+- `?sharedworker` import suffix: `import MyWorker from './worker.ts?sharedworker'` → `const MyWorker = function() { return new SharedWorker('/src/worker.js'); }`
+- Resolver strips `?worker`/`?sharedworker` suffixes during module resolution
+- `ModuleKind::SharedWorker` for shared worker modules
+
+### Web Components (#110)
+- `.wc.tsx` / `.wc.jsx` files compiled to Custom Elements via `compile_web_component()`
+- Automatic `customElements.define('tag-name', ClassName)` registration
+- Shadow DOM with `mode: 'open'` — CSS scoped inside shadow root
+- Component name extracted from `export function` / `export const` declarations
+- Tag name auto-generated as kebab-case from component name
+- `ModuleKind::WebComponent` for web component modules
+
+### Service Worker Caching (#113)
+- Per-route caching strategy configuration via `sw: { caching: [...] }` config
+- Strategies: `cache-first`, `network-first`, `stale-while-revalidate`, `network-only`, `cache-only`
+- `sw: { cache_name: 'pledge-sw', offline_fallback: '/offline.html' }` config
+- Generates `sw.js` in output directory during build
+
+### Module Federation (#115)
+- `federation: { name: 'host', remotes: { app1: 'http://cdn/app1.js' }, shared: ['react'] }` config
+- Host bootstrap: `__pledge_federation__` global with remotes/shared/init/loadRemote
+- Remote entry: `__pledge_remote__` with exposes/shared/get/init
+- Shared modules support `requiredVersion`, `singleton`, `eager` options
+- `parse_federation_config()` parses JSON config into `FederationConfig` struct
+
+### GraphQL Code Generation (#116)
+- `pledge build --codegen` generates TypeScript types from `.graphql` schema files
+- `graphql: { schema: 'schema.graphql', output: 'src/generated', react_hooks: true }` config
+- Generates TypeScript interfaces for all GraphQL types
+- Nullable fields typed as `T | null`, lists as `T[]`
+- React hooks generated for Query operations (`useXxx` pattern)
+- Output: `src/generated/graphql-types.ts`
+
+### Environment-Specific Builds (#117)
+- `pledge build --env staging` loads `.env.staging` file
+- Env vars injected as `process.env.*` defines at build time
+- `NODE_ENV` resolved from env file or production flag
+- Multiple environments without code changes: `.env.development`, `.env.staging`, `.env.production`
+
+### Post-Build Optimization Hooks (#118)
+- `run_post_build_hooks()` executes after build emit
+- Generates `sitemap.xml` from HTML chunks
+- Injects missing HTML meta tags: viewport, description, charset
+- `PostBuildContext` provides output dir, HTML path, chunks, assets
+- `PostBuildResult` reports sitemap generation, HTML modification, warnings
+
+### Conditional Exports Resolution (#119)
+- `exports: { conditions: ['production', 'browser'] }` config
+- Custom conditions checked first, then defaults: browser > import > module > require > default
+- Supports sugar form (`{ "import": "...", "require": "..." }`) and subpath patterns (`"./components/*"`)
+- Wildcard `*` pattern matching in export keys
+- `Resolver::with_conditions()` constructor for custom conditions
+
+### Build Concurrency Control (#120)
+- `build: { parallel: 4 }` config limits concurrent module transforms
+- Auto-detects CPU cores via `std::thread::available_parallelism()` when not configured
+- Capped at 16 threads maximum
+- Uses dedicated rayon thread pool via `ThreadPoolBuilder::install()`
+- Prevents OOM on large projects with many modules
 
 ### Dynamic Import Detection
 - Oxc AST `ImportExpression` visitor for accurate detection
@@ -296,12 +369,14 @@ The HTML processor (`crates/core/src/html.rs`) parses `index.html` as an entry p
 - `.ts` → `.js`
 - `.jsx` → `.js`
 - `.js` → `.js` (passthrough after transform)
+- `.wc.tsx` / `.wc.jsx` → `.js` (Web Component compiled, Custom Element registered)
 - `.vue` → `.js` (SFC compiled, CSS extracted)
 - `.svelte` → `.js` (SFC compiled, CSS extracted)
 - `.astro` → `.js` (compiled, CSS extracted)
 - `.css` → `.css` (Lightning CSS processed)
 - `.json` → `.js` (named + default exports)
 - `.wasm` → `.js` (async instantiation wrapper)
+- `.graphql` / `.gql` → `.js` (with `--codegen`: TypeScript types generated)
 - `.png`/`.jpg`/`.svg`/etc. → URL string export (or base64 if `?inline`)
 
 ### Asset Hashing
@@ -333,7 +408,10 @@ The HTML processor (`crates/core/src/html.rs`) parses `index.html` as an entry p
 Entry chunks:  Entry module + exclusive dependencies
 Vendor chunk:  All modules in node_modules/
 Shared chunk:  Modules used by 2+ entry points
+Route chunks:  Per-route modules (#71) — split_by_routes() extracts shared route modules
 ```
+- **Route-based splitting (#71)**: `detect_routes()` scans app/pages directories, `split_by_routes()` creates per-route chunks with a shared chunk for modules used across routes
+- **Module prefetch (#72)**: `generate_prefetch_tags()` creates `<link rel="modulepreload">` and `<link rel="prefetch">` based on route chunks and prefetch strategy
 
 ### Scope Hoisting
 - ESM `import`/`export` preserved (no CommonJS wrappers)
@@ -633,3 +711,149 @@ export default defineConfig({
 - Injects `__pledge_decrypt()` runtime shim in bundle output
 - Encrypted values appear as `__pledge_decrypt("base64string")` in output
 - Prevents plain-text secrets from appearing in bundle source
+
+## JSON Schema Generation (`pledge schema`)
+
+Generates a JSON Schema for the `pledge.config.ts` configuration, enabling IDE autocompletion and validation:
+
+```bash
+pledge schema              # Output to stdout
+pledge schema --output schema.json  # Write to file
+```
+
+- Uses `schemars` crate to derive `JsonSchema` from `PledgeConfig` and all sub-structs/enums
+- Schema covers all config fields: build, dev_server, cache, plugins, image, i18n, a11y, encrypt, etc.
+- Can be used with VS Code JSON validation, JetBrains schema support, or any JSON Schema consumer
+
+## PledgeStack Framework Adapter
+
+PledgeStack is a Next.js-like full-stack framework with React frontend and Rust backend:
+
+```
+my-app/
+├── app/                        # Frontend routes (React .tsx)
+│   ├── page.tsx                # → GET /
+│   ├── about/page.tsx          # → GET /about
+│   └── blog/[slug]/page.tsx    # → GET /blog/:slug
+├── server/                     # Backend (Rust .rs or .psx)
+│   ├── api/
+│   │   ├── users.rs            # → /api/users
+│   │   └── auth.psx            # → /api/auth
+│   ├── middleware/
+│   │   └── auth.rs
+│   └── lib.rs                  # Server entry point
+├── components/                 # Co-located React components
+├── lib/                        # Shared utilities
+├── types/                      # TypeScript types
+├── pledge.config.ts
+├── Cargo.toml                  # Rust deps for server/
+└── package.json                # JS deps for frontend
+```
+
+### Route Discovery
+- `PledgeStackAdapter::discover()` scans `app/` and `server/` directories
+- Frontend routes: `page.tsx` files in `app/` directory
+- Backend routes: `#[route(GET, "/api/users")]` macros in `.rs` or `.psx` files
+- Middleware: files in `server/middleware/`
+- Server entry: `server/lib.rs`, `server/lib.psx`, `server/main.rs`, or `server/main.psx`
+
+### `.psx` Extension
+- PledgeStack eXtension — brands backend files, parallel to `.tsx` for frontend
+- Treated as Rust source code (same syntax, same tooling with VS Code file association)
+- Copied to `.rs` during build for `cargo build` compatibility
+
+### Route Macro Formats
+```rust
+// Simple
+#[route(GET, "/api/users")]
+pub async fn list_users() { }
+
+// Qualified
+#[pledge::route(POST, "/api/auth")]
+pub async fn login() { }
+
+// Key-value
+#[route(method = "DELETE", path = "/api/users/:id")]
+pub async fn delete_user() { }
+```
+
+## Plugin Presets (#94)
+
+Plugin presets bundle plugins and config defaults for specific ecosystems.
+
+```ts
+// pledge.config.ts
+export default defineConfig({
+  presets: ['react', 'tailwind'],  // applies both presets
+})
+```
+
+**Built-in presets**: `react`, `tailwind`, `solid`, `vue`, `svelte`, `astro`
+
+**Community presets**: Install `pledgepack-preset-{name}` from npm. The preset's `preset.json` is loaded automatically.
+
+```json
+// node_modules/pledgepack-preset-remix/preset.json
+{
+  "name": "remix",
+  "plugins": ["./plugins/remix-router.js"],
+  "config_defaults": { "framework": "react" },
+  "description": "Remix preset with SSR routing"
+}
+```
+
+## Custom Transformer Pipeline (#97)
+
+Insert custom transform steps at any point in the pipeline.
+
+```ts
+export default defineConfig({
+  transform_pipeline: {
+    pipeline: ['my-wasm-transform', 'minify'],
+    replace_default: false,  // insert into default pipeline
+  }
+})
+```
+
+When `replace_default: false` (default), custom steps are inserted after `oxc` and before `minify`:
+```
+oxc → [custom steps] → minify → tree-shake
+```
+
+When `replace_default: true`, only the configured steps run:
+```
+oxc → my-wasm-transform → minify
+```
+
+## Monorepo & Workspaces (#98–#100)
+
+### Workspace-Aware Resolution (#98)
+
+Auto-detects npm/pnpm/yarn workspaces and resolves local packages instead of hitting node_modules.
+
+```ts
+export default defineConfig({
+  workspaces: {
+    enabled: true,           // auto-detect workspace root
+    root: './',              // explicit root (optional)
+    cross_package_hmr: true, // #99
+    shared_cache: true,      // #100
+  }
+})
+```
+
+Detection walks up the directory tree looking for:
+- `package.json` with `"workspaces"` field (npm/yarn)
+- `pnpm-workspace.yaml` (pnpm)
+- `lerna.json` (lerna monorepos)
+
+Bare specifiers like `@myorg/ui` resolve to the local workspace package, not the npm registry.
+
+### Cross-Package HMR (#99)
+
+When a file in a workspace package changes, HMR propagates to all consuming packages. The `HmrDependencyMap` scans source files, detects cross-package imports, and computes the full HMR update set.
+
+### Shared Build Cache (#100)
+
+When `shared_cache: true`, the build cache is placed at `{workspace_root}/.pledge/cache/` instead of per-package `node_modules/.pledge-cache/`. This enables cache reuse across packages for faster incremental builds.
+

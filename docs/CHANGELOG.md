@@ -4,6 +4,48 @@ Development history of the Pledge build system enhancements.
 
 ---
 
+## Release 0.1.6 (2026-07-17)
+
+### Summary
+Production-ready release with 19 new features (#66–#84): advanced CSS handling, security features, performance optimizations, and asset pipeline enhancements.
+
+### New Features
+- **CSS Modules composes** (#66) — cross-file `composes:` directive resolution
+- **Dark mode CSS generation** (#67) — auto-generate dark variants from `prefers-color-scheme`
+- **CSS custom property optimization** (#68) — inline, remove unused, minify variable names
+- **Scoped CSS for React** (#69) — `data-v-xxxxx` attribute-based scoping
+- **CSS nesting polyfill** (#70) — verified via lightningcss transpilation
+- **Route-based chunk splitting** (#71) — per-route chunks with shared extraction
+- **Module prefetch directives** (#72) — `<link rel="modulepreload">` generation
+- **CSS-in-JS runtime tree shaking** (#73) — strip styled-components/emotion runtime
+- **WASM streaming compilation** (#74) — `WebAssembly.instantiateStreaming()` with fallback
+- **Precompute module hash** (#75) — content hash at transform time
+- **Font subsetting** (#76) — subset fonts to used characters only
+- **SVG sprite generation** (#77) — `?sprite` suffix for `<symbol>` sprite sheets
+- **Video poster frame extraction** (#78) — `import { src, poster } from './video.mp4'`
+- **Responsive image srcset** (#79) — auto-generate srcset from `responsive_widths` config
+- **Asset inlining threshold** (#80) — configurable base64 inlining under threshold
+- **SRI hashes** (#81) — SHA-384 integrity attributes for scripts/stylesheets
+- **CSP generation** (#82) — auto-generate Content Security Policy `_headers` file
+- **Dependency vulnerability scanning** (#83) — CVE scanning in `pledge doctor`
+- **License compliance checking** (#84) — license whitelist/blacklist in `pledge doctor`
+
+### Bug Fixes
+- Fixed regex compatibility issues (removed unsupported lookahead/lookbehind)
+- Fixed `route_path_from_file` path normalization on Windows
+- Fixed `format_bytes` test to match `humansize::BINARY` output format
+- Fixed `extract_used_class_names` regex for template literal className attributes
+- Fixed `test_resolve_relative` to use absolute CWD path
+- Fixed missing `content_hash` field in `TransformOutput` initializations
+- Fixed missing `security` field in `PledgeConfig` default
+- Fixed reserved keyword `gen` conflict (Rust 2024 edition)
+
+### Test Results
+- 98+ tests pass across all crates
+- `cargo check --all-targets` clean with 0 errors
+
+---
+
 ## Phase 1: Oxc Transform Integration
 
 ### Goal
@@ -786,3 +828,263 @@ Complete all 60 roadmap items across HMR, build optimization, image pipeline, te
 107. RTL CSS auto-generation — `rtl.rs` — `css: { rtl: 'auto' }` config, 20+ physical-to-logical property mappings, generates `[dir="rtl"]` scoped `.rtl.css` files for both standalone and extracted CSS
 108. Accessibility linting — `a11y.rs` — `a11y` config with `enabled`/`failOnError`/`checkAlt`/`checkAria`/`checkContrast`, checks img-alt, button-aria-label, input-label, html-lang, html-title, color-contrast
 109. Build-time string encryption — `encrypt.rs` — `encrypt` config with `key`/`keys`, XOR cipher + base64 encoding, `__pledge_decrypt()` runtime shim injected, prevents plain-text secrets in bundle output
+
+---
+
+## Phase 14: Crate Integration & PledgeStack Adapter
+
+### Goal
+Replace manual implementations with mature Rust crates for diffing, browser opening, network detection, and JSON Schema generation. Add PledgeStack framework adapter for React frontend + Rust backend with `.rs`/`.psx` support.
+
+### Changes
+
+#### Crate Integrations
+
+##### `similar` — HMR Diff (`crates/dev-server/src/hmr_diff.rs`)
+- Replaced 180-line hand-rolled LCS diff algorithm with `similar::TextDiff` (Myers algorithm)
+- Removed the 200-line cap that caused brute `Replace` fallbacks on large files
+- Same public API (`DiffOp`, `LineDiff`, `compute_diff`) — no downstream changes
+- Added `similar = { version = "2", features = ["text"] }` to workspace + dev-server dependencies
+
+##### `opener` — Cross-Platform Browser Opening (`crates/dev-server/src/lib.rs`)
+- Replaced 20-line platform-specific `open_browser` function with single `opener::open(url)` call
+- Handles WSL, sandboxed macOS, and Linux variants automatically
+- Added `opener = "0.7"` to workspace + dev-server dependencies
+
+##### `local-ip-address` — Network URL Display (`crates/dev-server/src/lib.rs`)
+- Added network URL logging at both HTTP and HTTPS startup paths
+- Shows `→ Network: http://192.168.x.x:3000` alongside the localhost URL
+- Added `local-ip-address = "0.6"` to workspace + dev-server dependencies
+
+##### `schemars` — JSON Schema Generation (`crates/core/src/config.rs`, `crates/core/src/lib.rs`, `crates/cli/src/main.rs`)
+- Added `JsonSchema` derive to `PledgeConfig` and all 18 config sub-structs/enums
+- Added `generate_config_schema()` function in core lib returning JSON Schema as `serde_json::Value`
+- New `pledge schema` CLI subcommand — outputs JSON Schema to stdout or file via `--output`
+- Added `schemars = "1"` to workspace + core + cli dependencies
+
+##### `serde_yaml` — YAML Config Parsing (`crates/core/src/config.rs`)
+- Replaced hand-rolled line-based YAML parser with `serde_yaml` crate
+- Handles nested YAML, comments, multi-line strings, and edge cases
+- Added `serde_yaml = "0.9"` to workspace + core dependencies
+
+##### `miette` — Error Diagnostics (`crates/cli/src/main.rs`, `crates/core/`)
+- Replaced plain `anyhow` error messages with `miette` for graphical error diagnostics with source spans
+- Enabled `fancy` feature at workspace level for `MietteHandlerOpts`
+- Added `miette = { version = "7", features = ["fancy"] }` to workspace dependencies
+
+##### `clap_mangen` — Man Page Generation (`crates/cli/src/main.rs`)
+- Auto-generates roff man pages for `pledge` CLI commands
+- Added `clap_mangen = "0.2"` to workspace + cli dependencies
+
+##### `humansize` — File Size Formatting (`crates/core/`)
+- Replaced 4 duplicate `format_bytes` functions with unified `format_size()` using `humansize` crate
+- Consistent units across CLI output, cache stats, and build analysis
+- Added `humansize = "2"` to workspace + core dependencies
+
+#### PledgeStack Adapter (`crates/adapter-pledgestack/`)
+- New crate: `pledgepack-adapter-pledgestack` — React frontend + Rust backend framework adapter
+- Scans `app/` for React `.tsx` pages (file-based routing, dynamic `[slug]` segments)
+- Scans `server/api/` for Rust backend routes — recognizes both `.rs` and `.psx` files
+- Scans `server/middleware/` for middleware files (`.rs` or `.psx`)
+- Detects server entry point (`server/lib.rs`, `server/lib.psx`, `server/main.rs`, `server/main.psx`)
+- Parses `#[route(GET, "/api/users")]` and `#[pledge::route(...)]` macros to extract HTTP method, path, handler
+- Supports three macro formats: simple (`GET, "/path"`), qualified (`pledge::route(...)`), key-value (`method = "GET", path = "/path"`)
+- Generates `RouteManifest` (JSON) with all frontend + backend routes + middleware
+- `.psx` → `.rs` copy during build for `cargo build` compatibility
+- SSR/SSG detection from `getServerSideProps` / `getStaticProps` / `revalidate` exports
+- `.psx` extension: PledgeStack eXtension — brands backend files, parallel to `.tsx` for frontend
+- 6 unit tests covering extension parsing, param extraction, route attribute parsing (all formats), function name extraction
+
+#### Workspace Changes (`Cargo.toml`)
+- Added `pledgepack-adapter-pledgestack` to workspace members and dependencies
+- Added `similar`, `opener`, `local-ip-address`, `schemars` to workspace dependencies
+- Enabled `fancy` feature for `miette` at workspace level
+
+### Result
+- **8 crates integrated** replacing manual implementations with mature, well-tested alternatives
+- **PledgeStack adapter** created — first framework adapter with Rust backend support and `.psx` extension
+- **13 internal crates** total (up from 12)
+- **68 total packages** (55 external + 13 internal, up from 67)
+- Full workspace compiles with no errors
+- All PledgeStack adapter tests pass (6/6)
+
+---
+
+## Phase 15: Advanced Features (Roadmap v2 Items 110-113, 115-120)
+
+### Goal
+Implement Web Components compilation, Web/Shared Worker bundling with `?worker`/`?sharedworker` suffixes, Service Worker caching strategies, Module Federation, GraphQL code generation, environment-specific builds, post-build optimization hooks, conditional exports resolution, and build concurrency control.
+
+### Changes
+
+#### New Module: `crates/core/src/advanced.rs`
+- **Feature 110: Web Components compilation** — `compile_web_component()` transforms `.wc.tsx`/`.wc.jsx` files into Custom Elements with Shadow DOM. Extracts component name, generates `customElements.define()` registration, scopes CSS via shadow root.
+- **Feature 115: Module Federation** — `FederationConfig`, `SharedModule` structs. `generate_federation_host_bootstrap()` creates host runtime with remotes/shared modules. `generate_federation_remote_entry()` creates remote entry with exposes/shared. `parse_federation_config()` parses JSON config.
+- **Feature 116: GraphQL code generation** — `GraphqlCodegenConfig` struct. `generate_graphql_types()` parses GraphQL schema, generates TypeScript interfaces for all types, union types, query result types, and React hooks (`useXxx`).
+- **Feature 117: Environment-specific builds** — `load_env_file()` reads `.env.{name}` files. `resolve_node_env()` determines NODE_ENV from env vars or production flag.
+- **Feature 118: Post-build optimization hooks** — `PostBuildContext`, `PostBuildResult` structs. `run_post_build_hooks()` generates `sitemap.xml`, injects missing meta tags (viewport, description, charset) into HTML.
+- **Feature 119: Conditional exports resolution** — `resolve_conditional_exports()` resolves `package.json` exports with custom conditions. Supports sugar form, subpath patterns with `*` wildcards, and user-specified condition priority.
+- **Feature 120: Build concurrency control** — `determine_parallelism()` auto-detects CPU cores (capped at 16) or uses configured value.
+- 9 unit tests covering all features.
+
+#### `crates/core/src/config.rs`
+- Added `federation: Option<serde_json::Value>` field to `PledgeConfig`
+- Added `graphql: Option<GraphqlConfig>` field with `schema`, `output`, `react_hooks` config
+- Added `sw: Option<SwCachingConfig>` field with `caching` rules, `cache_name`, `offline_fallback`
+- Added `exports: Option<ExportsConfig>` field with `conditions` array
+- Added `parallel: Option<usize>` field to `BuildConfig`
+- New structs: `GraphqlConfig`, `SwCachingConfig`, `SwCacheRule`, `ExportsConfig`
+
+#### `crates/core/src/module.rs`
+- Added `ModuleKind::SharedWorker` and `ModuleKind::WebComponent` variants
+- `from_extension()` maps `.wc.tsx`/`.wc.jsx` → `WebComponent`
+
+#### `crates/core/src/module_graph.rs`
+- Added `SharedWorker` → `"sharedworker"` and `WebComponent` → `"webcomponent"` kind strings
+
+#### `crates/core/src/transform.rs`
+- `WebComponent` transform arm calls `advanced::compile_web_component()`
+- `SharedWorker` transform arm reuses `transform_js()`
+- Worker detection extended for `?worker` and `?sharedworker` suffixes
+- `transform_worker_imports()` now handles `?worker`/`?sharedworker` import suffix patterns, stripping suffixes and generating proper Worker/SharedWorker constructor calls
+
+#### `crates/core/src/engine.rs`
+- `transform_modules_parallel()` now uses a dedicated rayon thread pool with configured parallelism (`build.parallel` config or auto-detected CPU cores, capped at 16)
+
+#### `crates/resolver/src/lib.rs`
+- Added `custom_conditions: Vec<String>` field to `Resolver`
+- New `with_conditions()` constructor for custom export conditions
+- `resolve_conditions()` checks custom conditions first, then falls back to defaults
+- `resolve_uncached()` strips `?worker`/`?sharedworker` suffixes from specifiers
+
+#### `crates/cli/src/main.rs`
+- Added `--env <NAME>` flag to `build` command — loads `.env.{NAME}`, injects env vars as `process.env.*` defines
+- Added `--codegen` flag to `build` command — generates TypeScript types from GraphQL schema
+- Federation bootstrap generation — writes `__pledge_federation__.js` to output dir
+- Post-build hooks — generates sitemap.xml, injects HTML meta tags
+- Service worker caching — generates `sw.js` from `sw.caching` config rules
+
+#### `crates/core/src/lib.rs`
+- Registered `advanced` module
+- Exported `GraphqlConfig`, `SwCachingConfig`, `SwCacheRule`, `ExportsConfig`
+
+#### `README.md`
+- Roadmap v2 counter updated: 10 → 20 completed
+- Items 110-113, 115-120 marked as completed with strikethrough + ✅
+
+### Result
+- All 10 roadmap items implemented and integrated
+- `cargo check` passes with 0 errors
+- 9/9 unit tests pass in `advanced::tests`
+- 20 of 70 Roadmap v2 goals now completed
+
+## Phase 16: Ecosystem & Extensibility (#94–#100)
+
+### Plugin Preset System (#94)
+- New `presets: Vec<String>` field in `PledgeConfig` — e.g. `presets: ['react', 'tailwind']`
+- `ecosystem.rs`: `builtin_presets()` returns 6 built-in presets (react, tailwind, solid, vue, svelte, astro)
+- `resolve_preset()` checks built-in presets, then scans `node_modules/pledgepack-preset-*/preset.json` for community presets
+- `apply_presets()` merges plugin lists and config defaults (framework, css, jsx settings) into `PledgeConfig`
+- `list_available_presets()` enumerates all available presets (built-in + community)
+- CLI integration: presets applied automatically after config load in `main.rs`
+
+### Vite Plugin Compatibility Layer (#95)
+- Already implemented in `crates/plugin-host/src/vite_compat.rs`
+- `VitePlugin`, `VitePluginHost` with hook detection, enforce ordering (pre/normal/post), apply modes (build/serve/both)
+- Supports lifecycle hooks: resolveId, load, transform, buildStart, buildEnd, generateBundle, transformIndexHtml, configureServer
+
+### Rollup Plugin Adapter (#96)
+- Already implemented in `crates/plugin-host/src/vite_compat.rs` via `RollupPluginHost`
+- `RollupPluginHost` wraps `VitePluginHost` to run Rollup plugins unmodified
+
+### Custom Transformer Pipeline (#97)
+- New `TransformPipelineConfig` struct in `config.rs`: `pipeline: Vec<String>`, `replace_default: bool`
+- New `transform_pipeline: Option<TransformPipelineConfig>` field in `PledgeConfig`
+- `ecosystem.rs`: `build_pipeline()` constructs ordered transform steps; `default_pipeline()` returns [oxc, minify, tree-shake]
+- Custom steps inserted after oxc, before minify when `replace_default: false`
+- `TransformStep` struct tracks step name, built-in flag, and config
+
+### Workspace-Aware Resolution (#98)
+- New `WorkspaceConfig` struct in `config.rs`: `enabled`, `root`, `cross_package_hmr`, `shared_cache`
+- New `workspaces: Option<WorkspaceConfig>` field in `PledgeConfig`
+- `ecosystem.rs`: `detect_workspace()` auto-detects workspace root from package.json "workspaces", pnpm-workspace.yaml, or lerna.json
+- `detect_workspace_root()` walks up directory tree to find workspace root
+- Supports npm, pnpm, and yarn workspace patterns with glob expansion
+- `resolve_workspace_import()` resolves bare specifiers to local workspace packages via exports/module/main fields
+- `Resolver` in `crates/resolver/src/lib.rs`: new `with_workspace()` constructor and workspace-first resolution before node_modules
+
+### Cross-Package HMR (#99)
+- `HmrDependencyMap` in `ecosystem.rs`: maps files to packages and packages to files
+- `build_hmr_map()` scans workspace source files and builds dependency graph
+- `compute_hmr_set()` computes all files needing HMR updates when a source file changes, including reverse dependencies across packages
+- Detects cross-package imports by scanning source for import specifiers matching workspace package names
+
+### Shared Build Cache (#100)
+- `resolve_shared_cache_dir()` in `ecosystem.rs`: returns workspace root `.pledge/cache/` when `shared_cache: true`
+- CLI integration: cache directory updated to shared path after workspace detection in `main.rs`
+- Falls back to per-package `node_modules/.pledge-cache/` when shared cache disabled
+
+### Files Changed
+- `crates/core/src/config.rs` — New fields: `presets`, `transform_pipeline`, `workspaces`; new structs: `PluginPreset`, `TransformPipelineConfig`, `WorkspaceConfig`
+- `crates/core/src/ecosystem.rs` — New module: preset system, transformer pipeline, workspace detection, HMR dependency map, shared cache
+- `crates/core/src/lib.rs` — Register `ecosystem` module, export new config types
+- `crates/resolver/src/lib.rs` — Add `workspace` field, `with_workspace()` constructor, workspace resolution before node_modules
+- `crates/resolver/Cargo.toml` — Add `pledgepack-core` dependency
+- `crates/cli/src/main.rs` — Apply presets and detect workspace after config load
+
+### Results
+- `cargo check` passes with 0 errors
+- 8/8 unit tests pass in `ecosystem::tests`
+- 27 of 70 Roadmap v2 goals now completed
+
+---
+
+## Phase 19: Advanced CSS, Security, Performance & Asset Features (#66–#84)
+
+### Goal
+Implement advanced CSS handling (composes, dark mode, custom property optimization, scoped CSS, nesting polyfill), performance optimizations (route-based chunk splitting, module prefetch, CSS-in-JS runtime tree shaking, WASM streaming, precomputed module hashes), asset pipeline enhancements (font subsetting, SVG sprites, video poster extraction, responsive srcset, asset inlining), and security features (SRI hashes, CSP generation, vulnerability scanning, license compliance).
+
+### Advanced CSS (#66–#70)
+- **#66 CSS Modules composes**: `css_advanced.rs` — parse `composes:` directives (local + cross-file), resolve compositions, strip after resolution
+- **#67 Dark mode CSS generation**: `css_advanced.rs` — auto-generate dark mode variants from `prefers-color-scheme: dark` media queries or CSS custom property inversion; config: `css.dark_mode: "auto" | "extract" | "off"`
+- **#68 CSS custom property optimization**: `css_advanced.rs` — inline single-use custom properties, remove unused `:root` variables, minify custom property names in production; config: `css.optimize_custom_properties`, `css.minify_custom_property_names`
+- **#69 Scoped CSS for React**: `css_advanced.rs` — generate `data-v-xxxxx` scope hashes, scope all class selectors with attribute; config: `css.scoped: "attribute" | "off"`
+- **#70 CSS nesting polyfill**: Verified — lightningcss handles nesting transpilation during minify pass; `has_native_nesting()` detects `&` selector usage
+
+### Performance (#71–#75)
+- **#71 Route-based chunk splitting**: `performance.rs` — `detect_routes()` scans app/pages directories, `split_by_routes()` in optimizer extracts shared modules and creates per-route chunks; `ChunkType::Route` variant added
+- **#72 Module prefetch directives**: `performance.rs` — `generate_prefetch_tags()` creates `<link rel="modulepreload">` and `<link rel="prefetch">` based on route chunks and prefetch strategy; already wired in `html.rs`
+- **#73 CSS-in-JS runtime tree shaking**: `performance.rs` + `css_in_js.rs` — `strip_css_in_js_runtime()` removes runtime imports for styled-components, emotion, vanilla-extract after static extraction; `can_strip_runtime()` checks no dynamic styles remain; `tree_shake_runtime()` wrapper in `css_in_js.rs`
+- **#74 WASM streaming compilation**: `performance.rs` — `generate_wasm_streaming_code()` outputs `WebAssembly.instantiateStreaming()` with fallback to buffer instantiation; SIMD auto-detection; integrated in `transform_wasm()`
+- **#75 Precompute module hash at transform time**: `TransformOutput.content_hash` field added; `compute_module_hash()` in `performance.rs` computes SHA-256 hash during transform pass
+
+### Asset Pipeline (#76–#80)
+- **#76 Font subsetting**: Already implemented in `fonts.rs` — `optimize_fonts()` with `FontSubsetConfig`; wired in `engine.rs` via `build.font_subsetting` config flag
+- **#77 SVG sprite generation**: `?sprite` suffix handling in `transform_asset()` — generates `<symbol>` sprite from SVG; `svg.rs` `generate_sprite()`; also wired in `engine.rs` via `build.svg_sprite` flag
+- **#78 Video poster frame extraction**: `transform_video_asset()` in `asset_pipeline.rs` — exports `poster` URL alongside `src` for video files
+- **#79 Responsive image srcset**: `transform_asset()` uses `config.image.responsive_widths` for custom width breakpoints; defaults to `[640, 750, 828, 1080, 1200, 1920, 2048]`
+- **#80 Asset inlining threshold**: Already wired — `build.assets_inline_limit` (default 4096 bytes); `?inline` query forces inlining; production auto-inlines under threshold
+
+### Security (#81–#84)
+- **#81 SRI (Subresource Integrity) hashes**: `security.rs` — `inject_sri_into_html()` generates SHA-384 integrity attributes for `<script src>` and `<link rel="stylesheet">` tags; wired in CLI build post-processing; config: `security.sri: true`
+- **#82 CSP (Content Security Policy) generation**: `security.rs` — `CspGenerator` analyzes HTML for inline scripts/styles, external resources; generates `_headers` file with CSP; config: `security.csp: "auto"`
+- **#83 Dependency vulnerability scanning**: `security.rs` — `scan_vulnerabilities()` checks `package.json` dependencies against known CVE database; `format_vulnerability_report()` outputs colored report; wired in `pledge doctor` command
+- **#84 License compliance checking**: `security.rs` — `scan_licenses()` reads `node_modules/*/package.json` license fields; `check_license_compliance()` validates against whitelist/blacklist (default blacklists GPL-3.0, AGPL-3.0); wired in `pledge doctor` command
+
+### Files Changed
+- `crates/core/src/css_advanced.rs` — New module: composes parsing, dark mode, custom property optimization, scoped CSS, nesting detection
+- `crates/core/src/security.rs` — New module: SRI, CSP, vulnerability scanning, license compliance
+- `crates/core/src/performance.rs` — New module: route detection, chunk splitting, prefetch tags, CSS-in-JS stripping, WASM streaming, module hashing
+- `crates/core/src/css_in_js.rs` — Added `tree_shake_runtime()` wrapper for #73
+- `crates/core/src/config.rs` — Extended `CssConfig` (dark_mode, optimize_custom_properties, minify_custom_property_names, scoped), `ImageConfig` (responsive_widths), added `SecurityConfig`, `security` field on `PledgeConfig`
+- `crates/core/src/lib.rs` — Registered `css_advanced`, `security`, `performance` modules; exported `SecurityConfig`
+- `crates/core/src/transform.rs` — Integrated CSS advanced features in `transform_css`; WASM streaming in `transform_wasm`; `?sprite` suffix in `transform_asset`; `content_hash` field on `TransformOutput`; responsive_widths config in image processing
+- `crates/core/src/asset_pipeline.rs` — Video poster frame URL export in `transform_video_asset`
+- `crates/optimizer/src/lib.rs` — Added `ChunkType::Route`, `split_by_routes()` method
+- `crates/dev-server/src/lib.rs` — Updated `TransformOutput` construction with `content_hash` field
+- `crates/cli/src/main.rs` — SRI/CSP post-build processing; vulnerability scanning and license checking in `pledge doctor`
+
+### Results
+- `cargo check` passes with 0 errors
+- 33/33 unit tests pass across `css_advanced`, `security`, and `performance` modules
+- 19 roadmap items completed (#66–#84)

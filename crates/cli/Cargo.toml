@@ -36,6 +36,11 @@ camino = { workspace = true }
 clap_complete = { workspace = true }
 indicatif = { workspace = true }
 inquire = { workspace = true }
+globset = { workspace = true }
+comfy-table = { workspace = true }
+miette = { workspace = true, features = ["fancy"] }
+clap_mangen = { workspace = true }
+schemars = { workspace = true }
 
 [features]
 default = []

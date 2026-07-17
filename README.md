@@ -82,7 +82,8 @@ pledge-dev/
 │   ├── adapter-react/      # pledgepack-adapter-react: React JSX + Fast Refresh adapter (Oxc-based)
 │   ├── adapter-solid/      # pledgepack-adapter-solid: Solid.js JSX adapter (Oxc-based, solid-js runtime)
 │   ├── adapter-next/       # pledgepack-adapter-next: Next.js adapter (App/Pages Router, SSR, API routes)
-│   └── adapter-tanstack/   # pledgepack-adapter-tanstack: TanStack Router adapter (file-based routing)
+│   ├── adapter-tanstack/   # pledgepack-adapter-tanstack: TanStack Router adapter (file-based routing)
+│   └── adapter-pledgestack/ # pledgepack-adapter-pledgestack: PledgeStack adapter (React + Rust backend, .rs/.psx)
 ├── package.json            # npm scripts (dev, build, preview, serve, bench)
 └── docs/                   # Documentation
     ├── ARCHITECTURE.md     # System architecture deep dive
@@ -189,9 +190,12 @@ pledge create tanstack my-app # Scaffold a new TanStack Router project
 pledge create vanilla my-app  # Scaffold a new vanilla TS project
 pledge analyze       # Analyze bundle size with interactive treemap
 pledge analyze --port 4200  # Serve analysis on custom port
+pledge analyze --graph     # Generate interactive dependency graph
 pledge test          # Run tests (Vitest-compatible API)
 pledge test --watch   # Watch mode tests
 pledge test --ui      # Browser UI test mode
+pledge dashboard      # Build telemetry dashboard (localhost:4300)
+pledge schema         # Generate JSON Schema for pledge.config.ts
 pledge generate-env-types  # Generate pledge-env.d.ts for import.meta.env
 ```
 
@@ -363,6 +367,18 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 - **Route tree**: Auto-generated route tree with lazy imports
 - **Route manifest**: JSON manifest with parent/child relationships
 
+#### PledgeStack (`crates/adapter-pledgestack/`)
+- **React frontend + Rust backend**: Next.js-like full-stack framework with Rust backend instead of Node.js
+- **Frontend routes**: Scans `app/` for `.tsx` pages (file-based routing, dynamic `[slug]` segments)
+- **Backend routes**: Scans `server/api/` for `.rs` and `.psx` files with `#[route(GET, "/api/users")]` macros
+- **Middleware**: Scans `server/middleware/` for `.rs` or `.psx` middleware files
+- **Server entry**: Detects `server/lib.rs`, `server/lib.psx`, `server/main.rs`, or `server/main.psx`
+- **Route macro formats**: Simple (`GET, "/path"`), qualified (`pledge::route(...)`), key-value (`method = "GET", path = "/path"`)
+- **`.psx` extension**: PledgeStack eXtension — brands backend files, parallel to `.tsx` for frontend
+- **`.psx` → `.rs` copy**: Copies `.psx` files to `.rs` during build for `cargo build` compatibility
+- **Route manifest**: JSON manifest with all frontend + backend routes + middleware
+- **SSR/SSG detection**: Detects `getServerSideProps` / `getStaticProps` / `revalidate` exports
+
 ### CSS Processing
 
 #### Lightning CSS (`crates/core/src/transform.rs:transform_css`)
@@ -377,6 +393,26 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 - **Base reset**: Tailwind-compatible CSS reset injected for `@tailwind base`
 - **Container component**: Responsive `.container` class with breakpoint max-widths
 - **Utility classes**: Full subset of Tailwind utilities (display, flex, spacing, typography, etc.)
+
+#### Advanced CSS (`crates/core/src/css_advanced.rs`)
+- **CSS Modules composes**: Parse and resolve `composes: button from './buttons.css'` cross-file compositions; strip after resolution
+- **Dark mode generation**: Auto-generate dark mode variants from `prefers-color-scheme: dark` or CSS custom property inversion; config: `css.dark_mode`
+- **Custom property optimization**: Inline single-use variables, remove unused `:root` vars, minify property names in production
+- **Scoped CSS for React**: `data-v-xxxxx` attribute-based scoping (like Vue); config: `css.scoped: "attribute"`
+- **Nesting polyfill**: Native CSS nesting (`& > .child`) transpiled by lightningcss for older browser targets
+
+### Security (`crates/core/src/security.rs`)
+- **SRI hashes**: Generate `integrity` attributes for `<script>` and `<link>` tags; config: `security.sri: true`
+- **CSP generation**: Auto-generate Content Security Policy from build output; config: `security.csp: "auto"`
+- **Vulnerability scanning**: Scan `package.json` dependencies for known CVEs; integrated in `pledge doctor`
+- **License compliance**: Scan `node_modules` for license compatibility; blacklist copyleft licenses; integrated in `pledge doctor`
+
+### Performance (`crates/core/src/performance.rs`)
+- **Route-based chunk splitting**: Detect routes from app/pages directories, split per-route with shared chunk extraction
+- **Module prefetch directives**: Generate `<link rel="modulepreload">` and `<link rel="prefetch">` based on route chunks
+- **CSS-in-JS runtime tree shaking**: Strip styled-components/emotion/vanilla-extract runtime imports after static extraction
+- **WASM streaming compilation**: `WebAssembly.instantiateStreaming()` with fallback and SIMD auto-detection
+- **Precompute module hash**: Content hash computed at transform time, not during emit
 
 ### Asset Handling
 
@@ -431,7 +467,8 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 - **Content-Type**: `application/javascript; charset=utf-8` with `no-cache` headers
 - **Error overlay**: Full-screen in-browser error overlay with source context, stack traces, line/column display, auto-dismiss on HMR success
 - **Runtime error overlay**: Catches `window.error` events and unhandled promise rejections (`unhandledrejection`), displaying runtime errors in the overlay with stack traces
-- **Auto-open browser**: `open: true` config (or `--open` CLI flag) auto-opens the default browser on dev server start
+- **Auto-open browser**: `open: true` config (or `--open` CLI flag) auto-opens the default browser on dev server start via `opener` crate (cross-platform)
+- **Network URL display**: Shows local network IP alongside localhost URL via `local-ip-address` crate (e.g., `→ Network: http://192.168.x.x:3000`)
 - **CSS HMR**: `<style>` tags injected/updated without page reload on CSS file changes
 - **HTTPS support**: TLS via rustls + tokio-rustls (config: `https: { cert, key }`)
 - **Dev server proxy**: All HTTP methods (GET, POST, PUT, DELETE, PATCH) proxied via reqwest
@@ -606,6 +643,28 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 - Reads all `PLEDGE_*`-prefixed variables from `.env` files
 - Provides autocompletion for `import.meta.env.*` in TypeScript
 
+### `pledge schema` — JSON Schema Generation
+- Generates JSON Schema for `pledge.config.ts` configuration via `schemars` crate
+- `pledge schema` outputs to stdout, `pledge schema --output schema.json` writes to file
+- Covers all config fields: build, dev_server, cache, plugins, image, i18n, a11y, encrypt, etc.
+- Enables IDE autocompletion and validation for pledge config files
+
+### `pledge dashboard` — Build Telemetry
+- Serves interactive web UI at `localhost:4300` showing build history and metrics
+- SVG chart with build duration trends and cache hit rates
+- Build records persisted to `.pledge/history.json` (max 100 entries)
+- Shows recent build summary table with status, duration, module counts
+
+### Crate Integrations
+- **`similar`** — HMR line-level diff via Myers algorithm (replaces hand-rolled LCS, no line limit)
+- **`opener`** — Cross-platform browser opening (replaces platform-specific commands, handles WSL)
+- **`local-ip-address`** — Network URL display alongside localhost for device testing
+- **`schemars`** — JSON Schema generation for `PledgeConfig` (all 18 sub-structs/enums)
+- **`miette`** — Graphical error diagnostics with source spans (enabled `fancy` feature)
+- **`clap_mangen`** — Auto-generates roff man pages for CLI commands
+- **`humansize`** — Unified file size formatting across CLI output, cache stats, build analysis
+- **`serde_yaml`** — YAML config parsing (replaces hand-rolled line-based parser)
+
 ### npm Scripts (`package.json`)
 ```json
 {
@@ -621,6 +680,8 @@ pledge generate-env-types  # Creates pledge-env.d.ts
     "analyze": "pledge analyze",
     "test": "pledge test",
     "test:watch": "pledge test --watch",
+    "dashboard": "pledge dashboard",
+    "schema": "pledge schema",
     "gen:env": "pledge generate-env-types"
   }
 }
@@ -637,6 +698,7 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 | **Astro** | ✅ Full | `.astro`, frontmatter, islands-ready |
 | **Next.js** | ✅ Adapter | App Router, Pages Router, API routes, SSR |
 | **TanStack** | ✅ Adapter | File-based routing, route tree generation |
+| **PledgeStack** | ✅ Adapter | React frontend + Rust backend, `.rs`/`.psx`, route macros |
 | **Vanilla TS/JS** | ✅ Full | `.ts`, `.js`, `.mjs` |
 
 ## License
@@ -659,7 +721,7 @@ MIT License ([LICENSE](LICENSE)).
 ### Dev Server
 
 9. ~~**File system watcher optimizations**~~ ✅ — Use `inotify`/`FSEvents`/`ReadDirectoryChangesW` natively instead of `notify` crate abstraction for lower latency. Implemented in `watcher.rs` with platform-specific native watchers and fallback.
-10. ~~**HMR partial updates**~~ ✅ — Send only the changed function/module diff via WebSocket instead of full module replacement. Implemented in `hmr_diff.rs` with LCS-based line-level diff computation and `is_small()` heuristic.
+10. ~~**HMR partial updates**~~ ✅ — Send only the changed function/module diff via WebSocket instead of full module replacement. Implemented in `hmr_diff.rs` with `similar` crate (Myers algorithm) for line-level diff computation and `is_small()` heuristic.
 11. ~~**Dev server cold boot optimization**~~ ✅ — Lazy-load transform pipeline, only initialize Oxc/Lightning CSS on first request. Implemented in `lazy_pipeline.rs` with deferred initialization and dirty dependency tracking.
 12. ~~**WebSocket compression**~~ ✅ — Per-message deflate for HMR WebSocket to reduce bandwidth on large module updates. Applied via `tower-http` `CompressionLayer` with gzip and `Fastest` quality level.
 13. ~~**Multi-entry dev server**~~ ✅ — Support multiple HTML entry points with independent HMR contexts in a single dev server. `detect_entries()` auto-detects HTML files and registers per-entry routes.
@@ -721,7 +783,7 @@ MIT License ([LICENSE](LICENSE)).
 
 ---
 
-## Roadmap v2: 50 New Goals
+## Roadmap v2: 70 Goals (46 Completed ✅)
 
 ### Build Output & Optimization
 
@@ -761,49 +823,49 @@ MIT License ([LICENSE](LICENSE)).
 
 ### CSS & Styling
 
-66. **CSS Modules with composes** — Full CSS Modules `composes` directive support. `composes: button from './buttons.css'`. Scoped class name resolution across files.
+66. ~~**CSS Modules with composes** — Full CSS Modules `composes` directive support. `composes: button from './buttons.css'`. Scoped class name resolution across files.~~ ✅
 
-67. **Dark mode CSS generation** — Auto-generate dark mode variants from `prefers-color-scheme` queries. `css: { dark_mode: 'auto' }` config. CSS custom property-based theme switching.
+67. ~~**Dark mode CSS generation** — Auto-generate dark mode variants from `prefers-color-scheme` queries. `css: { dark_mode: 'auto' }` config. CSS custom property-based theme switching.~~ ✅
 
-68. **CSS custom properties optimization** — Detect and inline static CSS custom properties. Remove unused `:root` variables. Minify variable names in production.
+68. ~~**CSS custom properties optimization** — Detect and inline static CSS custom properties. Remove unused `:root` variables. Minify variable names in production.~~ ✅
 
-69. **Scoped CSS for React** — CSS scoping without CSS Modules using automatic attribute selectors. `css: { scope: 'attribute' }` config. `data-v-xxxxx` attribute-based scoping like Vue.
+69. ~~**Scoped CSS for React** — CSS scoping without CSS Modules using automatic attribute selectors. `css: { scope: 'attribute' }` config. `data-v-xxxxx` attribute-based scoping like Vue.~~ ✅
 
-70. **CSS nesting polyfill** — Native CSS nesting (`& > .child`) polyfill for older browsers. Lightning CSS-based transformation with browser target config.
+70. ~~**CSS nesting polyfill** — Native CSS nesting (`& > .child`) polyfill for older browsers. Lightning CSS-based transformation with browser target config.~~ ✅
 
 ### Performance & Optimization
 
-71. **Automatic route-based chunk splitting** — Analyze route imports and split chunks per-route. Common shared chunks extracted automatically. `splitChunks: { strategy: 'route-aware' }` config.
+71. ~~**Automatic route-based chunk splitting** — Analyze route imports and split chunks per-route. Common shared chunks extracted automatically. `splitChunks: { strategy: 'route-aware' }` config.~~ ✅
 
-72. **Module prefetch directives** — Auto-generate `<link rel="modulepreload">` for route dependencies. `<link rel="prefetch">` for likely-next routes. `prefetch: { strategy: 'hover' | 'viewport' | 'load' }` config.
+72. ~~**Module prefetch directives** — Auto-generate `<link rel="modulepreload">` for route dependencies. `<link rel="prefetch">` for likely-next routes. `prefetch: { strategy: 'hover' | 'viewport' | 'load' }` config.~~ ✅
 
-73. **Tree shaking of CSS-in-JS runtime** — Remove styled-components/emotion runtime when all styles are extracted at build time. Zero runtime CSS-in-JS in production.
+73. ~~**Tree shaking of CSS-in-JS runtime** — Remove styled-components/emotion runtime when all styles are extracted at build time. Zero runtime CSS-in-JS in production.~~ ✅
 
-74. **WASM module streaming compilation** — Compile WASM modules with `WebAssembly.streaming()` instead of buffer-based instantiation. Faster WASM load times.
+74. ~~**WASM module streaming compilation** — Compile WASM modules with `WebAssembly.streaming()` instead of buffer-based instantiation. Faster WASM load times.~~ ✅
 
-75. **Precompute module hash at transform time** — Compute content hash during transform pass, not as a separate emit pass. Eliminates redundant file reads in the emit phase.
+75. ~~**Precompute module hash at transform time** — Compute content hash during transform pass, not as a separate emit pass. Eliminates redundant file reads in the emit phase.~~ ✅
 
 ### Assets & Media
 
-76. **Font subsetting** — Subset fonts to only include characters used in the project. `assets: { font_subset: true }` config. Reduces font file size by 60-90%.
+76. ~~**Font subsetting** — Subset fonts to only include characters used in the project. `assets: { font_subset: true }` config. Reduces font file size by 60-90%.~~ ✅
 
-77. **SVG sprite generation** — Combine SVG files into a single sprite sheet with `<symbol>` elements. `import logo from './logo.svg?sprite'` syntax. Reduces HTTP requests.
+77. ~~**SVG sprite generation** — Combine SVG files into a single sprite sheet with `<symbol>` elements. `import logo from './logo.svg?sprite'` syntax. Reduces HTTP requests.~~ ✅
 
-78. **Video poster frame extraction** — Auto-extract poster frame from video files. `import { src, poster } from './video.mp4'` exports both URL and poster image.
+78. ~~**Video poster frame extraction** — Auto-extract poster frame from video files. `import { src, poster } from './video.mp4'` exports both URL and poster image.~~ ✅
 
-79. **Responsive image srcset generation** — Auto-generate `srcset` with multiple resolutions. `assets: { responsive: { widths: [400, 800, 1200] } }` config. `<img srcset="...">` output.
+79. ~~**Responsive image srcset generation** — Auto-generate `srcset` with multiple resolutions. `assets: { responsive: { widths: [400, 800, 1200] } }` config. `<img srcset="...">` output.~~ ✅
 
-80. **Asset inlining threshold** — Configurable threshold for inlining assets as base64 data URIs. `assets: { inline_threshold: '4kb' }` config. Assets below threshold inlined automatically.
+80. ~~**Asset inlining threshold** — Configurable threshold for inlining assets as base64 data URIs. `assets: { inline_threshold: '4kb' }` config. Assets below threshold inlined automatically.~~ ✅
 
 ### Security & Integrity
 
-81. **Subresource Integrity (SRI) hashes** — Generate `integrity` attributes for `<script>` and `<link>` tags. `security: { sri: true }` config. SHA-384 hash output.
+81. ~~**Subresource Integrity (SRI) hashes** — Generate `integrity` attributes for `<script>` and `<link>` tags. `security: { sri: true }` config. SHA-384 hash output.~~ ✅
 
-82. **Content Security Policy generation** — Auto-generate CSP headers from build output. Hash-based CSP for inline scripts. `security: { csp: 'auto' }` config. Output as `_headers` file.
+82. ~~**Content Security Policy generation** — Auto-generate CSP headers from build output. Hash-based CSP for inline scripts. `security: { csp: 'auto' }` config. Output as `_headers` file.~~ ✅
 
-83. **Dependency vulnerability scanning** — Scan `node_modules` for known vulnerabilities during build. `pledge doctor` includes security audit. CVE database lookup.
+83. ~~**Dependency vulnerability scanning** — Scan `node_modules` for known vulnerabilities during build. `pledge doctor` includes security audit. CVE database lookup.~~ ✅
 
-84. **License compliance checking** — Scan dependencies for license compatibility. `pledge doctor --licenses` flag. Whitelist/blacklist license types in config.
+84. ~~**License compliance checking** — Scan dependencies for license compatibility. `pledge doctor --licenses` flag. Whitelist/blacklist license types in config.~~ ✅
 
 ### Dev Experience
 
@@ -829,64 +891,64 @@ MIT License ([LICENSE](LICENSE)).
 
 ### Ecosystem & Extensibility
 
-94. **Plugin preset system** — `presets: ['react', 'tailwind']` config applies a bundle of plugins with sensible defaults. Community presets installable via npm. `pledgepack-preset-*` naming convention.
+94. ~~**Plugin preset system** — `presets: ['react', 'tailwind']` config applies a bundle of plugins with sensible defaults. Community presets installable via npm. `pledgepack-preset-*` naming convention.~~ ✅
 
-95. **Vite plugin compatibility layer** — Run existing Vite plugins unmodified in pledgepack. `plugins: [{ vite: 'vite-plugin-svg' }]` config. Automatic API translation.
+95. ~~**Vite plugin compatibility layer** — Run existing Vite plugins unmodified in pledgepack. `plugins: [{ vite: 'vite-plugin-svg' }]` config. Automatic API translation.~~ ✅
 
-96. **Rollup plugin adapter** — Run Rollup plugins in pledgepack via compatibility shim. `plugins: [{ rollup: '@rollup/plugin-json' }]` config. Widens plugin ecosystem instantly.
+96. ~~**Rollup plugin adapter** — Run Rollup plugins in pledgepack via compatibility shim. `plugins: [{ rollup: '@rollup/plugin-json' }]` config. Widens plugin ecosystem instantly.~~ ✅
 
-97. **Custom transformer pipeline** — `transform: { pipeline: ['oxc', 'custom-transform', 'minify'] }` config. Insert custom transform steps at any point in the pipeline. WASM or JS transformers.
+97. ~~**Custom transformer pipeline** — `transform: { pipeline: ['oxc', 'custom-transform', 'minify'] }` config. Insert custom transform steps at any point in the pipeline. WASM or JS transformers.~~ ✅
 
 ### Monorepo & Workspaces
 
-98. **Workspace-aware resolution** — Auto-detect npm/pnpm/yarn workspaces. Resolve `@myorg/ui` to local workspace package, not npm registry. `workspaces: true` config.
+98. ~~**Workspace-aware resolution** — Auto-detect npm/pnpm/yarn workspaces. Resolve `@myorg/ui` to local workspace package, not npm registry. `workspaces: true` config.~~ ✅
 
-99. **Cross-package HMR** — Hot reload changes in workspace packages and propagate to consuming app. No manual rebuild of dependent packages needed.
+99. ~~**Cross-package HMR** — Hot reload changes in workspace packages and propagate to consuming app. No manual rebuild of dependent packages needed.~~ ✅
 
-100. **Shared build cache across workspace** — Cache transform results in a shared `.pledge/` at workspace root. All packages share the same cache directory. Faster incremental builds across packages.
+100. ~~**Shared build cache across workspace** — Cache transform results in a shared `.pledge/` at workspace root. All packages share the same cache directory. Faster incremental builds across packages.~~ ✅
 
 ### Observability & Monitoring
 
-101. **Build telemetry dashboard** — `pledge dashboard` serves a web UI showing build history, cache hit rates, module counts, and build times over time. Data persisted in `.pledge/history.json`.
+101. ~~**Build telemetry dashboard**~~ ✅ — `pledge dashboard` serves a web UI showing build history, cache hit rates, module counts, and build times over time. Data persisted in `.pledge/history.json`.
 
-102. **Bundle size budget CI integration** — `pledge build --check-budgets` exits non-zero on budget violations. GitHub Actions annotation format output. PR comment generation with size diff.
+102. ~~**Bundle size budget CI integration**~~ ✅ — `pledge build --check-budgets` exits non-zero on budget violations. GitHub Actions annotation format output. PR comment generation with size diff.
 
-103. **Performance regression detection** — Compare build times across commits. `pledge bench --baseline <ref>` flag. Warns when build time increases by more than configured threshold.
+103. ~~**Performance regression detection**~~ ✅ — Compare build times across commits. `pledge bench --baseline <ref>` flag. Warns when build time increases by more than configured threshold.
 
-104. **Module dependency graph visualization** — `pledge analyze --graph` generates interactive force-directed graph of module dependencies. Circular dependency detection highlighted in red.
+104. ~~**Module dependency graph visualization**~~ ✅ — `pledge analyze --graph` generates interactive force-directed graph of module dependencies. Circular dependency detection highlighted in red.
 
-105. **Build event webhooks** — `webhooks: { on_build: 'https://api.example.com/build-done' }` config. POST build results to external service on completion. Slack/Discord notification support.
+105. ~~**Build event webhooks**~~ ✅ — `webhooks: { on_build: 'https://api.example.com/build-done' }` config. POST build results to external service on completion. Slack/Discord notification support.
 
 ### Internationalization & Accessibility
 
-106. **i18n-aware bundling** — Split bundles by locale. `i18n: { locales: ['en', 'fr', 'ja'], defaultLocale: 'en' }` config. Only load current locale's strings. `import messages from './messages.${locale}.json'` pattern.
+106. ~~**i18n-aware bundling**~~ ✅ — Split bundles by locale. `i18n: { locales: ['en', 'fr', 'ja'], defaultLocale: 'en' }` config. Only load current locale's strings. `import messages from './messages.${locale}.json'` pattern.
 
-107. **RTL CSS auto-generation** — Auto-generate RTL CSS from LTR stylesheets using logical properties. `css: { rtl: 'auto' }` config. `direction: rtl` support without manual CSS duplication.
+107. ~~**RTL CSS auto-generation**~~ ✅ — Auto-generate RTL CSS from LTR stylesheets using logical properties. `css: { rtl: 'auto' }` config. `direction: rtl` support without manual CSS duplication.
 
-108. **a11y linting during build** — Check for common accessibility issues in HTML output. Missing `alt` attributes, insufficient color contrast, missing ARIA labels. `a11y: { enabled: true }` config.
+108. ~~**a11y linting during build**~~ ✅ — Check for common accessibility issues in HTML output. Missing `alt` attributes, insufficient color contrast, missing ARIA labels. `a11y: { enabled: true }` config.
 
-109. **Build-time string encryption** — Encrypt sensitive strings in source at build time, decrypt at runtime via injected shim. `encrypt: { keys: ['API_KEY'] }` config. Prevents plain-text secrets in bundles.
+109. ~~**Build-time string encryption**~~ ✅ — Encrypt sensitive strings in source at build time, decrypt at runtime via injected shim. `encrypt: { keys: ['API_KEY'] }` config. Prevents plain-text secrets in bundles.
 
 ### Advanced Features
 
-110. **Web Components compilation** — Compile Custom Elements with Shadow DOM from `.wc.tsx` files. Automatic `customElements.define()` registration. Shadow DOM CSS scoping.
+110. ~~**Web Components compilation**~~ ✅ — Compile Custom Elements with Shadow DOM from `.wc.tsx` files. Automatic `customElements.define()` registration. Shadow DOM CSS scoping.
 
-111. **Web Worker bundling** — `import worker from './worker.ts?worker'` syntax. Bundle web workers as separate chunks with proper import URL generation. `new Worker(new URL('./worker.ts', import.meta.url))` pattern.
+111. ~~**Web Worker bundling**~~ ✅ — `import worker from './worker.ts?worker'` syntax. Bundle web workers as separate chunks with proper import URL generation. `new Worker(new URL('./worker.ts', import.meta.url))` pattern.
 
-112. **Shared worker bundling** — `import worker from './worker.ts?sharedworker'` syntax. Bundle shared workers accessible across multiple browser tabs. Proper `SharedWorker` constructor output.
+112. ~~**Shared worker bundling**~~ ✅ — `import worker from './worker.ts?sharedworker'` syntax. Bundle shared workers accessible across multiple browser tabs. Proper `SharedWorker` constructor output.
 
-113. **Service worker caching strategies** — Configurable caching per route pattern: cache-first, network-first, stale-while-revalidate. `sw: { caching: [{ pattern: '/api/*', strategy: 'network-first' }] }` config. Extends existing SW generation.
+113. ~~**Service worker caching strategies**~~ ✅ — Configurable caching per route pattern: cache-first, network-first, stale-while-revalidate. `sw: { caching: [{ pattern: '/api/*', strategy: 'network-first' }] }` config. Extends existing SW generation.
 
-114. **Import glob expansion** — `import.meta.glob('./pages/*.tsx')` syntax. Expands to a map of file paths to lazy import functions at build time. `glob: { eager: false }` config for preloading all or lazy loading.
+114. ~~**Import glob expansion**~~ ✅ — `import.meta.glob('./pages/*.tsx')` syntax. Expands to a map of file paths to lazy import functions at build time. `glob: { eager: false }` config for preloading all or lazy loading.
 
-115. **Module federation support** — Share modules across independently deployed apps. `federation: { name: 'host', remotes: { app1: 'http://cdn/app1.js' } }` config. Webpack Module Federation-compatible.
+115. ~~**Module federation support**~~ ✅ — Share modules across independently deployed apps. `federation: { name: 'host', remotes: { app1: 'http://cdn/app1.js' } }` config. Webpack Module Federation-compatible.
 
-116. **GraphQL code generation** — `pledge build --codegen` generates TypeScript types from `.graphql` files. Schema-first development with type-safe queries. `graphql: { schema: 'schema.graphql' }` config.
+116. ~~**GraphQL code generation**~~ ✅ — `pledge build --codegen` generates TypeScript types from `.graphql` files. Schema-first development with type-safe queries. `graphql: { schema: 'schema.graphql' }` config.
 
-117. **Environment-specific builds** — `pledge build --env staging` loads `.env.staging` and sets `process.env.NODE_ENV = 'staging'`. Multiple environment configs without code changes.
+117. ~~**Environment-specific builds**~~ ✅ — `pledge build --env staging` loads `.env.staging` and sets `process.env.NODE_ENV = 'staging'`. Multiple environment configs without code changes.
 
-118. **Post-build optimization hooks** — `plugins: [{ name: 'seo', postBuild: true }]` API. Plugins run after build to optimize HTML meta tags, generate sitemaps, or submit to search engines.
+118. ~~**Post-build optimization hooks**~~ ✅ — `plugins: [{ name: 'seo', postBuild: true }]` API. Plugins run after build to optimize HTML meta tags, generate sitemaps, or submit to search engines.
 
-119. **Conditional exports resolution** — Read `package.json` `exports` field with conditions. `exports: { conditions: ['production', 'browser'] }` config. Correct entry point per environment.
+119. ~~**Conditional exports resolution**~~ ✅ — Read `package.json` `exports` field with conditions. `exports: { conditions: ['production', 'browser'] }` config. Correct entry point per environment.
 
-120. **Build concurrency control** — `build: { parallel: 4 }` config limits concurrent module transforms. Prevents OOM on large projects. Auto-detects optimal concurrency based on CPU cores.
+120. ~~**Build concurrency control**~~ ✅ — `build: { parallel: 4 }` config limits concurrent module transforms. Prevents OOM on large projects. Auto-detects optimal concurrency based on CPU cores.

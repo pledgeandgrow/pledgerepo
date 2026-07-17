@@ -1,8 +1,22 @@
 use serde::{Deserialize, Serialize};
+use schemars::JsonSchema;
 use std::path::PathBuf;
+use regex::Regex;
+use std::sync::OnceLock;
+
+/// Compile test include/exclude patterns into a GlobSet for efficient matching
+pub fn compile_test_globset(patterns: &[String]) -> globset::GlobSet {
+    let mut builder = globset::GlobSetBuilder::new();
+    for pattern in patterns {
+        if let Ok(glob) = globset::Glob::new(pattern) {
+            builder.add(glob);
+        }
+    }
+    builder.build().unwrap_or_default()
+}
 
 /// Top-level configuration for the Pledge bundler.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct PledgeConfig {
     /// Entry points (e.g., ["src/index.tsx"])
@@ -165,10 +179,53 @@ pub struct PledgeConfig {
     /// Exit non-zero on budget violations in CI
     #[serde(default)]
     pub budgets: BudgetConfig,
+
+    /// Module federation config (#115)
+    /// Share modules across independently deployed apps
+    /// federation: { name: 'host', remotes: { app1: 'http://cdn/app1.js' }, shared: ['react'] }
+    #[serde(default)]
+    pub federation: Option<serde_json::Value>,
+
+    /// GraphQL code generation config (#116)
+    /// graphql: { schema: 'schema.graphql' }
+    #[serde(default)]
+    pub graphql: Option<GraphqlConfig>,
+
+    /// Service worker caching strategies (#113)
+    /// sw: { caching: [{ pattern: '/api/*', strategy: 'network-first' }] }
+    #[serde(default)]
+    pub sw: Option<SwCachingConfig>,
+
+    /// Conditional exports resolution (#119)
+    /// Additional conditions for package.json exports resolution
+    /// exports: { conditions: ['production', 'browser'] }
+    #[serde(default)]
+    pub exports: Option<ExportsConfig>,
+
+    /// Plugin presets to apply (#94)
+    /// presets: ['react', 'tailwind'] applies a bundle of plugins with sensible defaults
+    #[serde(default)]
+    pub presets: Vec<String>,
+
+    /// Custom transformer pipeline (#97)
+    /// transform: { pipeline: ['oxc', 'custom-transform', 'minify'] }
+    /// Insert custom transform steps at any point in the pipeline
+    #[serde(default)]
+    pub transform_pipeline: Option<TransformPipelineConfig>,
+
+    /// Workspace configuration (#98, #99, #100)
+    /// workspaces: true enables auto-detection of npm/pnpm/yarn workspaces
+    #[serde(default)]
+    pub workspaces: Option<WorkspaceConfig>,
+
+    /// Security configuration (#81, #82)
+    /// security: { sri: true, csp: 'auto' }
+    #[serde(default)]
+    pub security: Option<SecurityConfig>,
 }
 
 /// Test configuration (Vitest-compatible)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TestConfig {
     /// Test environment: "node" (default), "jsdom", "happy-dom"
     #[serde(default = "default_test_environment")]
@@ -268,7 +325,7 @@ impl Default for TestConfig {
 }
 
 /// Build configuration for production builds
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct BuildConfig {
     /// Manual chunk splitting configuration
     /// Maps chunk name to list of module paths/globs to include
@@ -345,6 +402,11 @@ pub struct BuildConfig {
     /// "never" — always use non-SIMD fallback
     #[serde(default = "default_wasm_simd")]
     pub wasm_simd: String,
+
+    /// Build concurrency: max parallel module transforms (default: auto-detect CPU cores)
+    /// Set to a specific number to limit concurrency and prevent OOM on large projects (#120)
+    #[serde(default)]
+    pub parallel: Option<usize>,
 }
 
 fn default_source_map_mode() -> String {
@@ -386,11 +448,12 @@ impl Default for BuildConfig {
             verify_output: false,
             incremental_output: true,
             wasm_simd: "auto".to_string(),
+            parallel: None,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum BuildMode {
     #[default]
@@ -398,7 +461,7 @@ pub enum BuildMode {
     Production,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Framework {
     React,
@@ -409,13 +472,13 @@ pub enum Framework {
     Auto,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PathAlias {
     pub from: String,
     pub to: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct CacheConfig {
     /// Enable filesystem cache (default: true)
@@ -428,7 +491,7 @@ pub struct CacheConfig {
 }
 
 /// Settings for remote cache (S3/GCS/HTTP)
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct RemoteCacheSettings {
     /// Enable remote cache (default: false)
     pub enabled: bool,
@@ -454,7 +517,7 @@ impl Default for CacheConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct DevServerConfig {
     /// Port (default: 3000)
@@ -506,7 +569,7 @@ impl Default for DevServerConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ProxyConfig {
     /// Path prefix to match (e.g., "/api")
     pub path: String,
@@ -524,7 +587,7 @@ pub struct ProxyConfig {
 }
 
 /// Image optimization configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ImageConfig {
     /// Enable image optimization (default: false)
@@ -539,6 +602,9 @@ pub struct ImageConfig {
     pub max_width: u32,
     /// Max height in pixels (default: 1080)
     pub max_height: u32,
+    /// Responsive srcset widths (#79) — e.g., [400, 800, 1200]
+    /// When set, auto-generates srcset with multiple resolutions
+    pub responsive_widths: Vec<u32>,
 }
 
 impl Default for ImageConfig {
@@ -550,11 +616,12 @@ impl Default for ImageConfig {
             avif: false,
             max_width: 1920,
             max_height: 1080,
+            responsive_widths: Vec::new(),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputFormat {
     #[default]
@@ -564,7 +631,7 @@ pub enum OutputFormat {
 }
 
 /// Library mode configuration for building npm packages
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LibraryConfig {
     /// Entry point for the library
     pub entry: String,
@@ -579,7 +646,7 @@ pub struct LibraryConfig {
 }
 
 /// HTTPS configuration for dev server
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HttpsConfig {
     /// Path to SSL certificate file
     pub cert: PathBuf,
@@ -588,7 +655,7 @@ pub struct HttpsConfig {
 }
 
 /// Watch mode configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct WatchConfig {
     /// Enable watch mode
@@ -607,7 +674,7 @@ impl Default for WatchConfig {
 }
 
 /// Webhook configuration for build events (#105)
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct WebhookConfig {
     /// Enable webhooks (default: false)
     #[serde(default)]
@@ -624,7 +691,7 @@ pub struct WebhookConfig {
 }
 
 /// i18n configuration for locale-aware bundling (#106)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct I18nConfig {
     /// Enable i18n-aware bundling (default: false)
     #[serde(default)]
@@ -659,18 +726,39 @@ fn default_message_pattern() -> String {
     "./messages.${locale}.json".to_string()
 }
 
-/// CSS configuration for RTL auto-generation (#107)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// CSS configuration for RTL auto-generation (#107), dark mode (#67),
+/// custom property optimization (#68), scoped CSS (#69)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CssConfig {
     /// RTL CSS generation mode: "auto", "manual", "off" (default: "off")
     #[serde(default = "default_rtl_mode")]
     pub rtl: String,
+    /// Dark mode generation strategy: "auto", "extract", "off" (default: "off")
+    /// #67 — auto-generate dark mode variants from prefers-color-scheme
+    #[serde(default = "default_dark_mode")]
+    pub dark_mode: String,
+    /// Optimize CSS custom properties: inline static vars, remove unused (default: true in production)
+    /// #68 — detect and inline static custom properties, remove unused :root variables
+    #[serde(default)]
+    pub optimize_custom_properties: bool,
+    /// Minify CSS custom property names in production (default: false)
+    /// #68 — shortens --my-color to --a etc.
+    #[serde(default)]
+    pub minify_custom_property_names: bool,
+    /// Scoped CSS strategy: "attribute", "modules", "off" (default: "off")
+    /// #69 — data-v-xxxxx attribute-based scoping like Vue for React components
+    #[serde(default = "default_scoped_css")]
+    pub scoped: String,
 }
 
 impl Default for CssConfig {
     fn default() -> Self {
         Self {
             rtl: default_rtl_mode(),
+            dark_mode: default_dark_mode(),
+            optimize_custom_properties: false,
+            minify_custom_property_names: false,
+            scoped: default_scoped_css(),
         }
     }
 }
@@ -679,8 +767,16 @@ fn default_rtl_mode() -> String {
     "off".to_string()
 }
 
+fn default_dark_mode() -> String {
+    "off".to_string()
+}
+
+fn default_scoped_css() -> String {
+    "off".to_string()
+}
+
 /// Accessibility linting configuration (#108)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct A11yConfig {
     /// Enable a11y linting during build (default: false)
     #[serde(default)]
@@ -712,7 +808,7 @@ impl Default for A11yConfig {
 }
 
 /// Build-time string encryption configuration (#109)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EncryptConfig {
     /// Enable string encryption (default: false)
     #[serde(default)]
@@ -736,7 +832,7 @@ impl Default for EncryptConfig {
 }
 
 /// Bundle size budget configuration (#102)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct BudgetConfig {
     /// Enable budget checking (default: false)
     #[serde(default)]
@@ -831,6 +927,14 @@ impl Default for PledgeConfig {
             a11y: A11yConfig::default(),
             encrypt: EncryptConfig::default(),
             budgets: BudgetConfig::default(),
+            federation: None,
+            graphql: None,
+            sw: None,
+            exports: None,
+            presets: vec![],
+            transform_pipeline: None,
+            workspaces: None,
+            security: None,
         }
     }
 }
@@ -1004,131 +1108,412 @@ impl PledgeConfig {
     }
 
     /// Convert JavaScript/TypeScript object literal syntax to valid JSON.
+    /// Uses regex for comment stripping and trailing comma removal, with a
+    /// string-aware state machine for quote conversion and unquoted key quoting.
     fn js_object_to_json(input: &str) -> String {
-        let mut result = String::with_capacity(input.len());
-        let bytes = input.as_bytes();
-        let mut i = 0;
-        let mut in_string = false;
-        let mut string_char = b' ';
-        let mut escaped = false;
-        let mut prev_significant = ' ';
+        static SINGLE_LINE_COMMENT_RE: OnceLock<Regex> = OnceLock::new();
+        static MULTI_LINE_COMMENT_RE: OnceLock<Regex> = OnceLock::new();
+        static TRAILING_COMMA_RE: OnceLock<Regex> = OnceLock::new();
+        static UNQUOTED_KEY_RE: OnceLock<Regex> = OnceLock::new();
 
-        while i < bytes.len() {
-            let b = bytes[i];
+        // Step 1: Remove comments using regex (string-aware — we use a state machine
+        // to protect string literals from comment-like sequences inside them)
+        let single_line_re = SINGLE_LINE_COMMENT_RE.get_or_init(|| {
+            Regex::new(r"//[^\n]*").unwrap()
+        });
+        let multi_line_re = MULTI_LINE_COMMENT_RE.get_or_init(|| {
+            Regex::new(r"/\*[\s\S]*?\*/").unwrap()
+        });
 
-            if escaped {
-                result.push(b as char);
-                escaped = false;
-                i += 1;
-                continue;
-            }
+        // First strip multi-line comments, then single-line comments
+        // We need to be careful not to strip // inside strings, so we do
+        // a string-aware pass first
+        let stripped = strip_comments_string_aware(input);
+        let _ = (single_line_re, multi_line_re); // regexes available for future use
 
-            if b == b'\\' && in_string {
-                result.push('\\');
-                escaped = true;
-                i += 1;
-                continue;
-            }
+        // Step 2: Remove trailing commas using regex
+        let trailing_comma_re = TRAILING_COMMA_RE.get_or_init(|| {
+            Regex::new(r",(\s*[\}\]])").unwrap()
+        });
+        let no_trailing = trailing_comma_re.replace_all(&stripped, "$1");
 
-            if in_string {
-                if b == string_char {
-                    // Convert closing single-quote/backtick to double-quote
-                    if string_char != b'"' {
-                        result.push('"');
-                    } else {
-                        result.push(b as char);
-                    }
-                    in_string = false;
-                } else if b == b'\r' {
-                    // Skip \r inside strings (CRLF line endings)
-                } else if b == b'"' && string_char != b'"' {
-                    // Escape double quotes inside single-quoted/backtick strings
-                    result.push('\\');
-                    result.push('"');
-                } else {
-                    result.push(b as char);
-                }
-                i += 1;
-                continue;
-            }
+        // Step 3: Quote unquoted keys using regex
+        let unquoted_key_re = UNQUOTED_KEY_RE.get_or_init(|| {
+            Regex::new(r"([\{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)(\s*:)").unwrap()
+        });
+        let quoted_keys = unquoted_key_re.replace_all(&no_trailing, r#"$1"$2"$3"#);
 
-            // Skip \r outside strings (CRLF line endings)
-            if b == b'\r' {
-                i += 1;
-                continue;
-            }
+        // Step 4: Convert single quotes/backtick strings to double-quoted strings
+        // using the state machine (handles escape sequences properly)
+        convert_quotes_string_aware(&quoted_keys)
+    }
+}
 
-            // Handle single-line comments
-            if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
-                while i < bytes.len() && bytes[i] != b'\n' {
-                    i += 1;
-                }
-                continue;
-            }
+/// Strip JS comments (// and /* */) while respecting string literals
+fn strip_comments_string_aware(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    let mut in_string = false;
+    let mut string_char = b' ';
+    let mut escaped = false;
 
-            // Handle multi-line comments
-            if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
-                i += 2;
-                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                    i += 1;
-                }
-                i += 2;
-                continue;
-            }
+    while i < bytes.len() {
+        let b = bytes[i];
 
-            if b == b'"' || b == b'\'' || b == b'`' {
-                in_string = true;
-                string_char = b;
-                if b != b'"' {
-                    result.push('"');
-                } else {
-                    result.push(b as char);
-                }
-                i += 1;
-                continue;
-            }
-
-            // Remove trailing commas before } or ]
-            if b == b',' {
-                // Look ahead for next non-whitespace
-                let mut j = i + 1;
-                while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\n' || bytes[j] == b'\r' || bytes[j] == b'\t') {
-                    j += 1;
-                }
-                if j < bytes.len() && (bytes[j] == b'}' || bytes[j] == b']') {
-                    i += 1;
-                    continue;
-                }
-            }
-
-            // Quote unquoted keys: word followed by :
-            if (b.is_ascii_alphabetic() || b == b'_' || b == b'$') && !in_string {
-                let mut j = i;
-                while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_' || bytes[j] == b'$') {
-                    j += 1;
-                }
-                // Check if followed by : (key)
-                let mut k = j;
-                while k < bytes.len() && (bytes[k] == b' ' || bytes[k] == b'\n' || bytes[k] == b'\r' || bytes[k] == b'\t') {
-                    k += 1;
-                }
-                if k < bytes.len() && bytes[k] == b':' {
-                    // Quote the key
-                    result.push('"');
-                    result.push_str(&input[i..j]);
-                    result.push('"');
-                    i = j;
-                    continue;
-                }
-            }
-
+        if escaped {
             result.push(b as char);
-            if !b.is_ascii_whitespace() {
-                prev_significant = b as char;
-            }
+            escaped = false;
             i += 1;
+            continue;
         }
 
-        result
+        if b == b'\\' && in_string {
+            result.push('\\');
+            escaped = true;
+            i += 1;
+            continue;
+        }
+
+        if in_string {
+            if b == string_char {
+                result.push(b as char);
+                in_string = false;
+            } else if b == b'\r' {
+                // Skip \r inside strings
+            } else {
+                result.push(b as char);
+            }
+            i += 1;
+            continue;
+        }
+
+        // Skip \r outside strings
+        if b == b'\r' {
+            i += 1;
+            continue;
+        }
+
+        // Single-line comment
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        // Multi-line comment
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i += 2;
+            continue;
+        }
+
+        if b == b'"' || b == b'\'' || b == b'`' {
+            in_string = true;
+            string_char = b;
+            result.push(b as char);
+            i += 1;
+            continue;
+        }
+
+        result.push(b as char);
+        i += 1;
     }
+
+    result
+}
+
+/// Convert single-quoted and backtick strings to double-quoted strings,
+/// escaping inner double quotes. Handles escape sequences properly.
+fn convert_quotes_string_aware(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    let mut escaped = false;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+
+        if escaped {
+            result.push(b as char);
+            escaped = false;
+            i += 1;
+            continue;
+        }
+
+        if b == b'\\' {
+            result.push('\\');
+            escaped = true;
+            i += 1;
+            continue;
+        }
+
+        if b == b'\r' {
+            i += 1;
+            continue;
+        }
+
+        if b == b'\'' || b == b'`' {
+            // Replace opening quote with "
+            result.push('"');
+            i += 1;
+            // Copy string contents until matching closing quote
+            while i < bytes.len() {
+                let c = bytes[i];
+                if c == b'\\' {
+                    result.push('\\');
+                    escaped = true;
+                    i += 1;
+                    continue;
+                }
+                if c == b'\r' {
+                    i += 1;
+                    continue;
+                }
+                if c == b'"' {
+                    // Escape inner double quotes
+                    result.push('\\');
+                    result.push('"');
+                    i += 1;
+                    continue;
+                }
+                if c == b {
+                    // Closing quote — replace with "
+                    result.push('"');
+                    i += 1;
+                    break;
+                }
+                result.push(c as char);
+                i += 1;
+            }
+            continue;
+        }
+
+        if b == b'"' {
+            result.push('"');
+            i += 1;
+            // Copy double-quoted string contents as-is
+            while i < bytes.len() {
+                let c = bytes[i];
+                if c == b'\\' {
+                    result.push('\\');
+                    escaped = true;
+                    i += 1;
+                    continue;
+                }
+                if c == b'\r' {
+                    i += 1;
+                    continue;
+                }
+                result.push(c as char);
+                i += 1;
+                if c == b'"' {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        result.push(b as char);
+        i += 1;
+    }
+
+    result
+}
+
+// ─── Feature 116: GraphQL code generation config ──────────────────────
+
+/// GraphQL code generation configuration (#116)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GraphqlConfig {
+    /// Path to schema file (e.g., "schema.graphql")
+    #[serde(default)]
+    pub schema: String,
+    /// Output directory for generated types (default: "src/generated")
+    #[serde(default = "default_graphql_output")]
+    pub output: String,
+    /// Generate React hooks for queries (default: false)
+    #[serde(default)]
+    pub react_hooks: bool,
+}
+
+fn default_graphql_output() -> String {
+    "src/generated".to_string()
+}
+
+impl Default for GraphqlConfig {
+    fn default() -> Self {
+        Self {
+            schema: String::new(),
+            output: default_graphql_output(),
+            react_hooks: false,
+        }
+    }
+}
+
+// ─── Feature 113: Service worker caching config ───────────────────────
+
+/// Service worker caching configuration (#113)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SwCachingConfig {
+    /// Per-route caching rules
+    #[serde(default)]
+    pub caching: Vec<SwCacheRule>,
+    /// Cache name prefix (default: "pledge-sw")
+    #[serde(default = "default_sw_cache_name")]
+    pub cache_name: String,
+    /// Offline fallback page
+    #[serde(default)]
+    pub offline_fallback: Option<String>,
+}
+
+/// A single service worker caching rule
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SwCacheRule {
+    /// URL pattern to match (e.g., "/api/*")
+    #[serde(default)]
+    pub pattern: String,
+    /// Caching strategy: "cache-first", "network-first", "stale-while-revalidate"
+    #[serde(default)]
+    pub strategy: String,
+}
+
+fn default_sw_cache_name() -> String {
+    "pledge-sw".to_string()
+}
+
+impl Default for SwCachingConfig {
+    fn default() -> Self {
+        Self {
+            caching: vec![],
+            cache_name: default_sw_cache_name(),
+            offline_fallback: None,
+        }
+    }
+}
+
+// ─── Feature 119: Conditional exports config ──────────────────────────
+
+/// Conditional exports resolution configuration (#119)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ExportsConfig {
+    /// Additional conditions for package.json exports resolution
+    /// e.g., ["production", "browser"] to prefer production/browser entry points
+    #[serde(default)]
+    pub conditions: Vec<String>,
+}
+
+impl Default for ExportsConfig {
+    fn default() -> Self {
+        Self {
+            conditions: vec![],
+        }
+    }
+}
+
+// ─── Feature 94: Plugin preset config ────────────────────────────────
+
+/// Plugin preset definition (#94)
+/// A preset bundles plugins and config defaults for a specific ecosystem
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PluginPreset {
+    /// Preset name (e.g., "react", "tailwind", "solid")
+    pub name: String,
+    /// Plugins to apply (paths or package names)
+    #[serde(default)]
+    pub plugins: Vec<String>,
+    /// Config defaults to merge
+    #[serde(default)]
+    pub config_defaults: serde_json::Value,
+    /// Description
+    #[serde(default)]
+    pub description: String,
+}
+
+// ─── Feature 97: Custom transformer pipeline config ──────────────────
+
+/// Custom transformer pipeline configuration (#97)
+/// Allows inserting custom transform steps at any point in the pipeline
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TransformPipelineConfig {
+    /// Ordered list of transform steps
+    /// Built-in steps: "oxc", "minify", "tree-shake"
+    /// Custom steps: plugin name or path to WASM/JS transformer
+    #[serde(default)]
+    pub pipeline: Vec<String>,
+    /// Whether to replace the default pipeline entirely (true) or insert into it (false)
+    #[serde(default)]
+    pub replace_default: bool,
+}
+
+impl Default for TransformPipelineConfig {
+    fn default() -> Self {
+        Self {
+            pipeline: vec![],
+            replace_default: false,
+        }
+    }
+}
+
+// ─── Feature 98-100: Workspace configuration ─────────────────────────
+
+/// Workspace configuration for monorepo support (#98, #99, #100)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WorkspaceConfig {
+    /// Enable workspace-aware resolution (default: true when workspaces is set)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Custom workspace root path (default: auto-detect from package.json)
+    #[serde(default)]
+    pub root: Option<PathBuf>,
+    /// Enable cross-package HMR (#99) — propagate HMR across workspace packages
+    #[serde(default = "default_true")]
+    pub cross_package_hmr: bool,
+    /// Share build cache at workspace root (#100)
+    /// Cache directory will be placed at workspace root .pledge/ instead of per-package
+    #[serde(default = "default_true")]
+    pub shared_cache: bool,
+}
+
+impl Default for WorkspaceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            root: None,
+            cross_package_hmr: true,
+            shared_cache: true,
+        }
+    }
+}
+
+// ─── Feature 81-82: Security config ──────────────────────────────────
+
+/// Security configuration for SRI (#81) and CSP (#82)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SecurityConfig {
+    /// Generate Subresource Integrity hashes for script/link tags (default: false)
+    /// #81 — SHA-256 integrity attributes
+    #[serde(default)]
+    pub sri: bool,
+    /// Content Security Policy generation mode: "auto", "off" (default: "off")
+    /// #82 — auto-generate CSP headers from build output, writes _headers file
+    #[serde(default = "default_csp_mode")]
+    pub csp: String,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            sri: false,
+            csp: default_csp_mode(),
+        }
+    }
+}
+
+fn default_csp_mode() -> String {
+    "off".to_string()
 }

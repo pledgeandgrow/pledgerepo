@@ -3,8 +3,12 @@
 // Instead of sending the full module on every change, we compute a line-level
 // diff and send only the changed lines. This significantly reduces WebSocket
 // bandwidth for large modules with small edits.
+//
+// Uses the `similar` crate (Myers diff algorithm) for robust, efficient
+// diffing with no line-count limits.
 
 use serde::{Deserialize, Serialize};
+use similar::{ChangeTag, TextDiff};
 
 /// A single diff operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,7 +52,8 @@ impl LineDiff {
 }
 
 /// Compute a line-level diff between old and new source code.
-/// Uses a simple LCS-based algorithm optimized for small edits.
+/// Uses the `similar` crate's Myers diff algorithm for efficient, correct
+/// diffing without the previous 200-line cap.
 pub fn compute_diff(old: &str, new: &str) -> LineDiff {
     let old_lines: Vec<&str> = old.lines().collect();
     let new_lines: Vec<&str> = new.lines().collect();
@@ -87,37 +92,9 @@ pub fn compute_diff(old: &str, new: &str) -> LineDiff {
         };
     }
 
-    // Find the common prefix and suffix to narrow the diff window
-    let mut prefix = 0;
-    while prefix < old_lines.len() && prefix < new_lines.len() && old_lines[prefix] == new_lines[prefix] {
-        prefix += 1;
-    }
-
-    let mut suffix = 0;
-    while suffix < old_lines.len() - prefix
-        && suffix < new_lines.len() - prefix
-        && old_lines[old_lines.len() - 1 - suffix] == new_lines[new_lines.len() - 1 - suffix]
-    {
-        suffix += 1;
-    }
-
-    let old_mid = &old_lines[prefix..old_lines.len() - suffix];
-    let new_mid = &new_lines[prefix..new_lines.len() - suffix];
-
-    let ops = if old_mid.is_empty() {
-        vec![DiffOp::Insert {
-            line: prefix as u32,
-            content: new_mid.iter().map(|s| s.to_string()).collect(),
-        }]
-    } else if new_mid.is_empty() {
-        vec![DiffOp::Delete {
-            line: prefix as u32,
-            count: old_mid.len() as u32,
-        }]
-    } else {
-        // Use LCS to find the minimal edit script
-        lcs_diff(old_mid, new_mid, prefix as u32)
-    };
+    // Use similar's TextDiff for line-level diffing
+    let diff = TextDiff::from_lines(old, new);
+    let ops = similar_to_diff_ops(&diff);
 
     LineDiff {
         ops,
@@ -126,107 +103,74 @@ pub fn compute_diff(old: &str, new: &str) -> LineDiff {
     }
 }
 
-/// Compute diff using LCS (Longest Common Subsequence) algorithm
-fn lcs_diff(old: &[&str], new: &[&str], base_line: u32) -> Vec<DiffOp> {
-    let m = old.len();
-    let n = new.len();
-
-    // Build LCS table (limited to small windows for performance)
-    if m > 200 || n > 200 {
-        // For large diffs, just use replace
-        return vec![DiffOp::Replace {
-            line: base_line,
-            count: m as u32,
-            content: new.iter().map(|s| s.to_string()).collect(),
-        }];
-    }
-
-    let mut lcs = vec![vec![0u32; n + 1]; m + 1];
-    for i in 1..=m {
-        for j in 1..=n {
-            if old[i - 1] == new[j - 1] {
-                lcs[i][j] = lcs[i - 1][j - 1] + 1;
-            } else {
-                lcs[i][j] = lcs[i - 1][j].max(lcs[i][j - 1]);
-            }
-        }
-    }
-
-    // Backtrack to build the edit script
+/// Convert similar's diff ops into our DiffOp format, coalescing
+/// adjacent inserts and deletes into Insert/Delete/Replace operations.
+fn similar_to_diff_ops<'a>(diff: &TextDiff<'a, 'a, 'a, str>) -> Vec<DiffOp> {
     let mut ops = Vec::new();
-    let mut i = m;
-    let mut j = n;
-
-    // We build ops in reverse, then reverse at the end
+    let mut old_line: u32 = 0;
     let mut pending_inserts: Vec<String> = Vec::new();
     let mut pending_deletes: u32 = 0;
-    let mut insert_at: u32 = 0;
+    let mut pending_delete_start: u32 = 0;
 
-    while i > 0 || j > 0 {
-        if i > 0 && j > 0 && old[i - 1] == new[j - 1] {
-            // Match — flush pending ops
-            if pending_deletes > 0 || !pending_inserts.is_empty() {
-                let content = pending_inserts.drain(..).rev().collect::<Vec<_>>();
-                if pending_deletes > 0 && !content.is_empty() {
-                    ops.push(DiffOp::Replace {
-                        line: insert_at,
-                        count: pending_deletes,
-                        content,
-                    });
-                } else if pending_deletes > 0 {
-                    ops.push(DiffOp::Delete {
-                        line: insert_at,
-                        count: pending_deletes,
-                    });
-                } else if !content.is_empty() {
-                    ops.push(DiffOp::Insert {
-                        line: insert_at,
-                        content,
-                    });
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Equal => {
+                // Flush pending ops at the current position
+                flush_pending(
+                    &mut ops,
+                    &mut pending_inserts,
+                    &mut pending_deletes,
+                    &mut pending_delete_start,
+                );
+                old_line += 1;
+            }
+            ChangeTag::Delete => {
+                if pending_deletes == 0 {
+                    pending_delete_start = old_line;
                 }
-                pending_deletes = 0;
+                pending_deletes += 1;
+                old_line += 1;
             }
-            i -= 1;
-            j -= 1;
-        } else if j > 0 && (i == 0 || lcs[i][j - 1] >= lcs[i - 1][j]) {
-            // Insert
-            if pending_inserts.is_empty() {
-                insert_at = base_line + i as u32;
+            ChangeTag::Insert => {
+                pending_inserts.push(change.value().trim_end_matches('\n').to_string());
             }
-            pending_inserts.push(new[j - 1].to_string());
-            j -= 1;
-        } else {
-            // Delete
-            if pending_deletes == 0 {
-                insert_at = base_line + (i - 1) as u32;
-            }
-            pending_deletes += 1;
-            i -= 1;
         }
     }
 
-    // Flush remaining pending ops
-    if pending_deletes > 0 || !pending_inserts.is_empty() {
-        let content = pending_inserts.drain(..).rev().collect::<Vec<_>>();
-        if pending_deletes > 0 && !content.is_empty() {
-            ops.push(DiffOp::Replace {
-                line: insert_at,
-                count: pending_deletes,
-                content,
-            });
-        } else if pending_deletes > 0 {
-            ops.push(DiffOp::Delete {
-                line: insert_at,
-                count: pending_deletes,
-            });
-        } else if !content.is_empty() {
-            ops.push(DiffOp::Insert {
-                line: insert_at,
-                content,
-            });
-        }
-    }
+    // Flush any remaining pending ops
+    flush_pending(
+        &mut ops,
+        &mut pending_inserts,
+        &mut pending_deletes,
+        &mut pending_delete_start,
+    );
 
-    ops.reverse();
     ops
+}
+
+/// Flush pending insert/delete operations into a single DiffOp
+fn flush_pending(
+    ops: &mut Vec<DiffOp>,
+    inserts: &mut Vec<String>,
+    deletes: &mut u32,
+    delete_start: &mut u32,
+) {
+    if *deletes > 0 && !inserts.is_empty() {
+        ops.push(DiffOp::Replace {
+            line: *delete_start,
+            count: *deletes,
+            content: std::mem::take(inserts),
+        });
+    } else if *deletes > 0 {
+        ops.push(DiffOp::Delete {
+            line: *delete_start,
+            count: *deletes,
+        });
+    } else if !inserts.is_empty() {
+        ops.push(DiffOp::Insert {
+            line: *delete_start,
+            content: std::mem::take(inserts),
+        });
+    }
+    *deletes = 0;
 }

@@ -60,6 +60,40 @@ pub struct DuplicateModule {
     pub total_size: usize,
 }
 
+/// Format bundle analysis as a comfy-table for CLI output
+pub fn format_analysis_table(analysis: &BundleAnalysis) -> String {
+    let mut summary = comfy_table::Table::new();
+    summary
+        .load_preset(comfy_table::presets::UTF8_FULL)
+        .apply_modifier(comfy_table::modifiers::UTF8_ROUND_CORNERS)
+        .set_content_arrangement(comfy_table::ContentArrangement::Dynamic)
+        .set_header(vec!["Metric", "Value"])
+        .add_row(vec!["Total Size", &format_bytes(analysis.total_transformed_size)])
+        .add_row(vec!["Total Modules", &analysis.total_modules.to_string()])
+        .add_row(vec!["Chunks", &analysis.chunks.len().to_string()])
+        .add_row(vec!["Duplicates", &analysis.duplicates.len().to_string()]);
+
+    let mut modules = comfy_table::Table::new();
+    modules
+        .load_preset(comfy_table::presets::UTF8_FULL)
+        .apply_modifier(comfy_table::modifiers::UTF8_ROUND_CORNERS)
+        .set_content_arrangement(comfy_table::ContentArrangement::Dynamic)
+        .set_header(vec!["Path", "Type", "Size", "%"]);
+
+    let total = analysis.total_transformed_size.max(1) as f64;
+    for m in analysis.largest_modules.iter().take(20) {
+        let pct = (m.transformed_size as f64 / total) * 100.0;
+        modules.add_row(vec![
+            &m.path,
+            &m.kind,
+            &format_bytes(m.transformed_size),
+            &format!("{:.1}%", pct),
+        ]);
+    }
+
+    format!("{}\n\n{}", summary, modules)
+}
+
 /// Analyze the build and generate a bundle analysis
 pub fn analyze_build(engine: &BuildEngine) -> Result<BundleAnalysis> {
     let modules = engine.modules();
@@ -287,13 +321,7 @@ pub fn generate_analysis_html(analysis: &BundleAnalysis) -> String {
 }
 
 fn format_bytes(bytes: usize) -> String {
-    if bytes < 1024 {
-        format!("{}B", bytes)
-    } else if bytes < 1024 * 1024 {
-        format!("{:.1}KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{:.1}MB", bytes as f64 / (1024.0 * 1024.0))
-    }
+    crate::format_size(bytes)
 }
 
 /// Detect circular dependencies in the module graph (#104)

@@ -18,6 +18,10 @@ pub struct Resolver {
     root: PathBuf,
     extensions: Vec<String>,
     aliases: Vec<Alias>,
+    /// Custom conditions for package.json exports resolution (#119)
+    custom_conditions: Vec<String>,
+    /// Optional workspace info for monorepo resolution (#98)
+    workspace: Option<pledgepack_core::ecosystem::WorkspaceInfo>,
     /// Cache: specifier → resolved path (per-directory context)
     cache: Arc<DashMap<(PathBuf, String), Option<PathBuf>>>,
 }
@@ -46,6 +50,32 @@ impl Resolver {
             root,
             extensions,
             aliases,
+            custom_conditions: vec![],
+            workspace: None,
+            cache: Arc::new(DashMap::new()),
+        }
+    }
+
+    /// Create a resolver with custom export conditions (#119)
+    pub fn with_conditions(root: PathBuf, extensions: Vec<String>, aliases: Vec<Alias>, conditions: Vec<String>) -> Self {
+        Self {
+            root,
+            extensions,
+            aliases,
+            custom_conditions: conditions,
+            workspace: None,
+            cache: Arc::new(DashMap::new()),
+        }
+    }
+
+    /// Create a resolver with workspace info (#98)
+    pub fn with_workspace(root: PathBuf, extensions: Vec<String>, aliases: Vec<Alias>, workspace: pledgepack_core::ecosystem::WorkspaceInfo) -> Self {
+        Self {
+            root,
+            extensions,
+            aliases,
+            custom_conditions: vec![],
+            workspace: Some(workspace),
             cache: Arc::new(DashMap::new()),
         }
     }
@@ -156,6 +186,9 @@ impl Resolver {
     }
 
     fn resolve_uncached(&self, specifier: &str, importer: &Path) -> Result<PathBuf> {
+        // Strip ?worker and ?sharedworker suffixes (#111, #112)
+        let specifier = specifier.trim_end_matches("?worker").trim_end_matches("?sharedworker");
+
         // 1. Check aliases
         for alias in &self.aliases {
             if specifier.starts_with(&alias.from) {
@@ -184,7 +217,14 @@ impl Resolver {
             }
         }
 
-        // 4. Bare specifier → node_modules
+        // 4. Bare specifier → workspace packages (#98)
+        if let Some(ref ws) = self.workspace {
+            if let Some(resolved) = pledgepack_core::ecosystem::resolve_workspace_import(specifier, ws) {
+                return Ok(resolved);
+            }
+        }
+
+        // 5. Bare specifier → node_modules
         if let Some(resolved) = self.resolve_node_module(specifier)? {
             return Ok(resolved);
         }
@@ -395,8 +435,15 @@ impl Resolver {
         obj: &serde_json::Map<String, serde_json::Value>,
         module_path: &Path,
     ) -> Result<Option<PathBuf>> {
-        // Priority: browser > import > require > default
-        for condition in ["browser", "import", "module", "require", "default"] {
+        // Priority: custom conditions (#119) > browser > import > require > default
+        let mut all_conditions: Vec<String> = self.custom_conditions.clone();
+        for default in ["browser", "import", "module", "require", "default"] {
+            let d = default.to_string();
+            if !all_conditions.contains(&d) {
+                all_conditions.push(d);
+            }
+        }
+        for condition in &all_conditions {
             if let Some(value) = obj.get(condition) {
                 if let Some(path) = value.as_str() {
                     let resolved = module_path.join(path);
@@ -484,15 +531,16 @@ mod tests {
 
     #[test]
     fn test_resolve_relative() {
+        let cwd = std::env::current_dir().unwrap();
         let resolver = Resolver::new(
-            PathBuf::from("."),
-            vec![".ts".to_string(), ".js".to_string()],
+            cwd.clone(),
+            vec![".rs".to_string(), ".ts".to_string(), ".js".to_string()],
             vec![],
         );
 
-        // This should resolve to a real file
-        let result = resolver.resolve("./Cargo.toml", Path::new("crates/core/Cargo.toml"));
-        assert!(result.is_ok());
+        // Resolve ./Cargo.toml relative to the workspace root
+        let cargo_toml = resolver.resolve("./Cargo.toml", &cwd.join("Cargo.toml"));
+        assert!(cargo_toml.is_ok(), "Failed to resolve ./Cargo.toml: {:?}", cargo_toml.err());
     }
 
     #[test]

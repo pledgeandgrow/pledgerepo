@@ -11,6 +11,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use regex::Regex;
+use std::sync::OnceLock;
 
 // ─── LSP types ────────────────────────────────────────────────────────
 
@@ -528,44 +530,34 @@ fn extract_import_at_position(line: &str, char_pos: usize) -> Option<String> {
 }
 
 fn extract_import_path(line: &str) -> Option<String> {
-    // Extract path from: import ... from '...' or import '...' or require('...')
+    static IMPORT_FROM_RE: OnceLock<Regex> = OnceLock::new();
+    static IMPORT_SIDE_EFFECT_RE: OnceLock<Regex> = OnceLock::new();
+    static REQUIRE_RE: OnceLock<Regex> = OnceLock::new();
+
     let trimmed = line.trim();
 
-    // import ... from "path"
-    if trimmed.starts_with("import ") {
-        for quote in &['"', '\''] {
-            let pattern = format!("from {}", quote);
-            if let Some(pos) = trimmed.find(&pattern) {
-                let after = pos + pattern.len();
-                if let Some(end) = trimmed[after..].find(*quote) {
-                    return Some(trimmed[after..after + end].to_string());
-                }
-            }
-        }
-
-        // import "path" (side-effect import)
-        for quote in &['"', '\''] {
-            let prefix = format!("import {}", quote);
-            if trimmed.starts_with(&prefix) {
-                let after = prefix.len(); // skip "import" + space + quote
-                if let Some(end) = trimmed[after..].find(*quote) {
-                    return Some(trimmed[after..after + end].to_string());
-                }
-            }
-        }
+    // import ... from "path" or import ... from 'path'
+    let import_from_re = IMPORT_FROM_RE.get_or_init(|| {
+        Regex::new(r#"^\s*import\s+.*?\s+from\s+['"]([^'"]+)['"]"#).unwrap()
+    });
+    if let Some(caps) = import_from_re.captures(trimmed) {
+        return Some(caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default());
     }
 
-    // require("path")
-    if trimmed.contains("require(") {
-        for quote in &['"', '\''] {
-            let pattern = format!("require({}", quote);
-            if let Some(pos) = trimmed.find(&pattern) {
-                let after = pos + pattern.len();
-                if let Some(end) = trimmed[after..].find(*quote) {
-                    return Some(trimmed[after..after + end].to_string());
-                }
-            }
-        }
+    // import "path" (side-effect import)
+    let import_side_effect_re = IMPORT_SIDE_EFFECT_RE.get_or_init(|| {
+        Regex::new(r#"^\s*import\s+['"]([^'"]+)['"]"#).unwrap()
+    });
+    if let Some(caps) = import_side_effect_re.captures(trimmed) {
+        return Some(caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default());
+    }
+
+    // require("path") or require('path')
+    let require_re = REQUIRE_RE.get_or_init(|| {
+        Regex::new(r#"require\s*\(\s*['"]([^'"]+)['"]\s*\)"#).unwrap()
+    });
+    if let Some(caps) = require_re.captures(trimmed) {
+        return Some(caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default());
     }
 
     None

@@ -16,6 +16,32 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn, debug};
 
+/// Read a file as a string, using memory-mapped I/O for large files (>64KB).
+/// Falls back to standard `std::fs::read_to_string` for smaller files where
+/// mmap setup overhead outweighs the zero-copy benefit.
+fn read_file_mmap(path: &std::path::Path) -> Result<String> {
+    let file = std::fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if metadata.len() > 65536 {
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
+        Ok(String::from_utf8_lossy(mmap.as_ref()).into_owned())
+    } else {
+        Ok(std::fs::read_to_string(path)?)
+    }
+}
+
+/// Read a file as bytes, using memory-mapped I/O for large files (>64KB).
+fn read_file_bytes_mmap(path: &std::path::Path) -> Result<Vec<u8>> {
+    let file = std::fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if metadata.len() > 65536 {
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
+        Ok(mmap.as_ref().to_vec())
+    } else {
+        Ok(std::fs::read(path)?)
+    }
+}
+
 /// Manifest entry for build manifest.json with entry-to-chunk mapping
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestEntry {
@@ -530,7 +556,7 @@ impl BuildEngine {
             let pkg_json = node_modules.join(&pkg_name).join("package.json");
 
             if pkg_json.exists() {
-                let content = std::fs::read_to_string(&pkg_json)?;
+                let content = read_file_mmap(&pkg_json)?;
                 let pkg: serde_json::Value = serde_json::from_str(&content)?;
 
                 if subpath.is_empty() {
@@ -650,6 +676,7 @@ impl BuildEngine {
 
     /// Transform multiple modules in parallel using rayon.
     /// Returns transformed outputs keyed by module ID.
+    /// Respects build.parallel config (#120) to limit concurrency.
     pub fn transform_modules_parallel(
         &self,
         modules: Vec<(ModuleId, ResolvedModule)>,
@@ -657,60 +684,74 @@ impl BuildEngine {
         let is_production = self.config.mode == crate::config::BuildMode::Production;
         let config = self.config.clone();
 
-        let results: Vec<Result<(ModuleId, CachedOutput)>> = modules
-            .par_iter()
-            .map(|(id, module)| {
-                let source_str = String::from_utf8_lossy(&module.source).to_string();
-                let import_offsets = pledgepack_native_sys::find_imports(&module.source);
+        // Feature 120: Build concurrency control
+        let parallelism = crate::advanced::determine_parallelism(config.build.parallel);
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(parallelism)
+            .build()
+            .unwrap_or_else(|_| {
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(4)
+                    .build()
+                    .unwrap()
+            });
 
-                let mut deps = Vec::new();
-                for offset in import_offsets {
-                    let rest = &source_str[offset..];
-                    if let Some(dep) = extract_module_specifier(rest) {
-                        deps.push(dep);
+        let results: Vec<Result<(ModuleId, CachedOutput)>> = pool.install(|| {
+            modules
+                .par_iter()
+                .map(|(id, module)| {
+                    let source_str = String::from_utf8_lossy(&module.source).to_string();
+                    let import_offsets = pledgepack_native_sys::find_imports(&module.source);
+
+                    let mut deps = Vec::new();
+                    for offset in import_offsets {
+                        let rest = &source_str[offset..];
+                        if let Some(dep) = extract_module_specifier(rest) {
+                            deps.push(dep);
+                        }
                     }
-                }
 
-                let file_path = module.path.to_str().unwrap_or("");
-                let transform_output = crate::transform::transform(
-                    &source_str,
-                    module.kind,
-                    file_path,
-                    is_production,
-                    &config,
-                )?;
+                    let file_path = module.path.to_str().unwrap_or("");
+                    let transform_output = crate::transform::transform(
+                        &source_str,
+                        module.kind,
+                        file_path,
+                        is_production,
+                        &config,
+                    )?;
 
-                // i18n-aware bundling: transform locale imports (#106)
-                let code = if config.i18n.enabled {
-                    crate::i18n::transform_i18n_imports(&transform_output.code, &config.i18n)
-                } else {
-                    transform_output.code
-                };
+                    // i18n-aware bundling: transform locale imports (#106)
+                    let code = if config.i18n.enabled {
+                        crate::i18n::transform_i18n_imports(&transform_output.code, &config.i18n)
+                    } else {
+                        transform_output.code
+                    };
 
-                // Build-time string encryption (#109)
-                let code = if config.encrypt.enabled {
-                    crate::encrypt::encrypt_strings(&code, &config.encrypt)
-                        .map(|(c, _)| c)
-                        .unwrap_or(code)
-                } else {
-                    code
-                };
+                    // Build-time string encryption (#109)
+                    let code = if config.encrypt.enabled {
+                        crate::encrypt::encrypt_strings(&code, &config.encrypt)
+                            .map(|(c, _)| c)
+                            .unwrap_or(code)
+                    } else {
+                        code
+                    };
 
-                Ok((
-                    *id,
-                    CachedOutput {
-                        code,
-                        source_map: transform_output.source_map,
-                        deps,
-                        is_css: transform_output.is_css,
-                        css_modules: transform_output.css_modules,
-                        extracted_css: transform_output.extracted_css,
-                        is_worker: transform_output.is_worker,
-                        dynamic_imports: transform_output.dynamic_imports,
-                    },
-                ))
-            })
-            .collect();
+                    Ok((
+                        *id,
+                        CachedOutput {
+                            code,
+                            source_map: transform_output.source_map,
+                            deps,
+                            is_css: transform_output.is_css,
+                            css_modules: transform_output.css_modules,
+                            extracted_css: transform_output.extracted_css,
+                            is_worker: transform_output.is_worker,
+                            dynamic_imports: transform_output.dynamic_imports,
+                        },
+                    ))
+                })
+                .collect()
+        });
 
         // Collect results, propagating errors
         let mut outputs = Vec::with_capacity(results.len());
@@ -915,10 +956,18 @@ impl BuildEngine {
         if !self.config.build.manual_chunks.is_empty() {
             for (chunk_name, module_patterns) in &self.config.build.manual_chunks {
                 let mut chunk_modules: Vec<String> = Vec::new();
+                // Build a GlobSet from the patterns for this chunk
+                let mut glob_builder = globset::GlobSetBuilder::new();
+                for pattern in module_patterns {
+                    if let Ok(glob) = globset::Glob::new(pattern) {
+                        glob_builder.add(glob);
+                    }
+                }
+                let glob_set = glob_builder.build().unwrap_or_default();
                 for (_id, module) in &self.modules {
                     if let Some(cached) = self.function_cache.get(&module.content_hash) {
                         let path_str = module.path.to_string_lossy().replace('\\', "/");
-                        if module_patterns.iter().any(|pattern| {
+                        if glob_set.is_match(&path_str) || module_patterns.iter().any(|pattern| {
                             path_str.contains(pattern) || path_str == *pattern
                         }) {
                             let rel = module.path.strip_prefix(&self.config.root)

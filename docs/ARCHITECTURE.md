@@ -35,7 +35,7 @@ User source files (src/*.tsx, *.ts)
 
 ```
 pledgepack-cli
-├── pledgepack-core (engine, config, transform, pipeline, env, html, compression, analyzer, edge, dep_bundler, polyfills, transform_optimizations, css_features, css_in_js, tailwind_v4, asset_pipeline, plugin_system, output_distribution, service_worker, lsp_server, migrate, module_graph, remote, git_cache, watcher, hmr_diff, lazy_pipeline, middleware, doctor, config_validate, telemetry, budgets, bench, webhooks, i18n, rtl, a11y, encrypt)
+├── pledgepack-core (engine, config, transform, pipeline, env, html, compression, analyzer, edge, dep_bundler, polyfills, transform_optimizations, css_features, css_in_js, tailwind_v4, asset_pipeline, plugin_system, output_distribution, service_worker, lsp_server, migrate, module_graph, remote, git_cache, watcher, hmr_diff, lazy_pipeline, middleware, doctor, config_validate, telemetry, budgets, bench, webhooks, i18n, rtl, a11y, encrypt, advanced, ecosystem)
 │   ├── pledgepack-cache (function-level cache, memory + disk)
 │   ├── pledgepack-native-sys (FFI to Zig)
 │   ├── oxc (parser, semantic, transformer, codegen)
@@ -59,6 +59,7 @@ pledgepack-cli
 ├── pledgepack-adapter-solid (Oxc JSX, solid-js automatic runtime)
 ├── pledgepack-adapter-next (App/Pages Router, SSR, API routes)
 ├── pledgepack-adapter-tanstack (file-based routing, route tree)
+├── pledgepack-adapter-pledgestack (React frontend + Rust backend, .rs/.psx support)
 ├── axum + tower-http (serve/analyze commands)
 └── tokio (async runtime)
 ```
@@ -113,7 +114,8 @@ Source string
             ├── Define replacement (compile-time constants from config.define)
             ├── import.meta.glob expansion (glob-based file imports for dynamic route/component discovery)
             ├── Dynamic import detection (Oxc AST ImportExpression visitor)
-            ├── Web Worker transform (Worker + SharedWorker patterns)
+            ├── Web Worker transform (Worker + SharedWorker patterns, ?worker/?sharedworker suffixes)
+            ├── Web Component compilation (.wc.tsx → Custom Elements with Shadow DOM)
             └── React Fast Refresh injection (dev mode, React only)
 ```
 
@@ -151,6 +153,19 @@ Source string
 - `$param` files → dynamic route segments
 - Generates route tree with lazy imports
 - Generates route manifest with parent/child relationships
+
+#### PledgeStack (`crates/adapter-pledgestack/`)
+- React frontend + Rust backend framework adapter (like Next.js but backend in Rust)
+- Scans `app/` for React `.tsx` pages (file-based routing, dynamic `[slug]` segments)
+- Scans `server/api/` for Rust backend routes — recognizes both `.rs` and `.psx` files
+- Scans `server/middleware/` for middleware files (`.rs` or `.psx`)
+- Detects server entry point (`server/lib.rs`, `server/lib.psx`, `server/main.rs`, `server/main.psx`)
+- Parses `#[route(GET, "/api/users")]` and `#[pledge::route(...)]` macros to extract HTTP method, path, handler
+- Supports three macro formats: simple (`GET, "/path"`), qualified (`pledge::route(...)`), key-value (`method = "GET", path = "/path"`)
+- Generates `RouteManifest` (JSON) with all frontend + backend routes + middleware
+- `.psx` → `.rs` copy during build for `cargo build` compatibility
+- SSR/SSG detection from `getServerSideProps` / `getStaticProps` / `revalidate` exports
+- `.psx` extension: PledgeStack eXtension — brands backend files, parallel to `.tsx` for frontend
 
 ### CSS Processing (`transform_css` + `process_postcss`)
 - Lightning CSS: minification, nesting, autoprefixing
@@ -190,14 +205,15 @@ Source string
 - **CSS HMR**: CSS file changes send content via WebSocket, `<style>` tags updated in-place
 - **Error overlay**: Transform errors sent via WebSocket with source context, file path, color-coded lines
 - **Runtime error overlay**: `window.addEventListener('error')` and `window.addEventListener('unhandledrejection')` catch runtime browser errors and display them in the overlay with stack traces
-- **Auto-open browser**: `open: true` config auto-opens default browser on dev server start (`start` on Windows, `open` on macOS, `xdg-open` on Linux)
+- **Auto-open browser**: `open: true` config auto-opens default browser on dev server start via `opener` crate (cross-platform, handles WSL/sandboxed macOS)
 - **Dev server proxy**: All HTTP methods (GET, POST, PUT, DELETE, PATCH) proxied via reqwest
 - **WebSocket proxy**: `ws: true` on proxy config enables bidirectional WS proxying
 - **Source maps**: `sourceMappingURL` comments appended to dev server responses
 - **React Fast Refresh**: Component state preservation via `window.__pledge_fast_refresh`
 - **React shim**: Minimal `React.createElement` injected in HTML (no React install needed)
-- **Web Workers**: `new Worker(new URL(...))` patterns transformed for dev
+- **Web Workers**: `new Worker(new URL(...))` patterns + `?worker`/`?sharedworker` import suffixes transformed for dev
 - **Dynamic imports**: Oxc AST `ImportExpression` visitor for accurate detection
+- **Network URL display**: Local network IP address shown alongside localhost URL via `local-ip-address` crate (e.g., `→ Network: http://192.168.x.x:3000`)
 
 ### Plugin Host (`crates/plugin-host/src/lib.rs`)
 - **Wasmtime** engine loads `.wasm` plugin files
@@ -346,6 +362,13 @@ Source string
 - **Lifecycle hooks**: `LifecycleHookRegistry` — `watchStart`, `watchChange`, `watchEnd`, before/after transform/build
 - **Parallel execution**: `execute_parallel_transforms()` via rayon thread pool
 
+### Ecosystem & Extensibility (`crates/core/src/ecosystem.rs`)
+- **Plugin presets** (#94): `builtin_presets()` returns 6 built-in presets (react, tailwind, solid, vue, svelte, astro); `apply_presets()` merges plugin lists and config defaults; community presets via `pledgepack-preset-*` npm packages
+- **Custom transformer pipeline** (#97): `build_pipeline()` constructs ordered transform steps with custom insertion; `TransformStep` tracks built-in vs custom steps; `replace_default` flag for full pipeline replacement
+- **Workspace-aware resolution** (#98): `detect_workspace()` auto-detects npm/pnpm/yarn workspaces from package.json, pnpm-workspace.yaml, or lerna.json; `resolve_workspace_import()` resolves bare specifiers to local packages via exports/module/main fields
+- **Cross-package HMR** (#99): `HmrDependencyMap` maps files↔packages; `build_hmr_map()` scans workspace source files; `compute_hmr_set()` computes HMR propagation set including reverse dependencies
+- **Shared build cache** (#100): `resolve_shared_cache_dir()` returns workspace root `.pledge/cache/` for cross-package cache sharing
+
 ### Output Distribution (`crates/core/src/output_distribution.rs`)
 - **Performance budgets**: `check_budget()` enforces per-entry and per-chunk size limits
 - **Bundle size diff**: `diff_snapshots()` + `format_diff_report()` with regression detection
@@ -354,7 +377,17 @@ Source string
 
 ### Service Worker (`crates/core/src/service_worker.rs`)
 - **Service worker generation**: Precaching strategies (cache-first, network-first, stale-while-revalidate)
+- **Per-route caching** (#113): `sw: { caching: [{ pattern: '/api/*', strategy: 'network-first' }] }` config generates `sw.js`
 - **Web App Manifest**: `generate_manifest()` produces manifest.json with icons, theme, display mode
+
+### Advanced Features (`crates/core/src/advanced.rs`)
+- **Web Components** (#110): `.wc.tsx`/`.wc.jsx` → Custom Elements with Shadow DOM, `customElements.define()` registration
+- **Module Federation** (#115): Host bootstrap + remote entry generation, shared modules with singleton/eager/requiredVersion
+- **GraphQL Code Generation** (#116): TypeScript types + React hooks from `.graphql` schema files via `--codegen`
+- **Environment-Specific Builds** (#117): `--env staging` loads `.env.staging`, injects `process.env.*` defines
+- **Post-Build Hooks** (#118): Sitemap generation, HTML meta tag injection (viewport, description, charset)
+- **Conditional Exports** (#119): Custom `package.json` exports conditions via `exports: { conditions: [...] }` config
+- **Build Concurrency** (#120): `build: { parallel: N }` config, auto-detects CPU cores, capped at 16
 
 ### LSP Server (`crates/core/src/lsp_server.rs`)
 - **Import resolution**: `extract_import_path()` parses import/require statements
@@ -382,7 +415,7 @@ Source string
 
 ### Dev Server Optimizations
 - **Native file watcher** (`crates/core/src/watcher.rs`): Platform-specific inotify/FSEvents/ReadDirectoryChangesW
-- **HMR partial updates** (`crates/core/src/hmr_diff.rs`): LCS-based line-level diff via WebSocket
+- **HMR partial updates** (`crates/dev-server/src/hmr_diff.rs`): Line-level diff via `similar` crate (Myers algorithm) pushed through WebSocket
 - **Cold boot optimization** (`crates/core/src/lazy_pipeline.rs`): Deferred Oxc/Lightning CSS initialization
 - **Middleware chain** (`crates/core/src/middleware.rs`): Configurable request processing pipeline
 
@@ -398,3 +431,9 @@ Source string
 - **RTL CSS auto-generation** (`crates/core/src/rtl.rs`): `css: { rtl: 'auto' }` config auto-generates RTL CSS from LTR stylesheets using CSS logical properties. Converts `margin-left` → `margin-inline-start`, `padding-right` → `padding-inline-end`, `text-align: left` → `text-align: start`, and 20+ other physical-to-logical mappings. Generated as `[dir="rtl"]` scoped CSS files alongside LTR output.
 - **Accessibility linting** (`crates/core/src/a11y.rs`): `a11y: { enabled: true, failOnError: true }` config checks HTML output for missing `alt` attributes on images, missing ARIA labels on interactive elements, insufficient color contrast, missing `<html lang>`, missing `<title>`, and form inputs without labels. Exits non-zero when `failOnError` is true and errors are found.
 - **Build-time string encryption** (`crates/core/src/encrypt.rs`): `encrypt: { keys: ['API_KEY'], key: '<hex>' }` config encrypts sensitive string values at build time using XOR cipher with base64 encoding. Injects a runtime `__pledge_decrypt()` shim that decrypts values at runtime. Prevents plain-text secrets from appearing in bundle output.
+
+### Advanced CSS, Security & Performance (#66–#84)
+- **Advanced CSS** (`crates/core/src/css_advanced.rs`): CSS Modules `composes` directive parsing and cross-file resolution (#66). Automatic dark mode CSS generation from `prefers-color-scheme` or custom property inversion (#67). CSS custom property optimization — inline static vars, remove unused, minify names in production (#68). Scoped CSS for React with `data-v-xxxxx` attribute selectors (#69). CSS nesting polyfill verification via lightningcss (#70).
+- **Performance** (`crates/core/src/performance.rs`): Route-based chunk splitting — `detect_routes()` scans app/pages, `split_by_routes()` in optimizer creates per-route chunks with shared extraction (#71). Module prefetch directives — `generate_prefetch_tags()` for `<link rel="modulepreload">` and `<link rel="prefetch">` (#72). CSS-in-JS runtime tree shaking — `strip_css_in_js_runtime()` removes styled-components/emotion/vanilla-extract runtime imports after static extraction (#73). WASM streaming compilation — `generate_wasm_streaming_code()` outputs `WebAssembly.instantiateStreaming()` with fallback (#74). Precompute module hash at transform time — `TransformOutput.content_hash` field (#75).
+- **Security** (`crates/core/src/security.rs`): Subresource Integrity (SRI) — `inject_sri_into_html()` generates SHA-384 `integrity` attributes for script/link tags (#81). Content Security Policy — `CspGenerator` analyzes HTML and generates `_headers` file with CSP (#82). Dependency vulnerability scanning — `scan_vulnerabilities()` checks package.json against CVE database, integrated in `pledge doctor` (#83). License compliance — `scan_licenses()` reads node_modules package.json license fields, `check_license_compliance()` validates against whitelist/blacklist, integrated in `pledge doctor` (#84).
+- **Asset pipeline enhancements**: Font subsetting already in `fonts.rs`, wired via `build.font_subsetting` (#76). SVG sprite `?sprite` suffix in `transform_asset()` (#77). Video poster frame extraction in `transform_video_asset()` — exports `poster` URL (#78). Responsive image srcset via `config.image.responsive_widths` (#79). Asset inlining threshold via `build.assets_inline_limit` (#80).

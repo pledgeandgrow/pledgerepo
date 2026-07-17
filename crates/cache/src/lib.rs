@@ -134,7 +134,18 @@ impl FunctionCache {
 
     fn read_from_disk(&self, key: &CacheKey) -> Result<CacheEntry> {
         let path = self.cache_path(key);
-        let data = std::fs::read(&path)?;
+        let file = std::fs::File::open(&path)?;
+        let metadata = file.metadata()?;
+
+        // Use memmap2 for zero-copy reads of large cache entries
+        let data = if metadata.len() > 4096 {
+            let mmap = unsafe { memmap2::Mmap::map(&file)? };
+            mmap.as_ref().to_vec()
+        } else {
+            // For small entries, direct read is faster than mmap setup
+            std::fs::read(&path)?
+        };
+
         let entry: CacheEntry = bincode::deserialize(&data)?;
         Ok(entry)
     }

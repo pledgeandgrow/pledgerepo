@@ -5,6 +5,8 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use regex::Regex;
+use std::sync::OnceLock;
 
 // ─── Feature 26: CSS @layer cascade layer management ──────────────────
 
@@ -17,69 +19,45 @@ pub struct CascadeLayers {
     pub order_statement: Option<Vec<String>>,
 }
 
-/// Parse @layer declarations from CSS and return layer information
+/// Parse @layer declarations from CSS and return layer information using regex
 pub fn parse_layers(css: &str) -> CascadeLayers {
+    static LAYER_BLOCK_RE: OnceLock<Regex> = OnceLock::new();
+    static LAYER_ORDER_RE: OnceLock<Regex> = OnceLock::new();
+
     let mut layers = CascadeLayers::default();
     let mut seen = std::collections::HashSet::new();
 
-    // @layer name { ... } — block layer rule
-    let mut search_pos = 0;
-    while let Some(pos) = css[search_pos..].find("@layer ") {
-        let abs_pos = search_pos + pos;
-        let after = &css[abs_pos + 7..];
-
-        // Check if this is a layer order statement: @layer name1, name2;
-        let name_end = after
-            .find(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '{')
-            .unwrap_or(after.len());
-        let first_name = after[..name_end].trim();
-
-        // If next char after whitespace is , or ; it's a layer order statement
-        let rest = &after[name_end..].trim_start();
-        if rest.starts_with(';') || rest.starts_with(',') {
-            // Layer order statement: @layer name1, name2, name3;
-            let full_end = after.find(';').unwrap_or(after.len());
-            let names_str = &after[..full_end];
-            let names: Vec<String> = names_str
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            layers.order_statement = Some(names.clone());
-            for name in &names {
-                if !seen.contains(name) {
-                    seen.insert(name.clone());
-                    layers.layers.push(name.clone());
-                }
-            }
-            search_pos = abs_pos + 7 + full_end + 1;
-            continue;
-        }
-
-        // Regular @layer block
-        if !first_name.is_empty() && !first_name.contains(',') {
-            if !seen.contains(first_name) {
-                seen.insert(first_name.to_string());
-                layers.layers.push(first_name.to_string());
+    // Match @layer order statements: @layer name1, name2, name3;
+    let order_re = LAYER_ORDER_RE.get_or_init(|| {
+        Regex::new(r"@layer\s+([^;{}]+);").unwrap()
+    });
+    for caps in order_re.captures_iter(css) {
+        let names_str = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+        let names: Vec<String> = names_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        layers.order_statement = Some(names.clone());
+        for name in &names {
+            if !seen.contains(name) {
+                seen.insert(name.clone());
+                layers.layers.push(name.clone());
             }
         }
+    }
 
-        // Skip past the block
-        if let Some(brace) = after.find('{') {
-            let mut depth = 1;
-            let mut end = brace + 1;
-            let bytes = after.as_bytes();
-            while end < bytes.len() && depth > 0 {
-                match bytes[end] {
-                    b'{' => depth += 1,
-                    b'}' => depth -= 1,
-                    _ => {}
-                }
-                end += 1;
+    // Match @layer name { ... } blocks
+    let block_re = LAYER_BLOCK_RE.get_or_init(|| {
+        Regex::new(r"@layer\s+([\w-]+)\s*\{").unwrap()
+    });
+    for caps in block_re.captures_iter(css) {
+        if let Some(m) = caps.get(1) {
+            let name = m.as_str();
+            if !seen.contains(name) {
+                seen.insert(name.to_string());
+                layers.layers.push(name.to_string());
             }
-            search_pos = abs_pos + 7 + end;
-        } else {
-            search_pos = abs_pos + 7;
         }
     }
 

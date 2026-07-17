@@ -13,3 +13,4 @@ blake3 = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
 dashmap = { workspace = true }
+memmap2 = { workspace = true }

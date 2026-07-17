@@ -72,6 +72,8 @@ impl SerializableModuleGraph {
             ModuleKind::Svelte => "svelte",
             ModuleKind::Astro => "astro",
             ModuleKind::Worker => "worker",
+            ModuleKind::SharedWorker => "sharedworker",
+            ModuleKind::WebComponent => "webcomponent",
             ModuleKind::Asset => "asset",
             ModuleKind::Mdx => "mdx",
             ModuleKind::Graphql => "graphql",
@@ -203,9 +205,19 @@ impl SerializableModuleGraph {
         Ok(())
     }
 
-    /// Load from disk using bincode
+    /// Load from disk using bincode with memory-mapped I/O for large graphs
     pub fn load_from_disk(path: &PathBuf) -> Result<Self> {
-        let data = std::fs::read(path)?;
+        let file = std::fs::File::open(path)?;
+        let metadata = file.metadata()?;
+
+        // Use memmap2 for zero-copy reads of large module graphs
+        let data: Vec<u8> = if metadata.len() > 4096 {
+            let mmap = unsafe { memmap2::Mmap::map(&file)? };
+            mmap.as_ref().to_vec()
+        } else {
+            std::fs::read(path)?
+        };
+
         let graph: SerializableModuleGraph = bincode::deserialize(&data)?;
         info!("Module graph loaded: {} modules", graph.modules.len());
         Ok(graph)

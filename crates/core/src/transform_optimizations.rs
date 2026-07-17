@@ -13,6 +13,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use blake3;
+use regex::Regex;
+use std::sync::OnceLock;
 
 // ─── Feature 16: WASM target compilation ──────────────────────────────
 
@@ -504,95 +506,61 @@ pub fn generate_hoisting_code(hoisted: &[HoistedVariable], chunk_idx: usize) -> 
 
 // ─── Feature 19: CSS tree shaking ─────────────────────────────────────
 
-/// Extract class names used in JS/JSX/TSX source code
+/// Extract class names used in JS/JSX/TSX source code using regex for robust pattern matching
 pub fn extract_used_class_names(sources: &[(&str, &str)]) -> HashSet<String> {
+    static CLASSNAME_RE: OnceLock<Regex> = OnceLock::new();
+    static TEMPLATE_RE: OnceLock<Regex> = OnceLock::new();
+    static CLASSLIST_RE: OnceLock<Regex> = OnceLock::new();
+
+    // Match className="foo", class='bar', :class="baz" (string attributes)
+    let classname_re = CLASSNAME_RE.get_or_init(|| {
+        Regex::new(
+            r#"(?:className|class|:class)\s*=\s*["']([^"']*)["']"#
+        ).unwrap()
+    });
+    // Match className={`foo ${bar}`} (template literal attributes)
+    let template_re = TEMPLATE_RE.get_or_init(|| {
+        Regex::new(
+            r#"(?:className|class|:class)\s*=\s*\{`([^`]*)`\}"#
+        ).unwrap()
+    });
+    let classlist_re = CLASSLIST_RE.get_or_init(|| {
+        Regex::new(
+            r#"classList\.(?:add|toggle)\(\s*['"]([^'"]+)['"]"#
+        ).unwrap()
+    });
+
     let mut used = HashSet::new();
 
     for (_file, source) in sources {
-        // className="foo" / className="foo bar" / className={`foo ${bar}`}
-        // class="foo" (for non-React frameworks)
-        // :class="foo" (Vue)
-
-        let patterns = ["className=\"", "className='", "className={`", "class=\"", "class='", "class={`", ":class=\"", ":class='", ":class={`"];
-
-        for pattern in &patterns {
-            let mut search = 0;
-            while let Some(pos) = source[search..].find(pattern) {
-                let abs = search + pos + pattern.len();
-                if abs >= source.len() {
-                    break;
-                }
-
-                // Skip "class=" matches that are part of "className="
-                if pattern.starts_with("class=") && abs > pattern.len() {
-                    let before = &source[abs - pattern.len() - 1..abs - pattern.len()];
-                    if before == "e" {
-                        // This is "className=" not "class=", skip
-                        search = abs;
-                        continue;
-                    }
-                }
-
-                // Find the closing quote/backtick
-                // For template literal patterns (ending in `{`), the closing char is backtick
-                let closing_char = if pattern.ends_with('{') {
-                    '`'
-                } else {
-                    pattern.chars().last().unwrap()
-                };
-                let end = source[abs..].find(closing_char).unwrap_or(0);
-                let class_str = &source[abs..abs + end];
-
-                // Handle template literals: `foo ${bar}`
-                if class_str.contains("${") {
-                    // Extract static parts — split on ${ and take the part before }
-                    for part in class_str.split("${") {
-                        let static_part = part.split('}').next().unwrap_or("");
-                        // Strip leading { from the first part (template literal opening brace)
-                        let cleaned = static_part.trim_start_matches('{').trim();
-                        for cls in cleaned.split_whitespace() {
-                            used.insert(cls.to_string());
-                        }
-                    }
-                } else {
-                    // Strip leading { (template literal without ${})
-                    let cleaned = class_str.trim_start_matches('{').trim_end_matches('}');
-                    for cls in cleaned.split_whitespace() {
-                        used.insert(cls.to_string());
-                    }
-                }
-
-                search = abs + end;
+        // Match string attributes: className="foo bar"
+        for caps in classname_re.captures_iter(source) {
+            let class_str = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            for cls in class_str.split_whitespace() {
+                used.insert(cls.to_string());
             }
         }
 
-        // Also check for classList.add('foo') and classList.toggle('foo')
-        let mut search = 0;
-        while let Some(pos) = source[search..].find("classList.add(") {
-            let abs = search + pos + "classList.add(".len();
-            if abs >= source.len() {
-                break;
+        // Match template literal attributes: className={`baz ${dynamic}`}
+        for caps in template_re.captures_iter(source) {
+            let class_str = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            // Extract static parts from template literals
+            for part in class_str.split("${") {
+                let static_part = part.split('}').next().unwrap_or("");
+                for cls in static_part.trim().split_whitespace() {
+                    used.insert(cls.to_string());
+                }
             }
-            let end = source[abs..].find(|c: char| c == ')' || c == ',').unwrap_or(0);
-            let class_name = source[abs..abs + end].trim().trim_matches(|c| c == '\'' || c == '"').trim();
-            if !class_name.is_empty() {
-                used.insert(class_name.to_string());
-            }
-            search = abs + end;
         }
 
-        search = 0;
-        while let Some(pos) = source[search..].find("classList.toggle(") {
-            let abs = search + pos + "classList.toggle(".len();
-            if abs >= source.len() {
-                break;
+        // Match classList.add('foo') and classList.toggle('foo')
+        for caps in classlist_re.captures_iter(source) {
+            if let Some(m) = caps.get(1) {
+                let class_name = m.as_str().trim();
+                if !class_name.is_empty() {
+                    used.insert(class_name.to_string());
+                }
             }
-            let end = source[abs..].find(|c: char| c == ')' || c == ',').unwrap_or(0);
-            let class_name = source[abs..abs + end].trim().trim_matches(|c| c == '\'' || c == '"').trim();
-            if !class_name.is_empty() {
-                used.insert(class_name.to_string());
-            }
-            search = abs + end;
         }
     }
 

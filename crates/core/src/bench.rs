@@ -104,16 +104,20 @@ pub struct RegressionReport {
 }
 
 impl RegressionReport {
-    /// Format as a human-readable string
+    /// Format as a human-readable string using comfy-table
     pub fn format(&self) -> String {
-        format!(
-            "  \x1b[31m⚠ Performance regression\x1b[0m\n    Baseline: {}ms\n    Current:  {}ms\n    Change:   +{}ms ({:.1}%)\n    Threshold: {:.1}%",
-            self.baseline_ms,
-            self.current_ms,
-            self.diff_ms,
-            self.pct_change,
-            self.threshold_pct,
-        )
+        let mut table = comfy_table::Table::new();
+        table
+            .load_preset(comfy_table::presets::UTF8_FULL)
+            .apply_modifier(comfy_table::modifiers::UTF8_ROUND_CORNERS)
+            .set_content_arrangement(comfy_table::ContentArrangement::Dynamic)
+            .set_header(vec!["Metric", "Value"])
+            .add_row(vec!["Baseline", &format!("{}ms", self.baseline_ms)])
+            .add_row(vec!["Current", &format!("{}ms", self.current_ms)])
+            .add_row(vec!["Change", &format!("+{}ms", self.diff_ms)])
+            .add_row(vec!["% Change", &format!("{:.1}%", self.pct_change)])
+            .add_row(vec!["Threshold", &format!("{:.1}%", self.threshold_pct)]);
+        format!("  \x1b[31m⚠ Performance regression\x1b[0m\n{}", table)
     }
 }
 

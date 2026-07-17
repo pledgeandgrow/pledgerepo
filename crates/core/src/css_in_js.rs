@@ -394,6 +394,26 @@ pub fn extract_css_in_js(source: &str, file_path: &str) -> Option<ExtractionResu
     }
 }
 
+/// #73: Tree-shake CSS-in-JS runtime after static extraction.
+/// Strips runtime imports from the code when all styles have been
+/// extracted at build time, achieving zero-runtime CSS-in-JS.
+pub fn tree_shake_runtime(
+    source: &str,
+    framework: CssInJsFramework,
+    extracted_css: &str,
+    dynamic_styles: &[String],
+) -> String {
+    if framework == CssInJsFramework::None {
+        return source.to_string();
+    }
+
+    if !crate::performance::can_strip_runtime(extracted_css, dynamic_styles) {
+        return source.to_string();
+    }
+
+    crate::performance::strip_css_in_js_runtime(source, framework.as_str())
+}
+
 /// Detect if a project uses CSS-in-JS by checking package.json
 pub fn detect_framework_in_project(root: &Path) -> CssInJsFramework {
     let pkg_path = root.join("package.json");

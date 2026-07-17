@@ -11,6 +11,21 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Compile asset budget patterns into a GlobSet for efficient matching.
+/// Returns (globset, fallback_map) so callers can match asset paths against
+/// both glob patterns and plain string keys.
+pub fn compile_asset_budget_globset(
+    asset_budgets: &HashMap<String, usize>,
+) -> globset::GlobSet {
+    let mut builder = globset::GlobSetBuilder::new();
+    for key in asset_budgets.keys() {
+        if let Ok(glob) = globset::Glob::new(key) {
+            builder.add(glob);
+        }
+    }
+    builder.build().unwrap_or_default()
+}
+
 // ─── Feature 45: Performance budget enforcement ───────────────────────
 
 /// Performance budget configuration
@@ -195,13 +210,7 @@ pub fn check_budget(
 }
 
 fn format_bytes(bytes: usize) -> String {
-    if bytes >= 1024 * 1024 {
-        format!("{:.2}MB", bytes as f64 / (1024.0 * 1024.0))
-    } else if bytes >= 1024 {
-        format!("{:.2}KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{}B", bytes)
-    }
+    crate::format_size(bytes)
 }
 
 // ─── Feature 46: Bundle size diff ─────────────────────────────────────
@@ -957,8 +966,9 @@ mod tests {
 
     #[test]
     fn test_format_bytes() {
-        assert_eq!(format_bytes(500), "500B");
-        assert_eq!(format_bytes(1024), "1.00KB");
-        assert_eq!(format_bytes(1024 * 1024), "1.00MB");
+        assert_eq!(format_bytes(500), "500 B");
+        // humansize BINARY format uses space and KiB/MiB suffixes
+        assert!(format_bytes(1024).contains("KiB"));
+        assert!(format_bytes(1024 * 1024).contains("MiB"));
     }
 }

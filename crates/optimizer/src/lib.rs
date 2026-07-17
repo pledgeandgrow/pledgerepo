@@ -35,6 +35,7 @@ pub enum ChunkType {
     Vendor,
     Async,
     Shared,
+    Route,
 }
 
 impl Optimizer {
@@ -294,10 +295,19 @@ impl Optimizer {
         for (chunk_name, patterns) in manual_chunks {
             let mut chunk_modules: Vec<ModuleId> = Vec::new();
 
+            // Build a GlobSet from the patterns for this chunk
+            let mut glob_builder = globset::GlobSetBuilder::new();
+            for pattern in patterns {
+                if let Ok(glob) = globset::Glob::new(pattern) {
+                    glob_builder.add(glob);
+                }
+            }
+            let glob_set = glob_builder.build().unwrap_or_default();
+
             for &id in reachable {
                 if let Some(module) = modules.get(&id) {
                     let path_str = module.path.to_string_lossy();
-                    if patterns.iter().any(|pattern| {
+                    if glob_set.is_match(path_str.as_ref()) || patterns.iter().any(|pattern| {
                         path_str.contains(pattern) || path_str.as_ref() == pattern.as_str()
                     }) {
                         chunk_modules.push(id);
@@ -363,5 +373,57 @@ impl Optimizer {
     /// Get all chunk IDs
     pub fn chunk_ids(&self) -> Vec<String> {
         self.chunks.iter().map(|c| c.id.clone()).collect()
+    }
+
+    /// #71: Route-based chunk splitting
+    /// Splits modules into per-route chunks, extracting shared modules.
+    pub fn split_by_routes(
+        &mut self,
+        routes: &[(String, Vec<ModuleId>)],
+        all_modules: &HashMap<ModuleId, ResolvedModule>,
+    ) {
+        let mut module_route_count: HashMap<ModuleId, usize> = HashMap::new();
+
+        for (_, mods) in routes {
+            for m in mods {
+                *module_route_count.entry(*m).or_default() += 1;
+            }
+        }
+
+        let shared: Vec<ModuleId> = module_route_count
+            .iter()
+            .filter(|(_, count)| **count > 1)
+            .map(|(m, _)| *m)
+            .collect();
+
+        if !shared.is_empty() {
+            self.chunks.push(Chunk {
+                id: "route-shared".to_string(),
+                modules: shared.clone(),
+                chunk_type: ChunkType::Shared,
+            });
+        }
+
+        for (route_name, mods) in routes {
+            let route_modules: Vec<ModuleId> = mods
+                .iter()
+                .filter(|m| !shared.contains(m))
+                .copied()
+                .collect();
+
+            if !route_modules.is_empty() {
+                self.chunks.push(Chunk {
+                    id: format!("route-{}", route_name),
+                    modules: route_modules,
+                    chunk_type: ChunkType::Route,
+                });
+            }
+        }
+
+        tracing::info!(
+            "Route-based splitting: {} route chunks, 1 shared chunk ({} modules)",
+            routes.len(),
+            shared.len()
+        );
     }
 }

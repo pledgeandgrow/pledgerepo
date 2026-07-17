@@ -597,71 +597,68 @@ fn watch_macos(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>
     }
 }
 
-// ─── Fallback: notify crate ──────────────────────────────────────────────────
+// ─── Fallback: notify-debouncer crate ──────────────────────────────────────────────────
 
 #[allow(dead_code)]
 fn watch_notify_fallback(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>) {
-    use notify::{Watcher, RecursiveMode, EventKind as NotifyEventKind};
+    use notify_debouncer_full::new_debouncer;
+    use notify::RecursiveMode;
 
-    let (notify_tx, notify_rx) = mpsc::channel::<notify::Result<notify::Event>>();
+    let debounce_dur = Duration::from_millis(config.debounce_ms);
 
-    let mut watcher = match notify::recommended_watcher(notify_tx) {
-        Ok(w) => w,
+    // Create a debounced watcher that coalesces events within the debounce window
+    let (debounce_tx, debounce_rx) = mpsc::channel::<Vec<notify_debouncer_full::DebouncedEvent>>();
+
+    let mut debouncer = match new_debouncer(
+        debounce_dur,
+        None,
+        move |result: Result<Vec<notify_debouncer_full::DebouncedEvent>, Vec<notify::Error>>| {
+            if let Ok(events) = result {
+                let _ = debounce_tx.send(events);
+            }
+        },
+    ) {
+        Ok(d) => d,
         Err(e) => {
-            warn!("notify fallback watcher creation failed: {}", e);
+            warn!("notify-debouncer creation failed: {}", e);
             return;
         }
     };
 
-    if let Err(e) = watcher.watch(root, RecursiveMode::Recursive) {
-        warn!("notify fallback watch failed: {}", e);
+    if let Err(e) = debouncer.watch(root, RecursiveMode::Recursive) {
+        warn!("notify-debouncer watch failed: {}", e);
         return;
     }
 
-    info!("File watcher started (notify fallback) on {}", root.display());
-
-    let mut debounce_path: Option<PathBuf> = None;
-    let mut debounce_time: Option<Instant> = None;
-    let debounce_dur = Duration::from_millis(config.debounce_ms);
+    info!("File watcher started (notify-debouncer fallback) on {}", root.display());
 
     loop {
-        match notify_rx.recv_timeout(debounce_dur) {
-            Ok(Ok(event)) => {
-                if let NotifyEventKind::Modify(_) | NotifyEventKind::Create(_) = event.kind {
+        match debounce_rx.recv_timeout(debounce_dur * 2) {
+            Ok(events) => {
+                // notify-debouncer coalesces events; emit a FileEvent for each relevant path
+                for event in &events {
                     for path in &event.paths {
                         if should_watch(path, config) {
-                            let now = Instant::now();
-                            if let (Some(prev_path), Some(prev_time)) = (&debounce_path, debounce_time) {
-                                if prev_path != path || now.duration_since(prev_time) > debounce_dur {
-                                    let _ = tx.send(FileEvent {
-                                        path: prev_path.clone(),
-                                        kind: EventKind::Modify,
-                                    });
-                                }
-                            }
-                            debounce_path = Some(path.clone());
-                            debounce_time = Some(now);
-                        }
-                    }
-                }
-            }
-            Ok(Err(e)) => {
-                warn!("notify fallback watcher error: {}", e);
-            }
-            Err(_) => {
-                // Timeout — flush debounced event
-                if let (Some(path), Some(time)) = (&debounce_path, debounce_time) {
-                    if time.elapsed() > debounce_dur {
-                        if should_watch(path, config) {
+                            let kind = match event.kind {
+                                notify::EventKind::Create(_) => EventKind::Create,
+                                notify::EventKind::Modify(_) => EventKind::Modify,
+                                notify::EventKind::Remove(_) => EventKind::Remove,
+                                _ => EventKind::Modify,
+                            };
                             let _ = tx.send(FileEvent {
                                 path: path.clone(),
-                                kind: EventKind::Modify,
+                                kind,
                             });
                         }
-                        debounce_path = None;
-                        debounce_time = None;
                     }
                 }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // No events within the timeout window — continue waiting
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                warn!("notify-debouncer channel disconnected");
+                break;
             }
         }
     }

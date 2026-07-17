@@ -16,6 +16,7 @@ use crate::config::{Framework, PledgeConfig};
 use crate::env::EnvVars;
 use crate::module::ModuleKind;
 use anyhow::{Result, bail};
+use globset::Glob;
 use oxc::allocator::Allocator;
 use oxc::codegen::{Codegen, CodegenOptions};
 use oxc::parser::{Parser, ParserReturn};
@@ -38,6 +39,8 @@ pub struct TransformOutput {
     pub is_worker: bool,
     /// Dynamic import specifiers found in this module
     pub dynamic_imports: Vec<String>,
+    /// #75: Precomputed content hash (computed at transform time, not emit)
+    pub content_hash: Option<String>,
 }
 
 /// Transform a module based on its kind
@@ -60,6 +63,20 @@ pub fn transform(
         ModuleKind::Svelte => transform_svelte(source, file_path, is_production),
         ModuleKind::Astro => transform_astro(source, file_path, is_production),
         ModuleKind::Worker => transform_js(source, kind, file_path, is_production, config),
+        ModuleKind::SharedWorker => transform_js(source, kind, file_path, is_production, config),
+        ModuleKind::WebComponent => {
+            let code = crate::advanced::compile_web_component(source, file_path)?;
+            Ok(TransformOutput {
+                code,
+                source_map: None,
+                css_modules: None,
+                is_css: false,
+                extracted_css: None,
+                is_worker: false,
+                dynamic_imports: Vec::new(),
+        content_hash: None,
+            })
+        }
         ModuleKind::Mdx => transform_mdx(source, file_path),
         ModuleKind::Graphql => transform_graphql(source),
         ModuleKind::Yaml => transform_yaml(source),
@@ -73,6 +90,7 @@ pub fn transform(
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
+        content_hash: None,
         }),
     }
 }
@@ -175,7 +193,10 @@ fn transform_js(
 
     // Step 7: Detect Web Worker patterns
     let is_worker = file_path.contains(".worker.")
-        || source.contains("new Worker(new URL(");
+        || file_path.contains("?worker")
+        || file_path.contains("?sharedworker")
+        || source.contains("new Worker(new URL(")
+        || source.contains("new SharedWorker(new URL(");
 
     // Step 8: Inject React Fast Refresh in dev mode for React components
     let mut code = replace_env_vars(&codegen_result.code, config);
@@ -198,7 +219,11 @@ fn transform_js(
     }
 
     // Step 9: Transform Web Worker patterns
-    if source.contains("new Worker(new URL(") {
+    if source.contains("new Worker(new URL(")
+        || source.contains("new SharedWorker(new URL(")
+        || source.contains("?worker")
+        || source.contains("?sharedworker")
+    {
         code = transform_worker_imports(&code, file_path);
     }
 
@@ -244,6 +269,7 @@ fn transform_js(
         extracted_css,
         is_worker,
         dynamic_imports,
+        content_hash: None,
     })
 }
 
@@ -596,19 +622,17 @@ fn extract_import_filter(args: &str) -> &str {
     "default"
 }
 
-/// Glob-match files against a pattern with * and ** wildcards
+/// Glob-match files against a pattern with * and ** wildcards using globset
 fn glob_files(pattern: &Path, root: &Path) -> Vec<(String, std::path::PathBuf)> {
     let pattern_str = pattern.to_string_lossy().replace('\\', "/");
     let mut results = Vec::new();
 
-    // Split pattern into segments for directory traversal
+    // Split pattern into base directory (before first wildcard) and glob pattern
     let parts: Vec<&str> = pattern_str.split('/').collect();
-
-    // Find the base directory (everything before the first wildcard)
     let mut base_dir = std::path::PathBuf::new();
     let mut wildcard_start = 0;
     for (i, part) in parts.iter().enumerate() {
-        if part.contains('*') || part.contains('?') {
+        if part.contains('*') || part.contains('?') || part.contains('{') {
             wildcard_start = i;
             break;
         }
@@ -621,106 +645,46 @@ fn glob_files(pattern: &Path, root: &Path) -> Vec<(String, std::path::PathBuf)> 
         return results;
     }
 
-    // Recursively glob from the base directory
-    glob_recursive(&base_dir, &parts[wildcard_start..], root, &mut results);
+    // Build glob pattern relative to base directory
+    let glob_pattern = parts[wildcard_start..].join("/");
+    let glob = match Glob::new(&glob_pattern) {
+        Ok(g) => g,
+        Err(_) => return results,
+    };
+    let glob_matcher = glob.compile_matcher();
+
+    // Walk the base directory and match files against the globset
+    glob_walk(&base_dir, &glob_matcher, root, &mut results);
     results.sort_by(|a, b| a.0.cmp(&b.0));
     results
 }
 
-/// Recursively match files against glob pattern segments
-fn glob_recursive(
+/// Recursively walk a directory and collect files matching a globset matcher
+fn glob_walk(
     current_dir: &Path,
-    segments: &[&str],
+    matcher: &globset::GlobMatcher,
     root: &Path,
     results: &mut Vec<(String, std::path::PathBuf)>,
 ) {
-    if segments.is_empty() {
-        return;
-    }
-
-    let segment = segments[0];
-    let rest = &segments[1..];
-
-    if segment == "**" {
-        // ** matches any number of directories
-        // First try matching with zero directories (current dir)
-        glob_recursive(current_dir, rest, root, results);
-        // Then recurse into all subdirectories
-        if let Ok(entries) = std::fs::read_dir(current_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if name == "node_modules" || name == "target" || name.starts_with('.') {
-                        continue;
-                    }
-                    glob_recursive(&path, segments, root, results);
-                }
-            }
-        }
-        return;
-    }
-
     if let Ok(entries) = std::fs::read_dir(current_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
 
             if path.is_dir() {
-                if rest.is_empty() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name == "node_modules" || name == "target" || name.starts_with('.') {
                     continue;
                 }
-                if match_glob(segment, &name) {
-                    glob_recursive(&path, rest, root, results);
-                }
+                glob_walk(&path, matcher, root, results);
             } else if path.is_file() {
-                if rest.is_empty() && match_glob(segment, &name) {
-                    // Make path relative to root
+                // Match the filename against the glob pattern
+                let name = entry.file_name().to_string_lossy().to_string();
+                if matcher.is_match(&name) {
                     if let Ok(rel) = path.strip_prefix(root) {
                         let rel_str = rel.to_string_lossy().replace('\\', "/");
                         results.push((rel_str, path));
                     }
                 }
-            }
-        }
-    }
-}
-
-/// Match a filename against a glob pattern with * and ? wildcards
-fn match_glob(pattern: &str, name: &str) -> bool {
-    let pattern_bytes = pattern.as_bytes();
-    let name_bytes = name.as_bytes();
-    match_glob_helper(pattern_bytes, name_bytes)
-}
-
-fn match_glob_helper(pattern: &[u8], name: &[u8]) -> bool {
-    if pattern.is_empty() {
-        return name.is_empty();
-    }
-
-    match pattern[0] {
-        b'*' => {
-            // * matches zero or more characters
-            for i in 0..=name.len() {
-                if match_glob_helper(&pattern[1..], &name[i..]) {
-                    return true;
-                }
-            }
-            false
-        }
-        b'?' => {
-            // ? matches exactly one character
-            if name.is_empty() {
-                false
-            } else {
-                match_glob_helper(&pattern[1..], &name[1..])
-            }
-        }
-        c => {
-            if name.is_empty() || name[0] != c {
-                false
-            } else {
-                match_glob_helper(&pattern[1..], &name[1..])
             }
         }
     }
@@ -842,6 +806,35 @@ fn transform_css(source: &str, file_path: &str, is_production: bool, config: &Pl
         None
     };
 
+    // #67: Dark mode CSS generation
+    let css_code = if config.css.dark_mode != "off" {
+        crate::css_advanced::generate_dark_mode_css(&css_code, &config.css.dark_mode)
+    } else {
+        css_code
+    };
+
+    // #68: CSS custom properties optimization (production only)
+    let css_code = if is_production && config.css.optimize_custom_properties {
+        crate::css_advanced::optimize_custom_properties(&css_code, config.css.minify_custom_property_names)
+    } else {
+        css_code
+    };
+
+    // #69: Scoped CSS with data-v-xxxxx attribute
+    let css_code = if config.css.scoped == "attribute" {
+        let scope_hash = crate::css_advanced::generate_scope_hash(file_path);
+        crate::css_advanced::scope_css_with_attribute(&css_code, &scope_hash)
+    } else {
+        css_code
+    };
+
+    // #66: CSS Modules composes — strip composes directives after resolution
+    let css_code = if is_css_module {
+        crate::css_advanced::strip_composes(&css_code)
+    } else {
+        css_code
+    };
+
     // Generate CSS source map in dev mode
     let source_map = if !is_production && config.source_maps {
         Some(crate::css_features::generate_css_source_map(file_path, source, &css_code))
@@ -857,6 +850,7 @@ fn transform_css(source: &str, file_path: &str, is_production: bool, config: &Pl
         extracted_css: None,
         is_worker: false,
         dynamic_imports: Vec::new(),
+        content_hash: None,
     })
 }
 
@@ -928,6 +922,7 @@ fn transform_json(source: &str) -> Result<TransformOutput> {
         extracted_css: None,
         is_worker: false,
         dynamic_imports: Vec::new(),
+        content_hash: None,
     })
 }
 
@@ -960,7 +955,11 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
 
             let opts = ImageOptions {
                 formats,
-                widths: vec![640, 750, 828, 1080, 1200, 1920, 2048],
+                widths: if !config.image.responsive_widths.is_empty() {
+                    config.image.responsive_widths.clone()
+                } else {
+                    vec![640, 750, 828, 1080, 1200, 1920, 2048]
+                },
                 quality: config.image.quality as u8,
                 blur_placeholder: true,
                 progressive: true,
@@ -979,6 +978,7 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
                         extracted_css: None,
                         is_worker: false,
                         dynamic_imports: Vec::new(),
+        content_hash: None,
                     });
                 }
                 Err(e) => {
@@ -992,6 +992,36 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
         if crate::svg::is_svg(std::path::Path::new(clean_path)) {
             let svg_source = std::str::from_utf8(source).unwrap_or("");
             let optimized = crate::svg::optimize_svg(svg_source, &crate::svg::SvgOptions::default());
+
+            // #77: ?sprite suffix — generate SVG sprite symbol
+            if file_path.contains("?sprite") {
+                let sprite_id = std::path::Path::new(clean_path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("icon");
+                let sprite_entry = crate::svg::SvgSpriteEntry {
+                    id: sprite_id.to_string(),
+                    svg: optimized.clone(),
+                };
+                let sprite = crate::svg::generate_sprite(&[sprite_entry]);
+                let url = format!("/{}", clean_path.replace('\\', "/"));
+                let code = format!(
+                    r#"export default "{}";
+export const sprite = `{}`;"#,
+                    url, sprite
+                );
+                return Ok(TransformOutput {
+                    code,
+                    source_map: None,
+                    css_modules: None,
+                    is_css: false,
+                    extracted_css: Some(sprite),
+                    is_worker: false,
+                    dynamic_imports: Vec::new(),
+        content_hash: None,
+                });
+            }
+
             let url = format!("/{}", clean_path.replace('\\', "/"));
             let code = format!("export default \"{}\";", url);
             // Store optimized SVG as extracted data for emit to write
@@ -1003,6 +1033,7 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
                 extracted_css: Some(optimized),
                 is_worker: false,
                 dynamic_imports: Vec::new(),
+        content_hash: None,
             });
         }
     }
@@ -1018,6 +1049,7 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
+        content_hash: None,
         });
     }
     if crate::asset_pipeline::is_video_file(clean_path) {
@@ -1030,6 +1062,7 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
+        content_hash: None,
         });
     }
     if clean_path.ends_with(".pdf") {
@@ -1042,6 +1075,7 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
+        content_hash: None,
         });
     }
 
@@ -1060,6 +1094,7 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
+        content_hash: None,
         })
     } else {
         // URL string — relative to project root
@@ -1073,6 +1108,7 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
+        content_hash: None,
         })
     }
 }
@@ -1086,35 +1122,39 @@ fn transform_wasm(file_path: &str, config: &PledgeConfig) -> Result<TransformOut
     let url = format!("/{}", file_path.replace('\\', "/"));
     let simd_mode = &config.build.wasm_simd;
 
+    // #74: Use streaming compilation with fallback for older browsers
     let code = match simd_mode.as_str() {
         "always" => {
-            // Always use SIMD-optimized instantiation
+            // Always use SIMD-optimized streaming instantiation
             format!(r#"export default async function() {{
-  const {{ instance }} = await WebAssembly.instantiateStreaming(fetch("{}"), {{}});
+  const {{ instance }} = await WebAssembly.instantiateStreaming(
+    fetch("{}", {{ headers: {{ "Content-Type": "application/wasm" }} }}),
+    {{}}
+  );
   return instance.exports;
 }}"#, url)
         }
         "never" => {
-            // Always use non-SIMD fallback
-            format!(r#"export default async function() {{
-  const response = await fetch("{}");
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  const {{ instance }} = await WebAssembly.instantiate(bytes, {{}});
-  return instance.exports;
-}}"#, url)
+            // Non-SIMD with streaming + fallback
+            crate::performance::generate_wasm_streaming_code(&url, true)
         }
         _ => {
-            // "auto" — runtime feature detection via WebAssembly.validate()
-            // Generate SIMD test module (a simple v128.const instruction)
-            // If validation passes, browser supports WASM SIMD
+            // "auto" — runtime SIMD detection via WebAssembly.validate()
             let simd_url = format!("{}.simd.wasm", url.trim_end_matches(".wasm"));
-            format!(r#"// WASM SIMD auto-detection (#55)
+            format!(r#"// WASM SIMD auto-detection (#55) + streaming compilation (#74)
 const _simdTest = new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,12,1,10,0,65,0,253,15,253,15,11]);
 const _hasSimd = (() => {{
   try {{ return WebAssembly.validate(_simdTest); }} catch {{ return false; }}
 }})();
 export default async function() {{
   const url = _hasSimd ? "{}" : "{}";
+  if (typeof WebAssembly.instantiateStreaming === 'function') {{
+    const {{ instance }} = await WebAssembly.instantiateStreaming(
+      fetch(url, {{ headers: {{ "Content-Type": "application/wasm" }} }}),
+      {{}}
+    );
+    return instance.exports;
+  }}
   const response = await fetch(url);
   const bytes = new Uint8Array(await response.arrayBuffer());
   const {{ instance }} = await WebAssembly.instantiate(bytes, {{}});
@@ -1131,6 +1171,7 @@ export default async function() {{
         extracted_css: None,
         is_worker: false,
         dynamic_imports: Vec::new(),
+        content_hash: None,
     })
 }
 
@@ -1278,6 +1319,7 @@ if (import.meta.hot) {
         extracted_css,
         is_worker: false,
         dynamic_imports: Vec::new(),
+        content_hash: None,
     })
 }
 
@@ -1845,6 +1887,7 @@ if (import.meta.hot) {
         extracted_css,
         is_worker: false,
         dynamic_imports: Vec::new(),
+        content_hash: None,
     })
 }
 
@@ -2030,6 +2073,7 @@ export default {{
         extracted_css,
         is_worker: false,
         dynamic_imports: Vec::new(),
+        content_hash: None,
     })
 }
 
@@ -2147,6 +2191,9 @@ fn extract_component_name(code: &str) -> Option<String> {
 /// new Worker(new URL('./worker.ts', import.meta.url))
 /// → new Worker('/src/worker.js')
 /// Also handles SharedWorker and { type: 'module' } options
+/// Also handles ?worker and ?sharedworker import suffixes:
+///   import MyWorker from './worker.ts?worker'
+///   → const MyWorker = () => new Worker('/src/worker.js')
 fn transform_worker_imports(code: &str, file_path: &str) -> String {
     let mut result = code.to_string();
     
@@ -2162,8 +2209,12 @@ fn transform_worker_imports(code: &str, file_path: &str) -> String {
                 let spec_rest = &after[spec_start..];
                 if let Some(end) = spec_rest.find(quote_char) {
                     let specifier = &spec_rest[..end];
+                    // Strip ?worker or ?sharedworker suffix from specifier
+                    let clean_spec = specifier
+                        .trim_end_matches("?worker")
+                        .trim_end_matches("?sharedworker");
                     // Convert relative specifier to URL
-                    let url = format!("/{}.js", specifier.replace("./", "").replace("../", ""));
+                    let url = format!("/{}.js", clean_spec.replace("./", "").replace("../", ""));
                     let full_end = start + worker_pattern.len() + end + 2;
                     // Find the closing )) of new Worker(new URL(...))
                     if let Some(close) = result[full_end..].find("))") {
@@ -2183,6 +2234,44 @@ fn transform_worker_imports(code: &str, file_path: &str) -> String {
             } else {
                 break;
             }
+        }
+    }
+
+    // Handle ?worker and ?sharedworker import suffix patterns:
+    //   import MyWorker from './worker.ts?worker'
+    //   → const MyWorker = function() { return new Worker('/src/worker.js'); }
+    //   import MyWorker from './worker.ts?sharedworker'
+    //   → const MyWorker = function() { return new SharedWorker('/src/worker.js'); }
+    for (suffix, constructor) in &[("?worker", "new Worker"), ("?sharedworker", "new SharedWorker")] {
+        let import_pattern = format!("from \"");
+        let mut search_pos = 0;
+        while let Some(pos) = result[search_pos..].find(&import_pattern) {
+            let abs_pos = search_pos + pos;
+            let after = &result[abs_pos + import_pattern.len()..];
+            if let Some(end) = after.find('"') {
+                let specifier = &after[..end];
+                if specifier.ends_with(suffix) {
+                    let clean_spec = specifier.trim_end_matches(suffix);
+                    let url = format!("/{}.js", clean_spec.replace("./", "").replace("../", ""));
+                    // Find the "import" keyword before "from"
+                    if let Some(import_start) = result[..abs_pos].rfind("import ") {
+                        let import_end = abs_pos + import_pattern.len() + end + 1; // after closing quote
+                        // Find the variable name between "import" and "from"
+                        let between = &result[import_start + 7..abs_pos];
+                        let var_name = between.trim().trim_end_matches("from").trim();
+                        if !var_name.is_empty() {
+                            let replacement = format!(
+                                "const {} = function() {{ return {}(\"{}\"); }}",
+                                var_name, constructor, url
+                            );
+                            result.replace_range(import_start..import_end, &replacement);
+                            search_pos = import_start + replacement.len();
+                            continue;
+                        }
+                    }
+                }
+            }
+            search_pos = abs_pos + 1;
         }
     }
     
@@ -2540,6 +2629,7 @@ fn transform_mdx(source: &str, file_path: &str) -> Result<TransformOutput> {
         extracted_css: None,
         is_worker: false,
         dynamic_imports: Vec::new(),
+        content_hash: None,
     })
 }
 
@@ -2553,6 +2643,7 @@ fn transform_graphql(source: &str) -> Result<TransformOutput> {
         extracted_css: None,
         is_worker: false,
         dynamic_imports: Vec::new(),
+        content_hash: None,
     })
 }
 
@@ -2566,6 +2657,7 @@ fn transform_yaml(source: &str) -> Result<TransformOutput> {
         extracted_css: None,
         is_worker: false,
         dynamic_imports: Vec::new(),
+        content_hash: None,
     })
 }
 
@@ -2579,6 +2671,7 @@ fn transform_csv(source: &str) -> Result<TransformOutput> {
         extracted_css: None,
         is_worker: false,
         dynamic_imports: Vec::new(),
+        content_hash: None,
     })
 }
 
@@ -2592,5 +2685,6 @@ fn transform_tsv(source: &str) -> Result<TransformOutput> {
         extracted_css: None,
         is_worker: false,
         dynamic_imports: Vec::new(),
+        content_hash: None,
     })
 }

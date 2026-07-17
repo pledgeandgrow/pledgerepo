@@ -246,10 +246,10 @@ Or via CLI flag:
 pledge dev --open
 ```
 
-### Platform Support
-- **Windows**: Uses `cmd /C start` command
-- **macOS**: Uses `open` command
-- **Linux**: Uses `xdg-open` command
+### Implementation
+- Uses the `opener` crate for cross-platform browser opening
+- Handles WSL, sandboxed macOS, and Linux variants automatically
+- No platform-specific code needed — single `opener::open(url)` call
 
 ## CSS HMR
 
@@ -359,8 +359,9 @@ pledge serve   # Serve dist/ on :4000
 - 200ms debounce to batch rapid file changes
 - Filters out `node_modules`, `.pledge`, `target`, `.git` directories
 
-### HMR Partial Updates (`crates/core/src/hmr_diff.rs`)
-- **Line-level diff**: LCS-based algorithm computes minimal diff between old and new module content
+### HMR Partial Updates (`crates/dev-server/src/hmr_diff.rs`)
+- **Line-level diff**: Uses `similar` crate (Myers algorithm) to compute minimal diff between old and new module content
+- **No line limit**: Previous 200-line LCS cap removed — `similar` handles any file size efficiently
 - **`is_small()` heuristic**: Only sends diff for small changes, falls back to full replacement for large changes
 - **WebSocket transport**: Diff sent via WebSocket as JSON `{ type: "diff", path, additions, deletions }`
 - **Reduced bandwidth**: Only changed lines transmitted instead of full module
@@ -389,6 +390,19 @@ pledge serve   # Serve dist/ on :4000
 - Import patterns tracked per-module in `DevServerState`
 - Re-optimizes dependencies only when import patterns change
 - Not on every server start — faster cold boots
+
+## Network URL Display
+
+The dev server displays the local network URL alongside localhost, so you can test on other devices:
+
+```
+  → Local:    http://localhost:3000
+  → Network:  http://192.168.1.42:3000
+```
+
+- Uses `local-ip-address` crate to detect the machine's network IP
+- Shown for both HTTP and HTTPS dev servers
+- Useful for testing on mobile devices, other machines, or VMs on the same network
 
 ## `pledge dashboard` — Build Telemetry (#101)
 

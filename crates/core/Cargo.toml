@@ -45,3 +45,31 @@ reqwest = "0.12"
 
 # Date/time formatting for telemetry dashboard (#101)
 chrono = "0.4"
+
+# Fast glob pattern matching
+globset = { workspace = true }
+
+# Regular expression engine
+regex = { workspace = true }
+
+# Memory-mapped file I/O
+memmap2 = { workspace = true }
+
+# CLI tables
+comfy-table = { workspace = true }
+
+# File watcher with built-in debouncing
+notify-debouncer-full = { workspace = true }
+notify = { workspace = true }
+
+# YAML parsing
+serde_yaml = { workspace = true }
+
+# Source-context error diagnostics
+miette = { workspace = true }
+
+# Human-readable file sizes
+humansize = { workspace = true }
+
+# JSON Schema generation for config validation
+schemars = { workspace = true }

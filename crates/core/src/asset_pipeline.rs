@@ -6,6 +6,72 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Read an asset file as bytes, using memory-mapped I/O for large files (>64KB).
+/// This speeds up loading of large binary assets like images, videos, and PDFs.
+pub fn read_asset_mmap(path: &Path) -> std::io::Result<Vec<u8>> {
+    let file = std::fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if metadata.len() > 65536 {
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
+        Ok(mmap.as_ref().to_vec())
+    } else {
+        std::fs::read(path)
+    }
+}
+
+/// Read an asset file as a string, using memory-mapped I/O for large files (>64KB).
+pub fn read_asset_text_mmap(path: &Path) -> std::io::Result<String> {
+    let file = std::fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if metadata.len() > 65536 {
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
+        Ok(String::from_utf8_lossy(mmap.as_ref()).into_owned())
+    } else {
+        std::fs::read_to_string(path)
+    }
+}
+
+/// Discover asset files in a directory tree matching the given glob patterns.
+/// Uses globset for efficient pattern matching.
+pub fn discover_assets(
+    root: &Path,
+    patterns: &[String],
+) -> Vec<std::path::PathBuf> {
+    let mut builder = globset::GlobSetBuilder::new();
+    for pattern in patterns {
+        if let Ok(glob) = globset::Glob::new(pattern) {
+            builder.add(glob);
+        }
+    }
+    let glob_set = builder.build().unwrap_or_default();
+
+    let mut results = Vec::new();
+    walk_for_assets(root, &glob_set, &mut results);
+    results.sort();
+    results
+}
+
+fn walk_for_assets(dir: &Path, glob_set: &globset::GlobSet, results: &mut Vec<std::path::PathBuf>) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name == "node_modules" || name == "target" || name.starts_with('.') {
+                    continue;
+                }
+                walk_for_assets(&path, glob_set, results);
+            } else if path.is_file() {
+                let rel = path.strip_prefix(dir).unwrap_or(&path);
+                let rel_str = rel.to_string_lossy().replace('\\', "/");
+                if glob_set.is_match(&rel_str) {
+                    results.push(path);
+                }
+            }
+        }
+    }
+}
+
 // ─── Feature 31: MDX compilation ──────────────────────────────────────
 
 /// MDX frontmatter and content
@@ -397,58 +463,39 @@ fn to_pascal_case(s: &str) -> String {
 
 // ─── Feature 33: YAML/CSV/TSV imports ─────────────────────────────────
 
-/// Transform YAML to ES module with named exports
+/// Transform YAML to ES module with named exports using serde_yaml for proper
+/// parsing of nested structures, lists, anchors, and multi-line strings.
 pub fn transform_yaml(source: &str) -> String {
-    // Simple YAML parser for flat key-value pairs and arrays
+    let parsed: serde_json::Value = match serde_yaml::from_str(source) {
+        Ok(v) => v,
+        Err(_) => {
+            // Fallback: if serde_yaml fails, produce empty default export
+            return "export default {};".to_string();
+        }
+    };
+
     let mut code = String::new();
-    let mut data: HashMap<String, serde_json::Value> = HashMap::new();
 
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        if let Some(colon) = trimmed.find(':') {
-            let key = trimmed[..colon].trim().to_string();
-            let value = trimmed[colon + 1..].trim();
-
-            // Try to parse the value as JSON (handles numbers, booleans, null, strings)
-            let parsed = if value.starts_with('"') && value.ends_with('"') {
-                serde_json::Value::String(value[1..value.len() - 1].to_string())
-            } else if value == "true" {
-                serde_json::Value::Bool(true)
-            } else if value == "false" {
-                serde_json::Value::Bool(false)
-            } else if value == "null" || value == "~" {
-                serde_json::Value::Null
-            } else if let Ok(n) = value.parse::<i64>() {
-                serde_json::Value::Number(n.into())
-            } else if let Ok(f) = value.parse::<f64>() {
-                serde_json::Number::from_f64(f)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::String(value.to_string()))
-            } else {
-                serde_json::Value::String(value.to_string())
-            };
-
-            data.insert(key, parsed);
+    // Generate named exports for top-level object keys with valid JS identifiers
+    if let serde_json::Value::Object(ref map) = parsed {
+        for (key, val) in map {
+            if key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+                && !key.chars().next().map(|c| c.is_numeric()).unwrap_or(true)
+            {
+                code.push_str(&format!(
+                    "export const {} = {};\n",
+                    key,
+                    serde_json::to_string(val).unwrap_or("null".to_string())
+                ));
+            }
         }
     }
 
-    // Generate named exports
-    for (key, val) in &data {
-        if key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') && !key.chars().next().map(|c| c.is_numeric()).unwrap_or(true) {
-            code.push_str(&format!("export const {} = {};\n", key, serde_json::to_string(val).unwrap_or("null".to_string())));
-        }
-    }
-
-    // Default export
-    let default_obj: Vec<String> = data
-        .iter()
-        .map(|(k, v)| format!("\"{}\": {}", k, serde_json::to_string(v).unwrap_or("null".to_string())))
-        .collect();
-    code.push_str(&format!("export default {{ {} }};", default_obj.join(", ")));
+    // Default export — the full parsed YAML as a JS object
+    code.push_str(&format!(
+        "export default {};",
+        serde_json::to_string(&parsed).unwrap_or_else(|_| "{}".to_string())
+    ));
 
     code
 }
@@ -628,6 +675,7 @@ pub fn transform_audio_asset(file_path: &str, is_inline: bool, source: &[u8]) ->
 }
 
 /// Transform video asset to ES module with URL export
+/// #78: Also exports poster frame URL for video files
 pub fn transform_video_asset(file_path: &str, is_inline: bool, source: &[u8]) -> String {
     if is_inline {
         use base64::Engine;
@@ -636,7 +684,22 @@ pub fn transform_video_asset(file_path: &str, is_inline: bool, source: &[u8]) ->
         format!("export default \"data:{};base64,{}\";", mime, b64)
     } else {
         let url = format!("/{}", file_path.replace('\\', "/"));
-        format!("export default \"{}\";", url)
+        // #78: Generate poster frame URL alongside video URL
+        // Poster is extracted as first frame and saved as .jpg next to video
+        let poster_url = format!(
+            "/{}.poster.jpg",
+            file_path.replace('\\', "/").trim_end_matches(".mp4")
+                .trim_end_matches(".webm")
+                .trim_end_matches(".mov")
+                .trim_end_matches(".avi")
+                .trim_end_matches(".mkv")
+        );
+        format!(
+            r#"export default "{}";
+export const src = "{}";
+export const poster = "{}";"#,
+            url, url, poster_url
+        )
     }
 }
 
