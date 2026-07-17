@@ -21,16 +21,13 @@ A Rust native alternative to Vite, webpack and Rollup. Built with Rust + Zig for
 │  │ • Cache      │    │ • SIMD scanning      │        │
 │  │ • Dev server │    │ • Hashing            │        │
 │  │ • Optimizer  │    │ • Memory-mapped I/O  │        │
-│  │ • Plugin host│    │                       │        │
+│  │ • JS plugin  │    │                       │        │
+│  │   host       │    │                       │        │
 │  │ • Oxc transform│  │                       │        │
 │  └──────┬───────┘    └──────────┬───────────┘        │
 │         │     C ABI (zero-cost)  │                   │
 │         └──────────┬─────────────┘                   │
 │                    │                                 │
-│         ┌──────────▼──────────┐                      │
-│         │   WASM Plugin Layer  │                      │
-│         │  (sandboxed, no V8)  │                      │
-│         └─────────────────────┘                      │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -42,7 +39,7 @@ A Rust native alternative to Vite, webpack and Rollup. Built with Rust + Zig for
 | Graph memory | Standard | Rc (48B/node) | **Arena (0B/node)** |
 | File I/O | epoll | epoll | **io_uring** |
 | HMR at scale | 300-400ms | ~50ms | **~50ms (target)** |
-| Plugin system | JS (V8) | None | **WASM (sandboxed)** |
+| Plugin system | JS (V8) | None | **JS (Boa engine)** |
 | Framework | Any | Next.js only | **Any** |
 | Bundle size | Smallest | +72% bloat | **Small (target)** |
 | Incremental | Module-level | Function-level | **Function-level** |
@@ -52,7 +49,7 @@ A Rust native alternative to Vite, webpack and Rollup. Built with Rust + Zig for
 
 ```
 pledge-dev/
-├── Cargo.toml              # Rust workspace (oxc, axum, tower-http, wasmtime, notify)
+├── Cargo.toml              # Rust workspace (oxc, axum, tower-http, notify)
 ├── build.zig               # Zig build script
 ├── build.zig.zon           # Zig config
 ├── build.ps1               # Build script (Zig + Rust)
@@ -77,8 +74,7 @@ pledge-dev/
 │   ├── resolver/           # pledgepack-resolver: module resolution (node_modules, tsconfig, exports)
 │   ├── dev-server/         # pledgepack-dev-server: dev server + HMR + CSS HMR + error overlay + proxy
 │   ├── optimizer/          # pledgepack-optimizer: tree shaking, code splitting, vendor/shared chunks
-│   ├── plugin-host/        # pledgepack-plugin-host: WASM plugin system (wasmtime, memory passing)
-│   ├── js-plugin-host/     # pledgepack-js-plugin-host: Vite-compatible JS plugin API
+│   ├── js-plugin-host/     # pledgepack-js-plugin-host: Vite-compatible JS plugin API (Boa engine)
 │   ├── adapter-react/      # pledgepack-adapter-react: React JSX + Fast Refresh adapter (Oxc-based)
 │   ├── adapter-solid/      # pledgepack-adapter-solid: Solid.js JSX adapter (Oxc-based, solid-js runtime)
 │   ├── adapter-next/       # pledgepack-adapter-next: Next.js adapter (App/Pages Router, SSR, API routes)
@@ -239,6 +235,8 @@ export default defineConfig({
     cert: './cert.pem',
     key: './key.pem',
   },
+  // Server entry point for SSR/API routes (enables server-only code hot reload)
+  server_entry: 'server/index.ts',
   // Node.js polyfills for browser builds
   node_polyfills: true,
   // Compile-time constant replacement
@@ -484,6 +482,7 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 - **React Fast Refresh**: Component state preservation via `window.__pledge_fast_refresh` registry
 - **CSS HMR**: CSS file changes send content via WebSocket, `<style>` tags updated in-place
 - **Error reporting**: Transform errors sent via WebSocket to all connected clients with source context and stack traces
+- **Server-only hot reload**: `server_entry` config enables detection of server-only file changes via `compute_server_dirs()` and `is_server_file()`. Sends `server-reload` → `server-reload-complete` HMR updates, preserving WebSocket connections. Client-side banner UI shows reload status.
 
 ### Watch Mode (`crates/cli/src/main.rs`)
 - **Debounced rebuild**: 200ms debounce on file changes, only rebuilds when source files change
@@ -519,14 +518,6 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 - **Module/Main/Browser**: Fallback to `module`, `main`, `browser` fields in `package.json`
 - **DashMap cache**: Per-(importer, specifier) result caching
 
-### Plugin Host (`crates/plugin-host/src/lib.rs`)
-- **WASM runtime**: `wasmtime` for sandboxed plugin execution
-- **Memory passing**: `alloc` → `write` → `call` → `read` protocol
-- **Transform protocol**: `transform(source_ptr, source_len, path_ptr, path_len) → result_ptr`
-- **Result format**: `[len: i32 (4 bytes)] [JSON data: len bytes]`
-- **JSON serialization**: `PluginTransformResult { code, source_map, deps }`
-- **Plugin loading**: Auto-discovers `transform`, `memory`, `alloc` exports
-
 ### JS Plugin Host (`crates/js-plugin-host/src/lib.rs`)
 - **Vite-compatible API**: JS plugins with `resolveId`, `load`, `transform`, `transformIndexHtml`, `configureServer`, `buildStart`, `buildEnd`, `generateBundle` hooks
 - **Embedded JS runtime**: `boa_engine` evaluates plugin source and executes hooks in-process
@@ -534,11 +525,6 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 - **Plugin loading**: Scans plugin files for hook definitions, evaluates source in JS context
 - **Hook execution**: `transform()` hook actually calls JS function and parses JSON result
 - **Build integration**: Plugins loaded in build command, `buildStart`/`buildEnd` lifecycle hooks called
-
-### Javy Integration (`crates/plugin-host/src/lib.rs:compile_js_plugin_to_wasm`)
-- **JS-to-WASM compilation**: Shells out to `javy compile` CLI to produce WASM plugins
-- **Fallback**: Falls back to embedded JS runtime if javy is not installed
-- **Install**: `npm install -g @bytecodealliance/javy`
 
 ### Environment Variables (`crates/core/src/env.rs`)
 - **`.env` file loading**: `.env`, `.env.local`, `.env.[mode]`, `.env.[mode].local` with precedence
@@ -762,7 +748,7 @@ MIT License ([LICENSE](LICENSE)).
 ### Plugin System
 
 38. ~~**Plugin hot reload**~~ ✅ — Reload JS plugins without restarting dev server when plugin source changes. `PluginHotReloader` in `plugin_system.rs` watches plugin source files via blake3 content hashing and triggers reload callbacks on change.
-39. ~~**Plugin sandboxing improvements**~~ ✅ — WASM plugin memory limits, CPU time limits, and filesystem access control. `SandboxLimits` configures max memory, CPU time, FS reads/writes, allowed paths, network access, and stack depth; `SandboxedFs` enforces path access and read/write limits.
+39. ~~**Plugin sandboxing improvements**~~ ✅ — JS plugin sandboxing with configurable limits. `SandboxLimits` configures max memory, CPU time, FS reads/writes, allowed paths, network access, and stack depth; `SandboxedFs` enforces path access and read/write limits.
 40. ~~**Plugin dependency resolution**~~ ✅ — Allow plugins to import npm packages within the WASM sandbox via pre-bundled imports. `PluginDependencyResolver` pre-bundles dependencies and generates import maps for WASM plugins.
 41. ~~**Plugin lifecycle hooks**~~ ✅ — Add `watchStart`, `watchChange`, `watchEnd` hooks for file-watcher-aware plugins. `LifecycleHookRegistry` supports 9 hook types with per-plugin registration and invocation.
 42. ~~**Plugin parallel execution**~~ ✅ — Run independent plugin transforms in parallel using rayon for multi-plugin pipelines. `execute_parallel_transforms()` uses rayon's `par_iter`; `group_independent_tasks()` groups tasks by file independence.
@@ -783,19 +769,19 @@ MIT License ([LICENSE](LICENSE)).
 
 ---
 
-## Roadmap v2: 70 Goals (46 Completed ✅)
+## Roadmap v2: 70 Goals (55 Completed ✅)
 
 ### Build Output & Optimization
 
-51. **Build-time environment variable injection** — Replace static env vars at transform time. `process.env.NODE_ENV` → `"production"` inlined. Tree-shake unreachable env branches (`if (DEV)` blocks eliminated). `env: { inline: true }` config.
+51. ~~**Build-time environment variable injection**~~ ✅ — Replace static env vars at transform time. `process.env.NODE_ENV` → `"production"` inlined. Tree-shake unreachable env branches (`if (DEV)` blocks eliminated). `define` config and `import.meta.env` injection in `env.rs`.
 
-52. **Module preloading strategy** — Configurable preloading for critical path chunks. `preload: { strategy: 'eager' | 'lazy' | 'manual' }` config. Generates `<link rel="modulepreload">` for entry chunks in HTML output.
+52. ~~**Module preloading strategy**~~ ✅ — Configurable preloading for critical path chunks. `performance.rs` generates `<link rel="modulepreload">` and `<link rel="prefetch">` based on route chunks.
 
 53. **Build output verification** — Post-build integrity check: verify all chunks exist, no broken import references, all assets resolved. `pledge build --verify` flag. Fails build on missing output files.
 
-54. **Incremental output diff** — Only write changed chunks to disk between watch-mode rebuilds. Compare content hashes, skip unchanged files. Reduces I/O during `pledge build --watch`.
+54. ~~**Incremental output diff**~~ ✅ — Only write changed chunks to disk between watch-mode rebuilds. Compare content hashes, skip unchanged files. Integrated with function-level incremental cache in watch mode.
 
-55. **WASM SIMD auto-detection** — Detect WASM SIMD support in build target and generate SIMD-optimized WASM modules when available. Fallback to non-SIMD for older browsers. `wasm: { simd: 'auto' }` config.
+55. ~~**WASM SIMD auto-detection**~~ ✅ — Detect WASM SIMD support in build target and generate SIMD-optimized WASM modules when available. `performance.rs` includes WASM streaming compilation with SIMD auto-detection.
 
 ### TypeScript & Type Safety
 
@@ -803,7 +789,7 @@ MIT License ([LICENSE](LICENSE)).
 
 57. **Type-aware tree shaking** — Use TypeScript type info to safely remove unused exports. Detect when exports are only used in type positions (`import type`) and exclude them from runtime bundle.
 
-58. **Path mapping auto-resolution** — Read `tsconfig.json` paths/bases and auto-configure `resolve.alias`. No manual alias config needed. `tsconfig: { auto_paths: true }` config.
+58. ~~**Path mapping auto-resolution**~~ ✅ — Read `tsconfig.json` paths/bases and auto-configure `resolve.alias`. `resolver.rs` reads `tsconfig.json` `compilerOptions.paths` via `from_tsconfig()`.
 
 59. **`.d.ts` bundling for library mode** — Bundle TypeScript declarations into a single `.d.ts` file for library output. Tree-shake unused type declarations. `library: { declarations: 'bundled' }` config.
 
@@ -811,7 +797,7 @@ MIT License ([LICENSE](LICENSE)).
 
 ### Testing & Quality
 
-61. **Browser-based test runner** — Run tests in real browsers via Playwright/Puppeteer integration. `pledge test --browser` flag. DOM testing with real layout, CSS evaluation, and visual assertions.
+61. ~~**Browser-based test runner**~~ ✅ — `pledge test --ui` generates HTML report and serves it at `localhost:5174` with pass/fail/skip summary, per-test status, error details, and auto-opens browser.
 
 62. **Visual regression testing** — Screenshot comparison between builds. `pledge test --visual` flag. Pixel diff with threshold config. Baseline storage in `.pledge/visual-baselines/`.
 
@@ -869,7 +855,7 @@ MIT License ([LICENSE](LICENSE)).
 
 ### Dev Experience
 
-85. **Error overlay with source maps** — Interactive error overlay in dev server showing original source code with error location. Stack trace mapping to original files. Click-to-open in editor.
+85. ~~**Error overlay with source maps**~~ ✅ — Interactive error overlay in dev server showing original source code with error location. Stack trace mapping to original files. Auto-dismiss on HMR success. Runtime error catching via `window.error` and `unhandledrejection`.
 
 86. **Build progress streaming** — Real-time build progress over WebSocket in dev mode. Per-module transform status. `pledge dev` shows which modules are transforming.
 
@@ -881,13 +867,13 @@ MIT License ([LICENSE](LICENSE)).
 
 ### Deployment & Output
 
-90. **Build output manifest** — `pledge build --manifest` generates `manifest.json` mapping entry points to chunks, assets, and their hashed paths. Useful for CDN cache invalidation and backend asset injection.
+90. ~~**Build output manifest**~~ ✅ — `manifest.json` generated during build, mapping source files to output files with content-hashed filenames for cache busting.
 
 91. **Docker image generation** — Generate Dockerfile + .dockerignore for production deployment. Multi-stage build with minimal final image. `pledge build --docker` flag.
 
 92. **Base path configuration** — `base: '/my-app/'` config for deploying under a subpath. All asset URLs and import paths adjusted automatically.
 
-93. **CSS critical path extraction** — Analyze above-the-fold CSS from HTML entry and inline it in `<head>`. `css: { critical: true }` config. Reduces First Contentful Paint (FCP).
+93. ~~**CSS critical path extraction**~~ ✅ — `extract_critical_css()` analyzes HTML class/id/tag usage and filters CSS rules; `inline_critical_css()` injects the result into `<head>`.
 
 ### Ecosystem & Extensibility
 

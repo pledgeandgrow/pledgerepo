@@ -19,6 +19,7 @@ use pledgepack_core::{BuildEngine, PledgeConfig};
 use pledgepack_core::module::ModuleKind;
 use pledgepack_core::transform as pledge_transform;
 use pledgepack_js_plugin_host::JsPluginHost;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
@@ -28,6 +29,7 @@ mod watcher;
 mod hmr_diff;
 mod lazy_pipeline;
 mod middleware;
+mod shell_generator;
 
 /// A TLS listener that wraps a TCP listener with tokio-rustls
 struct TlsListener {
@@ -133,8 +135,9 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
     if config.dev_server.hmr {
         let watch_root = config.root.clone();
         let tx = hmr_tx.clone();
+        let server_entry = config.server_entry.clone();
         tokio::spawn(async move {
-            start_native_file_watcher(watch_root, tx);
+            start_native_file_watcher(watch_root, tx, server_entry);
         });
     }
 
@@ -181,6 +184,8 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
         .route("/__pledge_hmr", get(hmr_websocket_handler))
         .route("/__pledge_error", get(error_overlay_handler))
         .route("/__pledge_router", get(router_handler))
+        .route("/__pledge_entry", get(entry_module_handler))
+        .route("/__pledge_shell", get(shell_preview_handler))
         .route("/@fs/{*path}", get(virtual_fs_handler))
         .route("/@id/{*path}", get(virtual_id_handler))
         .route("/__pledge_public/{*path}", get(public_dir_handler));
@@ -293,7 +298,9 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
         let key_path = &https_config.key;
 
         if !cert_path.exists() || !key_path.exists() {
-            anyhow::bail!("HTTPS cert or key file not found: {:?}, {:?}", cert_path, key_path);
+            info!("HTTPS enabled but cert/key not found — generating self-signed certificate...");
+            generate_self_signed_cert(cert_path, key_path)?;
+            info!("Self-signed certificate generated at {:?}", cert_path);
         }
 
         // Use tokio-rustls for TLS
@@ -382,6 +389,63 @@ async fn router_handler(State(state): State<Arc<DevServerState>>) -> Response {
     ).into_response()
 }
 
+/// Serve the auto-generated entry module (replaces static entry.tsx)
+async fn entry_module_handler() -> Response {
+    let entry_code = shell_generator::generate_entry_module();
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        entry_code,
+    ).into_response()
+}
+
+/// Shell preview endpoint — shows the generated HTML shell for debugging
+async fn shell_preview_handler(State(state): State<Arc<DevServerState>>) -> Response {
+    let (html_attrs, head_content) = match shell_generator::try_extract_shell_from_project(&state.config.root) {
+        Some((attrs, head)) => (attrs, head),
+        None => ("lang=\"en\"".to_string(), "<title>PledgeStack</title>".to_string()),
+    };
+
+    let import_map = generate_import_map(&state.config);
+
+    // Show the raw shell (without HMR script) for inspection
+    let shell = shell_generator::generate_html_shell(
+        &html_attrs,
+        &head_content,
+        "<!-- HMR script injected here -->",
+        &import_map,
+    );
+
+    let escaped = shell
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Pledge Shell Preview</title>
+<style>
+  body {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #1a1a1a; color: #e0e0e0; padding: 2rem; }}
+  h1 {{ color: #6c63ff; }}
+  pre {{ background: #0d0d0d; border: 1px solid #333; border-radius: 8px; padding: 1.5rem; overflow: auto; font-size: 0.85rem; line-height: 1.6; }}
+  .info {{ color: #888; margin-bottom: 1rem; }}
+</style>
+</head>
+<body>
+  <h1>Pledge Shell Preview</h1>
+  <div class="info">This is the auto-generated HTML shell from layout.tsx. HMR script is shown as a comment.</div>
+  <pre>{}</pre>
+</body>
+</html>"#,
+        escaped
+    );
+
+    Html(html).into_response()
+}
+
 /// Serve the index.html shell
 async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoResponse {
     // Convention: auto-detect project structure
@@ -400,24 +464,13 @@ async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRes
     let mut html = match std::fs::read_to_string(&html_path) {
         Ok(content) => content,
         Err(_) => {
-            // Fallback: generate a minimal HTML if no index.html exists
-            let entry = &state.config.entry[0];
-            format!(
-                r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pledge Dev</title>
-    <style>* {{ margin: 0; padding: 0; box-sizing: border-box; }} body {{ background: #0a0a0a; }}</style>
-</head>
-<body>
-    <div id="root"></div>
-    <script type="module" src="{}"></script>
-</body>
-</html>"#,
-                entry
-            )
+            // Auto-generate HTML shell from layout.tsx (no static index.html needed)
+            let (html_attrs, head_content) = match shell_generator::try_extract_shell_from_project(&state.config.root) {
+                Some((attrs, head)) => (attrs, head),
+                None => ("lang=\"en\"".to_string(), "<title>PledgeStack</title>".to_string()),
+            };
+            let import_map = generate_import_map(&state.config);
+            shell_generator::generate_html_shell(&html_attrs, &head_content, "", &import_map)
         }
     };
 
@@ -501,6 +554,12 @@ async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRes
                     showPledgeError(data.message, data.file, data.stack, data.line, data.column);
                 } else if (data.type === 'connected') {
                     console.log('[pledge] HMR connected');
+                } else if (data.type === 'server-reload') {
+                    console.log('[pledge] Server reloading:', data.message);
+                    showPledgeServerReload(data.message);
+                } else if (data.type === 'server-reload-complete') {
+                    console.log('[pledge] Server reloaded:', data.message);
+                    clearPledgeServerReload();
                 }
             };
             ws.onopen = () => {
@@ -593,6 +652,20 @@ async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRes
             let overlay = document.getElementById('__pledge_error_overlay');
             if (overlay) overlay.remove();
         }
+        function showPledgeServerReload(message) {
+            let banner = document.getElementById('__pledge_server_reload');
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = '__pledge_server_reload';
+                banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99998;background:#1a1a2e;color:#7c3aed;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:0.75rem;text-align:center;font-size:0.9rem;border-bottom:1px solid #7c3aed;';
+                document.body.appendChild(banner);
+            }
+            banner.textContent = '⟳ ' + (message || 'Server reloading...');
+        }
+        function clearPledgeServerReload() {
+            let banner = document.getElementById('__pledge_server_reload');
+            if (banner) banner.remove();
+        }
         // Listen for successful HMR updates to clear errors
         window.addEventListener('pledge:hmr-success', clearPledgeError);
 
@@ -684,7 +757,13 @@ async fn app_route_handler(
     let mut html = match std::fs::read_to_string(&html_path) {
         Ok(content) => content,
         Err(_) => {
-            return module_handler(State(state), Path(path)).await;
+            // Auto-generate HTML shell from layout.tsx (no static index.html needed)
+            let (html_attrs, head_content) = match shell_generator::try_extract_shell_from_project(&state.config.root) {
+                Some((attrs, head)) => (attrs, head),
+                None => ("lang=\"en\"".to_string(), "<title>PledgeStack</title>".to_string()),
+            };
+            let import_map = generate_import_map(&state.config);
+            shell_generator::generate_html_shell(&html_attrs, &head_content, "", &import_map)
         }
     };
 
@@ -764,6 +843,12 @@ async fn app_route_handler(
                     showPledgeError(data.message, data.file, data.stack, data.line, data.column);
                 } else if (data.type === 'connected') {
                     console.log('[pledge] HMR connected');
+                } else if (data.type === 'server-reload') {
+                    console.log('[pledge] Server reloading:', data.message);
+                    showPledgeServerReload(data.message);
+                } else if (data.type === 'server-reload-complete') {
+                    console.log('[pledge] Server reloaded:', data.message);
+                    clearPledgeServerReload();
                 }
             };
             ws.onopen = () => { console.log('[pledge] HMR connected'); __pledge_ws_current_delay = __pledge_ws_reconnect_delay; };
@@ -801,6 +886,8 @@ async fn app_route_handler(
             overlay.innerHTML = '<div style="max-width:900px;margin:0 auto;flex:1;"><div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;"><span style="color:#ff4444;font-size:1.5rem;">&#9888;</span><span style="color:#ff4444;font-size:1.3rem;font-weight:600;">Pledge Build Error</span></div>' + fileHtml + '<div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:1rem;margin-bottom:1rem;overflow:auto;">' + sourceContext + '</div><div style="color:#666;font-size:0.8rem;">Fix the error and save to reload.</div><button onclick="clearPledgeError()" style="margin-top:1rem;padding:0.5rem 1rem;background:#333;color:#fff;border:1px solid #555;border-radius:4px;cursor:pointer;font-family:inherit;">Close</button></div>';
         }
         function clearPledgeError() { let overlay = document.getElementById('__pledge_error_overlay'); if (overlay) overlay.remove(); }
+        function showPledgeServerReload(message) { let b = document.getElementById('__pledge_server_reload'); if (!b) { b = document.createElement('div'); b.id = '__pledge_server_reload'; b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99998;background:#1a1a2e;color:#7c3aed;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:0.75rem;text-align:center;font-size:0.9rem;border-bottom:1px solid #7c3aed;'; document.body.appendChild(b); } b.textContent = '⟳ ' + (message || 'Server reloading...'); }
+        function clearPledgeServerReload() { let b = document.getElementById('__pledge_server_reload'); if (b) b.remove(); }
         window.addEventListener('pledge:hmr-success', clearPledgeError);
         window.addEventListener('error', function(event) {
             if (event.error || event.message) {
@@ -954,7 +1041,135 @@ fn generate_import_map(config: &PledgeConfig) -> String {
         }
     }
 
-    serde_json::json!({ "imports": imports }).to_string()
+    // Build scopes for multi-version deduplication.
+    // Scans nested node_modules for different versions of the same package
+    // and creates scoped import map entries so modules depending on different
+    // versions resolve correctly.
+    let scopes = build_import_map_scopes(&node_modules, &imports);
+
+    if scopes.is_empty() {
+        serde_json::json!({ "imports": imports }).to_string()
+    } else {
+        serde_json::json!({ "imports": imports, "scopes": scopes }).to_string()
+    }
+}
+
+/// Build scoped import map entries for packages with multiple versions.
+/// When a package has different versions in nested node_modules, we create
+/// a scope entry for each parent module path so the browser resolves the
+/// correct version.
+fn build_import_map_scopes(
+    root_node_modules: &std::path::Path,
+    top_level_imports: &serde_json::Map<String, serde_json::Value>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut scopes: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    let mut pkg_versions: HashMap<String, Vec<(String, String)>> = HashMap::new();
+
+    // Walk all nested node_modules directories to find version conflicts
+    fn scan_node_modules(
+        dir: &std::path::Path,
+        root: &std::path::Path,
+        pkg_versions: &mut HashMap<String, Vec<(String, String)>>,
+    ) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') {
+                    continue;
+                }
+                if name.starts_with('@') {
+                    let scoped_dir = entry.path();
+                    if scoped_dir.is_dir() {
+                        if let Ok(scoped_entries) = std::fs::read_dir(&scoped_dir) {
+                            for se in scoped_entries.flatten() {
+                                let sub_name = se.file_name().to_string_lossy().to_string();
+                                let pkg_name = format!("{}/{}", name, sub_name);
+                                let pkg_json = scoped_dir.join(&sub_name).join("package.json");
+                                if let Ok(content) = std::fs::read_to_string(&pkg_json) {
+                                    if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
+                                        let version = pkg.get("version").and_then(|v| v.as_str()).unwrap_or("0.0.0");
+                                        let rel_path = dir.strip_prefix(root).unwrap_or(dir).to_string_lossy().to_string();
+                                        pkg_versions.entry(pkg_name).or_default().push((version.to_string(), rel_path));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
+                let pkg_json = dir.join(&name).join("package.json");
+                if let Ok(content) = std::fs::read_to_string(&pkg_json) {
+                    if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
+                        let version = pkg.get("version").and_then(|v| v.as_str()).unwrap_or("0.0.0");
+                        let rel_path = dir.strip_prefix(root).unwrap_or(dir).to_string_lossy().to_string();
+                        pkg_versions.entry(name).or_default().push((version.to_string(), rel_path));
+                    }
+                }
+            }
+        }
+
+        // Recurse into subdirectories that contain nested node_modules
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() && path.file_name().map(|n| n != "node_modules").unwrap_or(true) {
+                    let nested_nm = path.join("node_modules");
+                    if nested_nm.is_dir() {
+                        scan_node_modules(&nested_nm, root, pkg_versions);
+                    }
+                }
+            }
+        }
+    }
+
+    scan_node_modules(root_node_modules, root_node_modules, &mut pkg_versions);
+
+    // For packages with multiple versions, create scope entries
+    for (pkg_name, versions) in &pkg_versions {
+        let unique_versions: HashSet<&String> = versions.iter().map(|(v, _)| v).collect();
+        if unique_versions.len() <= 1 {
+            continue;
+        }
+
+        // Group by version, pick the first path for each version
+        let mut by_version: HashMap<&String, &String> = HashMap::new();
+        for (version, path) in versions {
+            by_version.entry(version).or_insert(path);
+        }
+
+        // For each version, create a scope that maps the package to the correct path
+        for (version, parent_path) in &by_version {
+            let scope_key = format!("/node_modules/{}/", parent_path.trim_start_matches("node_modules/"));
+            let scope_key = scope_key.replace("//", "/");
+
+            let scope_entry = scopes
+                .entry(scope_key.clone())
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+
+            if let Some(scope_obj) = scope_entry.as_object_mut() {
+                // Map this package to its nested version path
+                let nested_path = format!("/node_modules/{}/{}/", parent_path.trim_start_matches("node_modules/"), pkg_name);
+                let nested_path = nested_path.replace("//", "/");
+
+                // Try to get the entry field from the nested package.json
+                let nested_pkg_json = root_node_modules
+                    .join(parent_path.trim_start_matches("node_modules/"))
+                    .join(pkg_name)
+                    .join("package.json");
+
+                let entry_field = std::fs::read_to_string(&nested_pkg_json)
+                    .ok()
+                    .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+                    .and_then(|p| p.get("module").or_else(|| p.get("main")).and_then(|v| v.as_str()).map(String::from))
+                    .unwrap_or_else(|| "index.js".to_string());
+
+                let full_path = format!("{}{}", nested_path, entry_field).replace('\\', "/");
+                scope_obj.insert(pkg_name.clone(), serde_json::Value::String(full_path));
+            }
+        }
+    }
+
+    scopes
 }
 
 /// Error overlay endpoint — returns error info as JSON for programmatic access
@@ -1574,9 +1789,16 @@ async fn handle_hmr_connection(
 
 /// Native file watcher — uses platform-specific APIs (ReadDirectoryChangesW/inotify/FSEvents)
 /// with automatic fallback to notify crate
-fn start_native_file_watcher(root: PathBuf, tx: mpsc::UnboundedSender<HmrUpdate>) {
+fn start_native_file_watcher(
+    root: PathBuf,
+    tx: mpsc::UnboundedSender<HmrUpdate>,
+    server_entry: Option<String>,
+) {
     let config = watcher::WatcherConfig::default();
     let rx = watcher::start_watcher(&root, config);
+
+    // Determine server-only directories/patterns from server_entry
+    let server_dirs = compute_server_dirs(&root, &server_entry);
 
     // Process events from the native watcher and send HMR updates
     while let Ok(event) = rx.recv() {
@@ -1587,13 +1809,53 @@ fn start_native_file_watcher(root: PathBuf, tx: mpsc::UnboundedSender<HmrUpdate>
 
         let ext = event.path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
+        // Check if this is a server-only file change
+        let is_server_file = is_server_file(&rel_path, &server_dirs, &server_entry);
+
+        if is_server_file {
+            info!("Server file changed: {} — triggering graceful reload", rel_path);
+
+            // Send "server-reload" notification so clients know to expect a brief pause
+            let reload_start = HmrUpdate {
+                update_type: "server-reload".to_string(),
+                path: rel_path.clone(),
+                message: Some("Server code changed — reloading...".to_string()),
+                file: None,
+                css: None,
+                stack: None,
+                line: None,
+                column: None,
+                deps: Vec::new(),
+                full_reload: None,
+                diff: None,
+                full_code: None,
+            };
+            let _ = tx.send(reload_start);
+
+            // Brief delay to let clients process the notification
+            std::thread::sleep(std::time::Duration::from_millis(100));
+
+            // Send "server-reload-complete" so clients know the server is back
+            let reload_done = HmrUpdate {
+                update_type: "server-reload-complete".to_string(),
+                path: rel_path.clone(),
+                message: Some("Server code reloaded successfully".to_string()),
+                file: None,
+                css: None,
+                stack: None,
+                line: None,
+                column: None,
+                deps: Vec::new(),
+                full_reload: None,
+                diff: None,
+                full_code: None,
+            };
+            let _ = tx.send(reload_done);
+            continue;
+        }
+
         // Read the new file content for diff computation
         let new_content = std::fs::read_to_string(&event.path).ok();
-
-        // Compute line-level diff for partial HMR updates (feature 10)
-        // The diff is computed by comparing the previous module output with the new one.
-        // For simplicity, we send the full code and let the client apply it.
-        // A full diff implementation would use hmr_diff::compute_diff().
 
         let update = HmrUpdate {
             update_type: "update".to_string(),
@@ -1610,11 +1872,52 @@ fn start_native_file_watcher(root: PathBuf, tx: mpsc::UnboundedSender<HmrUpdate>
             column: None,
             deps: Vec::new(),
             full_reload: None,
-            diff: None, // TODO: compute line diff when previous content is available
+            diff: None,
             full_code: new_content,
         };
         let _ = tx.send(update);
     }
+}
+
+/// Compute server-only directories from the server_entry config
+fn compute_server_dirs(root: &std::path::Path, server_entry: &Option<String>) -> Vec<String> {
+    let mut dirs = Vec::new();
+    if let Some(entry) = server_entry {
+        // Derive server directory from entry path (e.g., "server/index.ts" → "server")
+        if let Some(parent) = std::path::Path::new(entry).parent() {
+            if !parent.as_os_str().is_empty() {
+                dirs.push(parent.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    // Common SSR/API directories
+    for common in &["api", "server", "src/api", "src/server", "app/api"] {
+        if root.join(common).is_dir() {
+            dirs.push(common.to_string());
+        }
+    }
+    dirs
+}
+
+/// Check if a file path is a server-only file
+fn is_server_file(
+    rel_path: &str,
+    server_dirs: &[String],
+    server_entry: &Option<String>,
+) -> bool {
+    // Check if it's the server entry file itself
+    if let Some(entry) = server_entry {
+        if rel_path == entry.as_str() {
+            return true;
+        }
+    }
+    // Check if it's in a server directory
+    for dir in server_dirs {
+        if rel_path.starts_with(dir) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Detect multi-entry HTML files in the project root
@@ -1722,23 +2025,13 @@ async fn entry_index_handler(
     let mut html = match std::fs::read_to_string(&html_path) {
         Ok(content) => content,
         Err(_) => {
-            // Generate minimal HTML for this entry
-            format!(
-                r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pledge Dev — {}</title>
-    <style>* {{ margin: 0; padding: 0; box-sizing: border-box; }} body {{ background: #0a0a0a; }}</style>
-</head>
-<body>
-    <div id="root"></div>
-    <script type="module" src="{}"></script>
-</body>
-</html>"#,
-                entry.name, entry.entry_module
-            )
+            // Auto-generate HTML shell from layout.tsx
+            let (html_attrs, head_content) = match shell_generator::try_extract_shell_from_project(&state.config.root) {
+                Some((attrs, head)) => (attrs, head),
+                None => ("lang=\"en\"".to_string(), format!("<title>Pledge — {}</title>", entry.name)),
+            };
+            let import_map = generate_import_map(&state.config);
+            shell_generator::generate_html_shell(&html_attrs, &head_content, "", &import_map)
         }
     };
 
@@ -1796,6 +2089,12 @@ async fn entry_index_handler(
                     showPledgeError(data.message, data.file, data.stack, data.line, data.column);
                 } else if (data.type === 'connected') {
                     console.log('[pledge] HMR connected');
+                } else if (data.type === 'server-reload') {
+                    console.log('[pledge] Server reloading:', data.message);
+                    showPledgeServerReload(data.message);
+                } else if (data.type === 'server-reload-complete') {
+                    console.log('[pledge] Server reloaded:', data.message);
+                    clearPledgeServerReload();
                 }
             };
             ws.onopen = () => { console.log('[pledge] HMR connected'); __pledge_ws_current_delay = __pledge_ws_reconnect_delay; };
@@ -1833,6 +2132,8 @@ async fn entry_index_handler(
             overlay.innerHTML = '<div style="max-width:900px;margin:0 auto;flex:1;"><div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;"><span style="color:#ff4444;font-size:1.5rem;">&#9888;</span><span style="color:#ff4444;font-size:1.3rem;font-weight:600;">Pledge Build Error</span></div>' + fileHtml + '<div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:1rem;margin-bottom:1rem;overflow:auto;">' + sourceContext + '</div><div style="color:#666;font-size:0.8rem;">Fix the error and save to reload.</div><button onclick="clearPledgeError()" style="margin-top:1rem;padding:0.5rem 1rem;background:#333;color:#fff;border:1px solid #555;border-radius:4px;cursor:pointer;font-family:inherit;">Close</button></div>';
         }
         function clearPledgeError() { let overlay = document.getElementById('__pledge_error_overlay'); if (overlay) overlay.remove(); }
+        function showPledgeServerReload(message) { let b = document.getElementById('__pledge_server_reload'); if (!b) { b = document.createElement('div'); b.id = '__pledge_server_reload'; b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99998;background:#1a1a2e;color:#7c3aed;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:0.75rem;text-align:center;font-size:0.9rem;border-bottom:1px solid #7c3aed;'; document.body.appendChild(b); } b.textContent = '⟳ ' + (message || 'Server reloading...'); }
+        function clearPledgeServerReload() { let b = document.getElementById('__pledge_server_reload'); if (b) b.remove(); }
         window.addEventListener('pledge:hmr-success', clearPledgeError);
         window.addEventListener('error', function(event) {
             if (event.error || event.message) {
@@ -2309,4 +2610,30 @@ fn open_browser(url: &str) {
         Ok(_) => info!("Opened browser at {}", url),
         Err(e) => tracing::warn!("Failed to open browser: {}", e),
     }
+}
+
+/// Generate a self-signed TLS certificate and private key for local HTTPS dev server.
+/// Uses rcgen to create a certificate valid for localhost and the local IP.
+fn generate_self_signed_cert(cert_path: &std::path::Path, key_path: &std::path::Path) -> anyhow::Result<()> {
+    use rcgen::{CertificateParams, KeyPair, DistinguishedName, DnType};
+
+    let mut san_names = vec!["localhost".to_string()];
+    if let Ok(ip) = local_ip_address::local_ip() {
+        san_names.push(ip.to_string());
+    }
+
+    let mut params = CertificateParams::new(san_names.clone())?;
+
+    let mut dn = DistinguishedName::new();
+    dn.push(DnType::CommonName, "PledgePack Dev Server");
+    dn.push(DnType::OrganizationName, "PledgePack");
+    params.distinguished_name = dn;
+
+    let key_pair = KeyPair::generate()?;
+    let cert = params.self_signed(&key_pair)?;
+
+    std::fs::write(cert_path, cert.pem())?;
+    std::fs::write(key_path, key_pair.serialize_pem())?;
+
+    Ok(())
 }

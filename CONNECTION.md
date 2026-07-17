@@ -47,7 +47,7 @@ User installs pledgejs (framework)
 | Dev server (HTTP, WebSocket, HMR) | ✅ | |
 | Transform pipeline (JS/TS/JSX/CSS) | ✅ | |
 | Asset pipeline (images, fonts, SVG, MDX) | ✅ | |
-| Plugin system (WASM + JS) | ✅ | |
+| Plugin system (JS) | ✅ | |
 | Output formats (ESM, CJS, IIFE, edge) | ✅ | |
 | Source maps | ✅ | |
 | CSS processing (Tailwind, CSS Modules, Lightning CSS) | ✅ | |
@@ -118,7 +118,7 @@ pledgejs is a **framework layer** — it orchestrates React rendering and routin
 - **DO NOT** implement bundle analyzer (pledgepack generates interactive HTML treemap)
 - **DO NOT** implement output format conversion (ESM → CJS/IIFE/UMD)
 - **DO NOT** implement compression (gzip/brotli output generation)
-- **DO NOT** implement plugin sandboxing (WASM limits, filesystem access control)
+- **DO NOT** implement plugin sandboxing (JS plugin limits, filesystem access control)
 - **DO NOT** implement dependency pre-bundling (DepBundler in pledgepack handles this)
 - **DO NOT** implement polyfills (pledgepack has 20 built-in Node.js polyfills)
 - **DO NOT** implement define/compile-time constants (pledgepack handles `define` config)
@@ -428,7 +428,7 @@ Inside each archive: a single binary named `pledge` (Unix) or `pledge.exe` (Wind
 - `crates/core/src/transform.rs` — Oxc-based JS/TS/JSX transform
 - `crates/core/src/module_graph.rs` — Module dependency graph
 - `crates/core/src/router.rs` — File-based routing scanner (`scan_app_dir`)
-- `crates/core/src/plugin_system.rs` — Plugin hooks, WASM sandbox
+- `crates/core/src/plugin_system.rs` — Plugin hooks, JS plugin execution
 - `crates/core/src/html.rs` — HTML entry processing
 - `crates/core/src/edge.rs` — Edge bundle generation
 - `bin/pledge.js` — JS shim that resolves and spawns native binary

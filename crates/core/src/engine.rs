@@ -240,11 +240,13 @@ impl BuildEngine {
             }
         }
 
-        // Phase 3: Parse, transform, and build graph (BFS from entries)
+        // Phase 3a: BFS Resolution — discover all modules using fast SIMD scanning.
+        // Deps come from find_imports + extract_module_specifier, NOT from Oxc transform.
+        // Uncached modules are collected for parallel transformation in Phase 3b.
         let mut modules_built = 0usize;
         let mut modules_cached = 0usize;
+        let mut pending_transforms: Vec<(ModuleId, ResolvedModule)> = Vec::new();
 
-        // Process modules in BFS order from entry points (lazy scanning)
         let mut queue: Vec<ModuleId> = self.path_to_id.values().copied().collect();
         let mut processed = HashSet::new();
 
@@ -259,7 +261,6 @@ impl BuildEngine {
                 None => continue,
             };
 
-            // Add to serializable graph
             self.module_graph.add_module(
                 module_id,
                 module.path.clone(),
@@ -267,14 +268,14 @@ impl BuildEngine {
                 module.content_hash,
             );
 
+            let cache_key = module.content_hash;
+
             // Skip if already loaded from incremental cache
             if skip_set.contains(&module_id) {
                 modules_cached += 1;
                 if let Some(cached) = self.function_cache.get(&module.content_hash).cloned() {
                     for dep_path in &cached.deps {
                         let dep_id = self.resolve_and_add(dep_path, Some(&module.path))?;
-                        self.graph.add_dependency(module_id, dep_id);
-                        self.module_graph.add_dependency(module_id, dep_id);
                         queue.push(dep_id);
                     }
                 }
@@ -282,16 +283,16 @@ impl BuildEngine {
             }
 
             // Check function-level cache (memory first, then disk, then remote)
-            let cache_key = module.content_hash;
             if let Some(cached) = self.function_cache.get(&cache_key).cloned() {
                 modules_cached += 1;
                 for dep_path in &cached.deps {
                     let dep_id = self.resolve_and_add(dep_path, Some(&module.path))?;
-                    self.graph.add_dependency(module_id, dep_id);
-                    self.module_graph.add_dependency(module_id, dep_id);
                     queue.push(dep_id);
                 }
-            } else if let Some(ref pc) = self.persistent_cache {
+                continue;
+            }
+
+            if let Some(ref pc) = self.persistent_cache {
                 let pkey = pledgepack_cache::make_key(cache_key, "transform", &module.path.to_string_lossy().to_string());
                 if let Some(entry) = pc.get(&pkey) {
                     modules_cached += 1;
@@ -308,11 +309,12 @@ impl BuildEngine {
                     self.function_cache.insert(cache_key, cached.clone());
                     for dep_path in &cached.deps {
                         let dep_id = self.resolve_and_add(dep_path, Some(&module.path))?;
-                        self.graph.add_dependency(module_id, dep_id);
-                        self.module_graph.add_dependency(module_id, dep_id);
                         queue.push(dep_id);
                     }
-                } else if let Some(ref rc) = self.remote_cache {
+                    continue;
+                }
+
+                if let Some(ref rc) = self.remote_cache {
                     // Try remote cache before transforming
                     let rkey = pledgepack_cache::remote::remote_cache_key(cache_key, "transform", &module.path.to_string_lossy().to_string());
                     if let Ok(Some(remote_entry)) = rc.get(&rkey) {
@@ -341,44 +343,38 @@ impl BuildEngine {
                         });
                         for dep_path in &cached.deps {
                             let dep_id = self.resolve_and_add(dep_path, Some(&module.path))?;
-                            self.graph.add_dependency(module_id, dep_id);
-                            self.module_graph.add_dependency(module_id, dep_id);
                             queue.push(dep_id);
                         }
-                    } else {
-                        modules_built += 1;
-                        let output = self.transform_module(&module).await?;
-                        pc.set(pkey, pledgepack_cache::CacheEntry {
-                            code: output.code.clone(),
-                            source_map: output.source_map.clone(),
-                            deps: output.deps.clone(),
-                            created_at: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs(),
-                        });
-                        // Store to remote cache as well
-                        let rkey = pledgepack_cache::remote::remote_cache_key(cache_key, "transform", &module.path.to_string_lossy().to_string());
-                        let _ = rc.set(&rkey, &pledgepack_cache::remote::RemoteCacheEntry {
-                            code: output.code.clone(),
-                            source_map: output.source_map.clone(),
-                            deps: output.deps.clone(),
-                            created_at: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs(),
-                        });
-                        for dep_path in &output.deps {
-                            let dep_id = self.resolve_and_add(dep_path, Some(&module.path))?;
-                            self.graph.add_dependency(module_id, dep_id);
-                            self.module_graph.add_dependency(module_id, dep_id);
-                            queue.push(dep_id);
-                        }
-                        self.function_cache.insert(cache_key, output);
+                        continue;
                     }
-                } else {
-                    modules_built += 1;
-                    let output = self.transform_module(&module).await?;
+                }
+            }
+
+            // Not in any cache — discover deps via SIMD scanning for BFS, defer transform
+            let source_str = String::from_utf8_lossy(&module.source).to_string();
+            let import_offsets = pledgepack_native_sys::find_imports(&module.source);
+            for offset in import_offsets {
+                let rest = &source_str[offset..];
+                if let Some(dep) = extract_module_specifier(rest) {
+                    let dep_id = self.resolve_and_add(&dep, Some(&module.path))?;
+                    queue.push(dep_id);
+                }
+            }
+            pending_transforms.push((module_id, module));
+        }
+
+        // Phase 3b: Transform all uncached modules in parallel using rayon
+        if !pending_transforms.is_empty() {
+            modules_built += pending_transforms.len();
+            let parallel_results = self.transform_modules_parallel(pending_transforms)?;
+
+            // Phase 3c: Populate caches from parallel results
+            for (module_id, output) in parallel_results {
+                let module = self.modules.get(&module_id).unwrap();
+                let cache_key = module.content_hash;
+
+                if let Some(ref pc) = self.persistent_cache {
+                    let pkey = pledgepack_cache::make_key(cache_key, "transform", &module.path.to_string_lossy().to_string());
                     pc.set(pkey, pledgepack_cache::CacheEntry {
                         code: output.code.clone(),
                         source_map: output.source_map.clone(),
@@ -388,24 +384,36 @@ impl BuildEngine {
                             .unwrap_or_default()
                             .as_secs(),
                     });
-                    for dep_path in &output.deps {
-                        let dep_id = self.resolve_and_add(dep_path, Some(&module.path))?;
-                        self.graph.add_dependency(module_id, dep_id);
-                        self.module_graph.add_dependency(module_id, dep_id);
-                        queue.push(dep_id);
-                    }
-                    self.function_cache.insert(cache_key, output);
                 }
-            } else {
-                modules_built += 1;
-                let output = self.transform_module(&module).await?;
-                for dep_path in &output.deps {
-                    let dep_id = self.resolve_and_add(dep_path, Some(&module.path))?;
-                    self.graph.add_dependency(module_id, dep_id);
-                    self.module_graph.add_dependency(module_id, dep_id);
-                    queue.push(dep_id);
+
+                if let Some(ref rc) = self.remote_cache {
+                    let rkey = pledgepack_cache::remote::remote_cache_key(cache_key, "transform", &module.path.to_string_lossy().to_string());
+                    let _ = rc.set(&rkey, &pledgepack_cache::remote::RemoteCacheEntry {
+                        code: output.code.clone(),
+                        source_map: output.source_map.clone(),
+                        deps: output.deps.clone(),
+                        created_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs(),
+                    });
                 }
+
                 self.function_cache.insert(cache_key, output);
+            }
+        }
+
+        // Phase 3d: Wire up dependency graph for all modules (cached + transformed)
+        for (&module_id, module) in &self.modules {
+            if let Some(cached) = self.function_cache.get(&module.content_hash) {
+                for dep_path in &cached.deps {
+                    if let Ok(dep_path_resolved) = self.resolve(dep_path, Some(&module.path)) {
+                        if let Some(&dep_id) = self.path_to_id.get(&dep_path_resolved) {
+                            self.graph.add_dependency(module_id, dep_id);
+                            self.module_graph.add_dependency(module_id, dep_id);
+                        }
+                    }
+                }
             }
         }
 

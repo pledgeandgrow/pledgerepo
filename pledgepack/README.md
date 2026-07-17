@@ -1,6 +1,6 @@
 ﻿# PledgePack
 
-A Rust+Zig bundler with incremental computation, WASM plugins, and Rollup-quality output. Like Vite, Webpack, or Turbopack — but faster.
+A Rust+Zig bundler with incremental computation, JS plugins, and Rollup-quality output. Like Vite, Webpack, or Turbopack — but faster.
 
 > **npm package:** `pledgepack` · **CLI command:** `pledge`
 
@@ -17,7 +17,7 @@ PledgePack is **not** a framework. It's the build tool and dev server that frame
 - **CSS pipeline** — Lightning CSS for optimization and preprocessing
 - **Build output** — Optimized production bundles to `.pledge/` directory
 - **Framework support** — React, Vue, Svelte, Solid, Astro, Next.js, TanStack
-- **WASM plugins** — Sandboxed plugin system with wasmtime
+- **JS plugins** — Vite-compatible plugin system powered by Boa engine
 - **Built-in test runner** — Vitest-compatible API with snapshot testing and coverage
 - **Bundle analyzer** — Interactive HTML treemap visualization
 - **Edge-ready output** — Cloudflare Workers, Vercel Edge, Deno Deploy
@@ -262,8 +262,8 @@ const isDev = import.meta.env.PLEDGE_DEV;
 
 ### Plugin System
 - Plugin hot reload (reload JS plugins without restarting dev server)
-- WASM plugin sandboxing (memory limits, CPU time, filesystem access control)
-- Plugin dependency resolution (npm packages in WASM sandbox via pre-bundled imports)
+- JS plugin sandboxing (memory limits, CPU time, filesystem access control)
+- Plugin dependency resolution (npm packages via pre-bundled imports)
 - Plugin lifecycle hooks (`watchStart`, `watchChange`, `watchEnd`, before/after transform/build)
 - Plugin parallel execution via rayon
 
@@ -333,7 +333,7 @@ If no binary is found, the postinstall script downloads a prebuilt binary from G
 | CSS | PostCSS | CSS loader | SWC | **Lightning CSS** |
 | Dev server | Vite | webpack-dev-server | Turbopack | **PledgePack** |
 | HMR | Partial | Partial | Partial | **Line-level diff** |
-| Plugin system | JS (V8) | JS | None | **WASM (sandboxed)** |
+| Plugin system | JS (V8) | JS | None | **JS (Boa engine)** |
 | Framework | Any | Any | Next.js only | **Any** |
 | Bundle size | Smallest | Variable | +72% bloat | **Small** |
 | Incremental | Module-level | Module-level | Function-level | **Function-level** |

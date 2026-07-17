@@ -20,7 +20,6 @@ pledgepack-core = { workspace = true }
 pledgepack-dev-server = { workspace = true }
 pledgepack-cache = { workspace = true }
 pledgepack-resolver = { workspace = true }
-pledgepack-plugin-host = { workspace = true }
 pledgepack-js-plugin-host = { workspace = true }
 pledgepack-adapter-react = { workspace = true }
 pledgepack-optimizer = { workspace = true }

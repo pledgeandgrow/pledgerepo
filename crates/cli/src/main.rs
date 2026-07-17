@@ -40,7 +40,7 @@ use tracing_subscriber::EnvFilter;
 #[command(
     name = "pledge",
     version,
-    about = "A Rust+Zig bundler with incremental computation, WASM plugins, and Rollup-quality output"
+    about = "A Rust+Zig bundler with incremental computation, JS plugins, and Rollup-quality output"
 )]
 struct Cli {
     /// Project root directory (default: current directory)
@@ -70,6 +70,10 @@ enum Commands {
         /// Open browser on start
         #[arg(long)]
         open: bool,
+
+        /// Enable HTTPS dev server (auto-generates self-signed certs if not provided)
+        #[arg(long)]
+        https: bool,
     },
 
     /// Create a production build
@@ -291,7 +295,7 @@ async fn main() -> Result<()> {
     }
 
     match cli.command {
-        Commands::Dev { port, host, open } => {
+        Commands::Dev { port, host, open, https } => {
             if let Some(p) = port {
                 config.dev_server.port = p;
             }
@@ -301,11 +305,20 @@ async fn main() -> Result<()> {
             if open {
                 config.dev_server.open = true;
             }
+            if https && config.https.is_none() {
+                let cert_dir = std::env::temp_dir().join("pledgepack-certs");
+                std::fs::create_dir_all(&cert_dir).ok();
+                config.https = Some(pledgepack_core::config::HttpsConfig {
+                    cert: cert_dir.join("dev-cert.pem"),
+                    key: cert_dir.join("dev-key.pem"),
+                });
+            }
             config.mode = pledgepack_core::config::BuildMode::Development;
 
+            let protocol = if config.https.is_some() { "https" } else { "http" };
             println!(
-                "\n  \x1b[36mpledge\x1b[0m dev server starting...\n  \x1b[90m→\x1b[0m http://{}:{}\n",
-                config.dev_server.host, config.dev_server.port
+                "\n  \x1b[36mpledge\x1b[0m dev server starting...\n  \x1b[90m→\x1b[0m {}://{}:{}\n",
+                protocol, config.dev_server.host, config.dev_server.port
             );
 
             let engine = BuildEngine::new(Arc::new(config.clone()));

@@ -119,6 +119,10 @@ pub struct PledgeConfig {
     #[serde(default)]
     pub https: Option<HttpsConfig>,
 
+    /// Server entry point for SSR/API routes (enables server-only code hot reload)
+    #[serde(default)]
+    pub server_entry: Option<String>,
+
     /// Node.js polyfills for browser builds
     #[serde(default)]
     pub node_polyfills: bool,
@@ -915,6 +919,7 @@ impl Default for PledgeConfig {
             plugins: vec![],
             library: None,
             https: None,
+            server_entry: None,
             node_polyfills: false,
             define: std::collections::HashMap::new(),
             watch: WatchConfig::default(),

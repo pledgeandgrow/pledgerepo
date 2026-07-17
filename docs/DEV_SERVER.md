@@ -133,6 +133,8 @@ File saved on disk
   - `{ "type": "update", "path": "/src/index.tsx" }` — on JS/TS file change
   - `{ "type": "update", "path": "/src/style.css", "css": "..." }` — on CSS file change (with content)
   - `{ "type": "error", "message": "...", "file": "...", "source": "..." }` — on transform error
+  - `{ "type": "server-reload", "path": "...", "message": "Server code changed — reloading..." }` — on server-only file change
+  - `{ "type": "server-reload-complete", "path": "...", "message": "Server code reloaded successfully" }` — after server reload completes
 
 ### Client-Side HMR
 ```javascript
@@ -263,6 +265,44 @@ CSS file changes are handled without full page reloads:
    - If found: replaces its `textContent` with new CSS
    - If not found: creates a new `<style>` tag and appends to `<head>`
 4. No page reload needed — styles update instantly
+
+## Server-Only Hot Reload
+
+When `server_entry` is configured in `pledge.config.ts`, the dev server detects changes to server-only files and triggers a graceful reload while preserving WebSocket connections to connected clients.
+
+### Configuration
+
+In `pledge.config.ts`:
+```typescript
+export default defineConfig({
+  server_entry: 'server/index.ts', // Path to your server entry point
+  dev_server: {
+    hmr: true,
+  },
+});
+```
+
+### How It Works
+
+1. **Server directory detection**: `compute_server_dirs()` derives server-only directories from the `server_entry` path (e.g., `server/index.ts` → `server/`). Common SSR/API directories (`api/`, `server/`, `src/api/`, `src/server/`, `app/api/`) are also checked.
+
+2. **File classification**: `is_server_file()` checks if a changed file is the server entry file itself or resides in a server-only directory.
+
+3. **HMR update sequence**:
+   - `server-reload` message sent to all connected clients with a "Server code changed — reloading..." message
+   - Brief 100ms delay to let clients process the notification
+   - `server-reload-complete` message sent to signal the server is back
+
+4. **Client-side UI**: A banner appears at the top of the page showing "⟳ Server reloading..." and disappears when the reload completes. WebSocket connections are preserved throughout the reload.
+
+### Client-Side Handler
+```javascript
+if (data.type === 'server-reload') {
+    showPledgeServerReload(data.message); // Shows banner
+} else if (data.type === 'server-reload-complete') {
+    clearPledgeServerReload(); // Removes banner
+}
+```
 
 ## HTTPS Support
 

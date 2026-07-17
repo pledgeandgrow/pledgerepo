@@ -6,7 +6,7 @@ Pledge is a hybrid Rust + Zig bundler that uses:
 - **Zig** for hot paths (file I/O, module graph, SIMD scanning, hashing) via C ABI
 - **Rust** for orchestration (build engine, resolver, cache, dev server, optimizer, plugin host)
 - **Oxc** for JavaScript/TypeScript/JSX transformation (replacing SWC/esbuild)
-- **Wasmtime** for sandboxed WASM plugins (replacing V8)
+- **Boa engine** for JS plugin execution (Vite-compatible plugin API)
 
 ## Data Flow
 
@@ -43,7 +43,6 @@ pledgepack-cli
 │   ├── blake3 (content hashing for CSS Modules + cache keys)
 │   ├── flate2 (gzip compression)
 │   ├── brotli (Brotli compression)
-│   ├── wasmtime (WASM plugin sandboxing)
 │   ├── rayon (parallel transforms, parallel plugin execution)
 │   └── dashmap (concurrent cache, concurrent plugin registry)
 ├── pledgepack-dev-server (axum, notify, tokio-tungstenite, reqwest, rustls)
@@ -53,7 +52,6 @@ pledgepack-cli
 ├── pledgepack-optimizer (tree shaking, chunk splitting)
 │   └── pledgepack-core
 ├── pledgepack-resolver (tsconfig, exports, node_modules)
-├── pledgepack-plugin-host (wasmtime, javy CLI integration)
 ├── pledgepack-js-plugin-host (boa_engine JS runtime, Vite-compatible plugin API)
 ├── pledgepack-adapter-react (Oxc JSX, Fast Refresh)
 ├── pledgepack-adapter-solid (Oxc JSX, solid-js automatic runtime)

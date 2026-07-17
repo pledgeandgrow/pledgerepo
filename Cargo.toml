@@ -7,7 +7,6 @@ members = [
     "crates/resolver",
     "crates/dev-server",
     "crates/optimizer",
-    "crates/plugin-host",
     "crates/js-plugin-host",
     "crates/adapter-react",
     "crates/adapter-solid",
@@ -17,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.6"
+version = "0.1.8"
 edition = "2024"
 license = "MIT"
 authors = ["pledgepack"]
@@ -60,9 +59,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Error handling
 anyhow = "1"
 thiserror = "2"
-
-# WASM runtime (for plugin system)
-wasmtime = "29"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
@@ -132,7 +128,6 @@ pledgepack-cache = { path = "crates/cache" }
 pledgepack-resolver = { path = "crates/resolver" }
 pledgepack-dev-server = { path = "crates/dev-server" }
 pledgepack-optimizer = { path = "crates/optimizer" }
-pledgepack-plugin-host = { path = "crates/plugin-host" }
 pledgepack-js-plugin-host = { path = "crates/js-plugin-host" }
 pledgepack-adapter-react = { path = "crates/adapter-react" }
 pledgepack-adapter-solid = { path = "crates/adapter-solid" }

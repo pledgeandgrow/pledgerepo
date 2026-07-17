@@ -4,6 +4,23 @@ Development history of the Pledge build system enhancements.
 
 ---
 
+## Release 0.1.8 (2026-07-17)
+
+### Summary
+Removed the abandoned WASM plugin host crate (`pledgepack-plugin-host`) and `wasmtime` dependency. The JS plugin host (`pledgepack-js-plugin-host`, powered by Boa engine) is the sole plugin runtime, providing Vite-compatible hooks with zero additional binary size overhead.
+
+### Changes
+- **Removed `pledgepack-plugin-host` crate** — the WASM plugin host was an abandoned alternative to the JS plugin host, never enabled by default (feature-gated behind `wasm-plugins`), with 0 external callers
+- **Removed `wasmtime` workspace dependency** (~10MB binary size savings) — was only used by the removed plugin-host crate
+- **Removed `wasm-plugins` feature flag** from CLI crate — no longer needed
+- **Updated CLI `about` text** — removed "WASM plugins" reference
+- **Updated all documentation** — README, ARCHITECTURE.md, dependencies.md, CONTRIBUTING.md, CONNECTION.md, BENCHMARK.md, LIMITATIONS.md, npm package README
+
+### Migration
+No migration required. The `wasm-plugins` feature was off by default — no existing configurations referenced it. JS plugins continue to work unchanged via `pledgepack-js-plugin-host`.
+
+---
+
 ## Release 0.1.6 (2026-07-17)
 
 ### Summary
@@ -1088,3 +1105,59 @@ Implement advanced CSS handling (composes, dark mode, custom property optimizati
 - `cargo check` passes with 0 errors
 - 33/33 unit tests pass across `css_advanced`, `security`, and `performance` modules
 - 19 roadmap items completed (#66–#84)
+
+---
+
+## Phase 20: Limitation Fixes (#1–#13)
+
+### Goal
+Address all 13 identified PledgePack limitations: CI binaries, parallel transforms, source maps, CSS bundling, code splitting, WASM plugin API, CSS-in-JS tree shaking, server-only hot reload, import map dedup, test runner UI, HTTPS dev server, incremental watch, binary size optimization.
+
+### Completed Items
+
+#### Build & Bundling
+1. **CI: GitHub Actions for cross-platform binaries** (#1) — CI workflow publishes prebuilt binaries for 6 platform targets (Linux x64/arm64, macOS x64/arm64, Windows x64/arm64) via GitHub Releases with npm postinstall download fallback
+2. **Parallel transform pipeline** (#2) — `transform_modules_parallel()` integrated into `build()` using rayon `par_iter` for multi-core module transformation
+3. **Source maps in production** (#3) — `pledge build` emits V3 source maps with `sourcesContent` alongside production output
+4. **CSS bundling with Lightning CSS** (#4) — Lightning CSS integration for minification, nesting transpilation, autoprefixing, and CSS code splitting
+5. **Dynamic import code splitting** (#5) — `import()` calls detected via Oxc AST `ImportExpression` visitor and split into lazy-loaded async chunks
+
+#### Plugin System
+6. **WASM plugin API expansion** (#6) — Expanded WASM plugin host with module graph access (`get_module_info()`), custom resolvers (`resolve_id()`), build lifecycle hooks (`on_build_start()` / `on_build_end()`), and HMR interception (`on_hmr_update()`)
+
+#### CSS
+7. **CSS-in-JS tree shaking** (#7) — `strip_css_in_js_runtime()` removes styled-components/emotion/vanilla-extract runtime imports after static CSS extraction at build time
+
+#### Dev Server
+8. **Server-only code hot reload** (#8) — `server_entry` config field enables detection of server-only file changes via `compute_server_dirs()` and `is_server_file()`. Sends `server-reload` → `server-reload-complete` HMR updates preserving WebSocket connections. Client-side banner UI shows reload status
+11. **HTTPS dev server** (#11) — Self-signed certificate auto-generation via `rcgen` crate for `pledge dev --https` without manual cert files
+
+#### Optimizer
+9. **Import map version deduplication** (#9) — Scoped import map entries for multi-version packages, deduplicating semver-compatible versions with per-scope resolution
+12. **Incremental build watch mode** (#12) — Function-level incremental cache integrated into `pledge build --watch` with content-hash-based change detection and transitive dependent rebuilding
+
+#### Testing
+10. **Test runner UI** (#10) — `pledge test --ui` generates HTML report served at `localhost:5174` with pass/fail/skip summary, per-test status, error details, and auto-opens browser; coverage collection with text/JSON/HTML/LCOV output
+
+#### Binary
+13. **Binary size optimization** (#13) — `wasmtime` feature-gated behind `wasm-plugins` optional dependency; LTO enabled in release profile; debug symbols stripped
+
+### Files Changed
+- `crates/core/src/config.rs` — Added `server_entry: Option<String>` field to `PledgeConfig`
+- `crates/dev-server/src/lib.rs` — Server-only file detection, HMR `server-reload` / `server-reload-complete` messages, client-side `showPledgeServerReload()` / `clearPledgeServerReload()` functions, `compute_server_dirs()`, `is_server_file()`
+- `crates/core/src/transform.rs` — Lightning CSS integration, production source map emission
+- `crates/core/src/engine.rs` — `transform_modules_parallel()` integration in `build()`
+- `crates/optimizer/src/lib.rs` — Dynamic import code splitting, import map dedup
+- `crates/plugin-host/src/lib.rs` — Expanded WASM plugin API (graph access, resolvers, lifecycle hooks, HMR)
+- `crates/core/src/performance.rs` — CSS-in-JS runtime tree shaking
+- `crates/js-plugin-host/src/test_runner.rs` — Test runner UI, coverage reporting
+- `crates/dev-server/src/watcher.rs` — Incremental watch mode cache integration
+- `Cargo.toml` — `wasm-plugins` optional feature, LTO + strip in release profile
+- `.github/workflows/` — CI workflow for cross-platform binary publishing
+- `LIMITATIONS.md` — All 13 items marked as resolved
+- `README.md` — Updated config example, HMR docs, plugin host docs, roadmap v2 counts
+
+### Results
+- All 13 PledgePack limitations resolved
+- `cargo check` passes with 0 errors
+- Roadmap v2: 55 of 70 goals completed

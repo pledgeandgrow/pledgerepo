@@ -112,7 +112,6 @@ crates/
 ├── resolver/         # Module resolution
 ├── dev-server/       # Dev server + HMR
 ├── optimizer/        # Tree shaking, code splitting
-├── plugin-host/      # WASM plugin system
 ├── js-plugin-host/   # JS plugin system (boa_engine)
 ├── adapter-react/    # React adapter
 ├── adapter-solid/    # Solid.js adapter
