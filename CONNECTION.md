@@ -1,37 +1,37 @@
-# Pledgepack ↔ PledgeJS — Architecture Connection
+# PledgePack ↔ PledgeStack — Architecture Connection
 
 ## Project Split
 
-### pledgepack (Bundler / Build Tool)
+### PledgePack (Bundler / Build Tool)
 - **Role:** Framework-agnostic bundler, dev server, and build tool (like Turbopack/esbuild/SWC)
-- **Repository:** `https://github.com/pledgeandgrow/pledgerepo`
-- **npm package:** `pledgepack` (currently `0.1.1`)
+- **Repository:** `https://github.com/pledgeandgrow/pledgepack`
+- **npm package:** `pledgepack` (currently `0.1.8`)
 - **Binary:** Native Rust binary (`pledge.exe` / `pledge`) distributed via GitHub Releases + postinstall download
-- **Language:** Rust (Oxc parser, Lightning CSS, Boa JS runtime for tests)
+- **Language:** Rust (Oxc parser, Lightning CSS, Boa JS runtime for plugin host and tests)
 - **CLI:** `pledge dev`, `pledge build`, `pledge serve`, `pledge test`, `pledge analyze`, `pledge create`, `pledge migrate`, `pledge doctor`, `pledge bench`, `pledge cache`, `pledge generate-env-types`, `pledge completions`, `pledge config`
 
-### pledgejs (React Framework)
+### PledgeStack (React Framework)
 - **Role:** Opinionated React framework with SSR/SSG/RSC, file-based routing, API routes (like Next.js is to Turbopack)
-- **Repository:** `https://github.com/pledgelabs/pledgejs` (monorepo)
-- **npm package:** `pledgejs` (planned)
+- **Repository:** `https://github.com/pledgeandgrow/pledgestack` (monorepo)
+- **npm package:** `pledgestack` (published, currently `0.1.2`)
 - **Language:** TypeScript/JavaScript (depends on pledgepack binary)
-- **CLI:** `pledgejs dev`, `pledgejs build`, `pledgejs start` (wraps `pledge` binary)
+- **CLI:** `pledge dev`, `pledge build`, `pledge start` (wraps `pledge` binary)
 
 ---
 
 ## Dependency Relationship
 
 ```
-User installs pledgejs (framework)
-  └── pledgejs depends on pledgepack (bundler)
+User installs pledgestack (framework)
+  └── pledgestack depends on pledgepack (bundler)
        └── pledgepack postinstall downloads native binary from GitHub Releases
 ```
 
-**pledgejs `package.json`:**
+**pledgestack `package.json`:**
 ```json
 {
   "dependencies": {
-    "pledgepack": "^0.1.1"
+    "pledgepack": "^0.1.8"
   }
 }
 ```
@@ -40,14 +40,14 @@ User installs pledgejs (framework)
 
 ## Responsibility Split
 
-| Concern | pledgepack | pledgejs |
+| Concern | PledgePack | PledgeStack |
 |---------|-----------|----------|
 | Module bundling | ✅ | |
 | Tree shaking / code splitting | ✅ | |
 | Dev server (HTTP, WebSocket, HMR) | ✅ | |
 | Transform pipeline (JS/TS/JSX/CSS) | ✅ | |
 | Asset pipeline (images, fonts, SVG, MDX) | ✅ | |
-| Plugin system (JS) | ✅ | |
+| Plugin system (JS, Boa engine) | ✅ | |
 | Output formats (ESM, CJS, IIFE, edge) | ✅ | |
 | Source maps | ✅ | |
 | CSS processing (Tailwind, CSS Modules, Lightning CSS) | ✅ | |
@@ -58,51 +58,55 @@ User installs pledgejs (framework)
 | Layouts, error boundaries, loading states | | ✅ |
 | SSR / SSG / ISR rendering | | ✅ |
 | React Server Components (RSC) | | ✅ |
-| Data fetching (`loader`, `getServerSideProps`-equivalent) | | ✅ |
+| Data fetching (`cachedFetch`, `serverCachedFetch`, `unstable_cache`) | | ✅ |
 | API routes (`app/api/*/route.ts`) | | ✅ |
-| Server actions | | ✅ |
+| Server actions (`serverAction()`) | | ✅ |
 | Head / metadata management | | ✅ |
 | `<PledgeLink>`, `<PledgeImage>`, `<PledgeHead>` components | | ✅ |
+| Instrumentation lifecycle hooks (`loadInstrumentation`) | | ✅ |
+| Static export mode (`generateStaticExport`) | | ✅ |
 | Framework conventions and types | | ✅ |
 | Production SSR server | | ✅ |
 
 ---
 
-## What pledgepack MUST NOT Handle (leave to pledgejs)
+## What PledgePack MUST NOT Handle (leave to PledgeStack)
 
-pledgepack is a **dumb bundler** — it transforms files and serves them. It does NOT know about React, routing semantics, or server rendering:
+PledgePack is a **dumb bundler** — it transforms files and serves them. It does NOT know about React, routing semantics, or server rendering:
 
 - **DO NOT** implement React-specific rendering logic (JSX → HTML string, hydration scripts)
-- **DO NOT** implement route matching or route params (pledgepack scans `app/` for files, but route matching at runtime is pledgejs)
+- **DO NOT** implement route matching or route params (PledgePack scans `app/` for files, but route matching at runtime is PledgeStack)
 - **DO NOT** implement SSR server (Node.js HTTP server that renders React on request)
 - **DO NOT** implement SSG page generation (calling React `renderToString` per route)
 - **DO NOT** implement ISR (re-validation logic, stale-while-revalidate cache)
 - **DO NOT** implement React Server Components protocol (RSC payload serialization/deserialization)
-- **DO NOT** implement API route handlers (pledgepack provides the mechanism, pledgejs provides the handler)
-- **DO NOT** implement server actions (form submission → server function call)
-- **DO NOT** implement data fetching patterns (`loader`, `getServerSideProps`, `useLoaderData`)
-- **DO NOT** implement `<Link>`, `<Image>`, `<Head>`, `<ErrorBoundary>` components
+- **DO NOT** implement API route handlers (PledgePack provides the mechanism, PledgeStack provides the handler)
+- **DO NOT** implement server actions (`serverAction()` function — PledgeStack only)
+- **DO NOT** implement data fetching patterns (`cachedFetch`, `serverCachedFetch`, `unstable_cache` — PledgeStack only)
+- **DO NOT** implement `<PledgeLink>`, `<PledgeImage>`, `<PledgeHead>`, `<ErrorBoundary>` components
 - **DO NOT** implement metadata/SEO management (`<meta>` tag injection, Open Graph, sitemaps)
 - **DO NOT** implement i18n routing (locale detection, locale-prefixed routes)
 - **DO NOT** implement authentication middleware (session, cookies, JWT)
-- **DO NOT** implement production Node.js server (`pledgejs start` — this is pledgejs only)
-- **DO NOT** implement framework-specific config (`pledgejs.config.ts` — pledgepack only reads `pledge.config.ts`)
-- **DO NOT** implement Next.js-compatible APIs (`getStaticProps`, `getServerSideProps` — pledgejs wraps these)
-- **DO NOT** implement HTML template generation for SSR (pledgejs provides the HTML shell, pledgepack just processes it)
+- **DO NOT** implement production Node.js server (`pledge start` — this is PledgeStack only)
+- **DO NOT** implement framework-specific config (PledgePack only reads `pledge.config.ts`)
+- **DO NOT** implement Next.js-compatible APIs (`getStaticProps`, `getServerSideProps` — PledgeStack wraps these)
+- **DO NOT** implement HTML template generation for SSR (PledgeStack provides the HTML shell, PledgePack just processes it)
+- **DO NOT** implement instrumentation lifecycle hooks (`loadInstrumentation` — PledgeStack only)
+- **DO NOT** implement static export mode (`generateStaticExport` — PledgeStack only)
 
-**What pledgepack DOES provide for pledgejs to build on:**
+**What PledgePack DOES provide for PledgeStack to build on:**
 - `appDir` config field → scans `app/` directory, generates `__pledge_router` virtual module with route table
-- Plugin hooks (`resolveId`, `load`, `transform`, `renderChunk`, `generateBundle`) → pledgejs plugins use these
-- Dev server middleware plugin hook → pledgejs injects SSR/API route middleware
-- `ssr` config field (roadmap) → tells pledgepack to preserve server entry for SSR
+- Plugin hooks (`resolveId`, `load`, `transform`, `transformIndexHtml`, `configureServer`, `buildStart`, `buildEnd`, `generateBundle`) → PledgeStack plugins use these
+- Dev server middleware plugin hook (`configureServer`) → PledgeStack injects SSR/API route middleware
+- `ssr` config field → tells PledgePack to preserve server entry for SSR
 - HTML processing (`html.rs`) → processes `<script>` and `<link>` tags in HTML entry
 - Edge bundle generation → outputs edge-compatible bundle for Cloudflare/Vercel
 
 ---
 
-## What pledgejs MUST NOT Handle (leave to pledgepack)
+## What PledgeStack MUST NOT Handle (leave to PledgePack)
 
-pledgejs is a **framework layer** — it orchestrates React rendering and routing. It does NOT do bundling or file transformation:
+PledgeStack is a **framework layer** — it orchestrates React rendering and routing. It does NOT do bundling or file transformation:
 
 - **DO NOT** implement module bundling (concatenating modules, resolving imports, chunk splitting)
 - **DO NOT** implement JS/TS/JSX transformation (Oxc parser, syntax lowering, JSX → JS)
@@ -111,44 +115,46 @@ pledgejs is a **framework layer** — it orchestrates React rendering and routin
 - **DO NOT** implement code splitting (chunk graph, shared chunks, dynamic imports)
 - **DO NOT** implement source map generation
 - **DO NOT** implement asset pipeline (image optimization, font subsetting, SVG sprites, MDX)
-- **DO NOT** implement HMR WebSocket (pledgepack handles WebSocket, HMR diff, module invalidation)
-- **DO NOT** implement file watcher (pledgepack uses native inotify/FSEvents/ReadDirectoryChangesW)
+- **DO NOT** implement HMR WebSocket (PledgePack handles WebSocket, HMR diff, module invalidation)
+- **DO NOT** implement file watcher (PledgePack uses native inotify/FSEvents/ReadDirectoryChangesW)
 - **DO NOT** implement build cache (memory cache, disk cache, remote cache, git-based invalidation)
-- **DO NOT** implement test runner (pledgepack has full Vitest-compatible runner with Boa JS engine)
-- **DO NOT** implement bundle analyzer (pledgepack generates interactive HTML treemap)
+- **DO NOT** implement test runner (PledgePack has full Vitest-compatible runner with Boa JS engine)
+- **DO NOT** implement bundle analyzer (PledgePack generates interactive HTML treemap)
 - **DO NOT** implement output format conversion (ESM → CJS/IIFE/UMD)
 - **DO NOT** implement compression (gzip/brotli output generation)
 - **DO NOT** implement plugin sandboxing (JS plugin limits, filesystem access control)
-- **DO NOT** implement dependency pre-bundling (DepBundler in pledgepack handles this)
-- **DO NOT** implement polyfills (pledgepack has 20 built-in Node.js polyfills)
-- **DO NOT** implement define/compile-time constants (pledgepack handles `define` config)
-- **DO NOT** implement binary distribution (pledgepack handles its own native binary via postinstall)
-- **DO NOT** implement migration tooling (pledgepack migrates from Vite/webpack/Turbopack configs)
-- **DO NOT** implement LSP server (pledgepack has built-in LSP for import resolution and diagnostics)
+- **DO NOT** implement dependency pre-bundling (DepBundler in PledgePack handles this)
+- **DO NOT** implement polyfills (PledgePack has 20 built-in Node.js polyfills)
+- **DO NOT** implement define/compile-time constants (PledgePack handles `define` config)
+- **DO NOT** implement binary distribution (PledgePack handles its own native binary via postinstall)
+- **DO NOT** implement migration tooling (PledgePack migrates from Vite/webpack/Turbopack configs)
+- **DO NOT** implement LSP server (PledgePack has built-in LSP for import resolution and diagnostics)
 
-**What pledgejs DOES provide on top of pledgepack:**
-- `pledgejs.config.ts` → user-facing framework config (SSR, i18n, images, experimental features)
-- Auto-generates `pledge.config.ts` from `pledgejs.config.ts` with correct plugins and entry points
-- pledgepack plugins: `@pledgejs/plugin-rsc`, `@pledgejs/plugin-ssr`, `@pledgejs/plugin-router`
-- React components: `<Link>`, `<Image>`, `<Head>`, `<ErrorBoundary>`, `<Loading>`
-- Server runtime: Node.js HTTP server for `pledgejs start` (production SSR)
+**What PledgeStack DOES provide on top of PledgePack:**
+- `pledge.config.ts` → user-facing framework config (SSR, i18n, images, experimental features)
+- React components: `<PledgeLink>`, `<PledgeImage>`, `<PledgeHead>`, `<ErrorBoundary>`, `<Loading>`
+- Server runtime: Node.js HTTP server for `pledge start` (production SSR via `startNodeServer`)
+- Edge runtime: `createEdgeHandler` for Cloudflare Workers / Vercel Edge / Deno Deploy
 - Route matching: interprets `__pledge_router` virtual module, matches URLs to route components
-- SSR rendering: calls React `renderToString` / `renderToPipeableStream` with route component
-- SSG generation: iterates routes, calls SSR render, writes static HTML files
+- SSR rendering: `renderSSR`, `renderSSRStream` with layout chains, error boundaries, Suspense
+- RSC rendering: `renderRSCToHTML`, `renderRSCStream` (no `renderRSC` — removed)
+- SSG generation: `generateStaticExport` (full export mode), `generateStaticPages` (incremental SSG)
 - API routes: resolves `app/api/*/route.ts` files, calls handlers for matching requests
-- Server actions: deserializes form submissions, calls server functions, returns responses
-- Data fetching: `loader` functions, `useLoaderData` hook, streaming data
+- Server actions: `serverAction()` function with automatic client→server RPC via POST endpoint
+- Data fetching: `cachedFetch`, `serverCachedFetch`, `unstable_cache`, `revalidateTag`, `revalidatePath`
+- Instrumentation: `loadInstrumentation` loads `instrumentation.ts` at server startup, calls `register()`
+- Server utilities: `cookies()`, `headers()`, `searchParams()`, `params()`, `redirect()`, `notFound()`, `draftMode()`, `after()`
 
 ---
 
 ## Integration Points
 
-### 1. pledgejs calls pledgepack via CLI
+### 1. PledgeStack calls PledgePack via CLI
 
-pledgejs CLI wraps the `pledge` binary:
+PledgeStack CLI wraps the `pledge` binary:
 
 ```typescript
-// pledgejs CLI (simplified)
+// PledgeStack CLI (simplified)
 import { runPledgepack } from 'pledgepack';
 
 // dev command
@@ -161,12 +167,12 @@ await runPledgepack(['build']);
 await runPledgepack(['build', '--ssg']);
 ```
 
-### 2. pledgejs generates pledge.config.ts
+### 2. PledgeStack generates pledge.config.ts
 
-pledgejs auto-generates or extends the pledgepack config:
+PledgeStack auto-generates or extends the PledgePack config:
 
 ```typescript
-// pledgejs generates this pledge.config.ts
+// PledgeStack generates this pledge.config.ts
 import { defineConfig } from 'pledge';
 
 export default defineConfig({
@@ -178,17 +184,17 @@ export default defineConfig({
     hmr: true,
   },
   plugins: [
-    // pledgejs injects its own plugins for RSC, SSR, routing
-    { name: 'pledgejs-rsc', resolve: './plugins/rsc.js' },
-    { name: 'pledgejs-ssr', resolve: './plugins/ssr.js' },
-    { name: 'pledgejs-router', resolve: './plugins/router.js' },
+    // PledgeStack injects its own plugins for RSC, SSR, routing
+    { name: 'pledgestack-rsc', resolve: './plugins/rsc.js' },
+    { name: 'pledgestack-ssr', resolve: './plugins/ssr.js' },
+    { name: 'pledgestack-router', resolve: './plugins/router.js' },
   ],
 });
 ```
 
-### 3. pledgepack plugin hooks for pledgejs
+### 3. PledgePack plugin hooks for PledgeStack
 
-pledgepack exposes these plugin hooks that pledgejs plugins use:
+PledgePack exposes these plugin hooks that PledgeStack plugins use:
 
 ```
 buildStart       — called before first transform
@@ -202,7 +208,7 @@ writeBundle      — post-build actions (submit to search engines, etc.)
 
 ### 4. Virtual modules
 
-pledgepack already supports virtual modules. pledgejs uses these:
+PledgePack already supports virtual modules. PledgeStack uses these:
 
 | Virtual module | Purpose |
 |---------------|---------|
@@ -211,7 +217,7 @@ pledgepack already supports virtual modules. pledgejs uses these:
 | `__pledge_rsc_client` | RSC client renderer |
 | `__pledge_rsc_server` | RSC server renderer |
 
-### 5. pledgepack config fields pledgejs relies on
+### 5. PledgePack config fields PledgeStack relies on
 
 ```typescript
 {
@@ -220,8 +226,8 @@ pledgepack already supports virtual modules. pledgejs uses these:
   entry: ['app/entry.tsx'],   // entry points
   htmlEntry: 'index.html',    // HTML template
   sourceMaps: true,           // source maps for dev
-  plugins: [...],             // pledgejs plugins
-  ssr: {                      // SSR config (roadmap #51)
+  plugins: [...],             // PledgeStack plugins
+  ssr: {                      // SSR config
     entry: 'app/entry.server.tsx',
     runtime: 'node',
   },
@@ -233,9 +239,9 @@ pledgepack already supports virtual modules. pledgejs uses these:
 
 ## Binary Distribution
 
-### pledgepack binary
-- Built in Rust, compiled for Windows x64 (currently), macOS/Linux planned via CI
-- Distributed via GitHub Releases: `https://github.com/pledgeandgrow/pledgerepo/releases/latest/download/pledge-{target}.{ext}`
+### PledgePack binary
+- Built in Rust, cross-compiled for 6 platform targets via CI (Windows x64, Linux x64/arm64, macOS x64/arm64, Windows ARM64)
+- Distributed via GitHub Releases: `https://github.com/pledgeandgrow/pledgepack/releases/latest/download/pledge-{target}.{ext}`
 - `postinstall.js` downloads the correct binary automatically
 - JS shim (`bin/pledge.js`) resolves binary from:
   1. `target/release/` (dev mode)
@@ -244,16 +250,16 @@ pledgepack already supports virtual modules. pledgejs uses these:
   4. `bin/platform/{platform-key}/` (CI staged)
   5. `bin/` (direct install)
 
-### pledgejs does NOT have its own binary
-- pledgejs is pure TypeScript/JavaScript
-- It spawns the `pledge` binary (from pledgepack) for all build operations
-- pledgejs adds framework middleware on top of pledgepack's dev server
+### PledgeStack does NOT have its own binary
+- PledgeStack is pure TypeScript/JavaScript
+- It spawns the `pledge` binary (from PledgePack) for all build operations
+- PledgeStack adds framework middleware on top of PledgePack's dev server
 
 ---
 
 ## Package Structure
 
-### pledgepack (published from pledgerepo)
+### PledgePack (published from pledgepack repo)
 ```
 pledgepack/
 ├── bin/
@@ -261,35 +267,35 @@ pledgepack/
 │   └── postinstall.js     # Downloads binary from GitHub Releases
 ├── pledgepack/
 │   └── index.js           # Programmatic API (runPledgepack, resolveBinary)
-├── package.json           # name: "pledgepack", version: "0.1.1"
+├── package.json           # name: "pledgepack", version: "0.1.8"
 ├── README.md
 └── LICENSE
 ```
 
-### pledgejs (published from pledgelabs/pledgejs)
+### PledgeStack (published from pledgeandgrow/pledgestack)
 ```
-pledgejs/
+pledgestack/
 ├── packages/
-│   ├── pledgejs/                  # Main framework package
-│   │   ├── bin/
-│   │   │   └── pledgejs.js        # CLI entry (wraps pledge binary)
+│   ├── cli/                       # Main framework package — published as `pledgestack` on npm
 │   │   ├── src/
-│   │   │   ├── cli/               # CLI commands (dev, build, start)
-│   │   │   ├── server/            # SSR server, RSC protocol
-│   │   │   ├── router/            # File-based routing, layouts
-│   │   │   ├── components/        # <Link>, <Image>, <Head>, <ErrorBoundary>
-│   │   │   ├── plugins/           # pledgepack plugins (rsc, ssr, router)
-│   │   │   ├── config/            # Config generation, validation
-│   │   │   └── types/             # TypeScript types for framework
-│   │   ├── package.json           # name: "pledgejs", deps: { pledgepack: "^0.1.1" }
+│   │   │   ├── commands/          # CLI commands (dev, build, start, create, info, doctor)
+│   │   │   ├── config-loader.ts   # Loads pledge.config.ts
+│   │   │   ├── index.ts           # Re-exports all sub-packages
+│   │   │   └── ...
+│   │   ├── scripts/build.mjs      # esbuild bundler (bundles all sub-packages into dist/)
+│   │   ├── package.json           # name: "pledgestack", deps: { pledgepack: "^0.1.8" }
 │   │   └── README.md
-│   └── pledgepack/                # Mirror of pledgepack JS shim (for monorepo dev)
-│       ├── index.js
-│       ├── bin/
-│       │   └── pledgepack.js
-│       ├── scripts/
-│       │   └── postinstall.js
-│       └── package.json
+│   ├── shared/                    # Private — bundled into CLI via esbuild aliases
+│   ├── core/                      # Private — bundled into CLI
+│   ├── server/                    # Private — bundled into CLI
+│   ├── client/                    # Private — bundled into CLI
+│   ├── auth/                      # Private — bundled into CLI
+│   ├── state/                     # Private — bundled into CLI
+│   ├── api/                       # Private — bundled into CLI
+│   ├── a11y/                      # Private — bundled into CLI
+│   ├── overlay/                   # Private — bundled into CLI
+│   ├── seo/                       # Private — bundled into CLI
+│   └── ...                        # Other private sub-packages
 ```
 
 ---
@@ -297,18 +303,18 @@ pledgejs/
 ## Config Flow
 
 ```
-User writes pledgejs.config.ts          pledgejs reads it
+User writes pledge.config.ts          PledgeStack reads it
          │
          ▼
-pledgejs generates pledge.config.ts     pledgepack reads it
+PledgeStack extends pledge.config.ts     PledgePack reads it
          │
          ▼
-pledgepack runs build/dev/test          native binary executes
+PledgePack runs build/dev/test          native binary executes
 ```
 
-### pledgejs.config.ts (user-facing, framework-specific)
+### pledge.config.ts (user-facing, framework-specific)
 ```typescript
-import { defineConfig } from 'pledgejs';
+import { defineConfig } from 'pledgestack';
 
 export default defineConfig({
   ssr: true,
@@ -328,7 +334,7 @@ export default defineConfig({
 });
 ```
 
-### pledge.config.ts (generated by pledgejs, consumed by pledgepack)
+### pledge.config.ts (consumed by PledgePack)
 ```typescript
 import { defineConfig } from 'pledge';
 
@@ -339,9 +345,9 @@ export default defineConfig({
   devServer: { port: 3000, hmr: true },
   sourceMaps: true,
   plugins: [
-    { name: 'pledgejs-rsc', resolve: '@pledgejs/plugin-rsc' },
-    { name: 'pledgejs-ssr', resolve: '@pledgejs/plugin-ssr' },
-    { name: 'pledgejs-router', resolve: '@pledgejs/plugin-router' },
+    { name: 'pledgestack-rsc', resolve: '@pledgestack/plugin-rsc' },
+    { name: 'pledgestack-ssr', resolve: '@pledgestack/plugin-ssr' },
+    { name: 'pledgestack-router', resolve: '@pledgestack/plugin-router' },
   ],
 });
 ```
@@ -350,23 +356,23 @@ export default defineConfig({
 
 ## Dev Server Integration
 
-pledgepack runs the HTTP server. pledgejs injects middleware:
+PledgePack runs the HTTP server. PledgeStack injects middleware:
 
 ```
 HTTP Request
-  → pledgepack dev server (axum)
-    → pledgejs middleware (SSR, RSC, API routes)
-      → pledgepack module transform (Oxc)
+  → PledgePack dev server (axum)
+    → PledgeStack middleware (SSR, RSC, API routes)
+      → PledgePack module transform (Oxc)
         → Response (HTML / module / HMR payload)
 ```
 
-pledgejs plugins register as pledgepack dev server middleware via the plugin system:
+PledgeStack plugins register as PledgePack dev server middleware via the plugin system:
 
 ```typescript
-// pledgejs SSR plugin
+// PledgeStack SSR plugin
 export default {
-  name: 'pledgejs-ssr',
-  devServerMiddleware(app) {
+  name: 'pledgestack-ssr',
+  configureServer(server) {
     app.use(async (req, res, next) => {
       if (req.url.startsWith('/api/')) {
         // Handle API route
@@ -388,27 +394,28 @@ export default {
 
 ## CLI Command Mapping
 
-| pledgejs command | What it does internally |
+| PledgeStack command | What it does internally |
 |-----------------|----------------------|
-| `pledgejs dev` | Calls `pledge dev` + injects framework middleware |
-| `pledgejs build` | Calls `pledge build` + runs SSG/SSR post-build |
-| `pledgejs start` | Starts production SSR server (Node.js, not pledgepack) |
-| `pledgejs test` | Calls `pledge test` (pledgepack handles test runner) |
-| `pledgejs analyze` | Calls `pledge analyze` (pledgepack handles analyzer) |
-| `pledgejs migrate` | Calls `pledge migrate` (pledgepack handles migration) |
+| `pledge dev` | Calls `pledge dev` (PledgePack) + injects framework middleware |
+| `pledge build` | Calls `pledge build` (PledgePack) + runs SSG/SSR post-build |
+| `pledge start` | Starts production SSR server (Node.js, not PledgePack) |
+| `pledge test` | Calls `pledge test` (PledgePack handles test runner) |
+| `pledge analyze` | Calls `pledge analyze` (PledgePack handles analyzer) |
+| `pledge migrate` | Calls `pledge migrate` (PledgePack handles migration) |
 
 ---
 
 ## GitHub Release Binary Naming Convention
 
-pledgepack postinstall expects binaries at:
+PledgePack postinstall expects binaries at:
 ```
-https://github.com/pledgeandgrow/pledgerepo/releases/latest/download/pledge-{target}.{ext}
+https://github.com/pledgeandgrow/pledgepack/releases/latest/download/pledge-{target}.{ext}
 ```
 
 | Platform | Target | Extension | Filename |
 |----------|--------|-----------|----------|
 | Windows x64 | `x86_64-pc-windows-msvc` | `.zip` | `pledge-x86_64-pc-windows-msvc.zip` |
+| Windows ARM64 | `aarch64-pc-windows-msvc` | `.zip` | `pledge-aarch64-pc-windows-msvc.zip` |
 | macOS arm64 | `aarch64-apple-darwin` | `.tar.gz` | `pledge-aarch64-apple-darwin.tar.gz` |
 | macOS x64 | `x86_64-apple-darwin` | `.tar.gz` | `pledge-x86_64-apple-darwin.tar.gz` |
 | Linux x64 | `x86_64-unknown-linux-gnu` | `.tar.gz` | `pledge-x86_64-unknown-linux-gnu.tar.gz` |
@@ -420,7 +427,7 @@ Inside each archive: a single binary named `pledge` (Unix) or `pledge.exe` (Wind
 
 ## Key Files Reference
 
-### pledgepack (pledge-dev repo)
+### PledgePack (pledgepack repo)
 - `crates/cli/src/main.rs` — CLI entry point, all commands
 - `crates/core/src/config.rs` — PledgeConfig struct, all config fields
 - `crates/core/src/config_validate.rs` — Config validation with "Did you mean?" suggestions
@@ -428,49 +435,60 @@ Inside each archive: a single binary named `pledge` (Unix) or `pledge.exe` (Wind
 - `crates/core/src/transform.rs` — Oxc-based JS/TS/JSX transform
 - `crates/core/src/module_graph.rs` — Module dependency graph
 - `crates/core/src/router.rs` — File-based routing scanner (`scan_app_dir`)
-- `crates/core/src/plugin_system.rs` — Plugin hooks, JS plugin execution
+- `crates/core/src/plugin_system.rs` — Plugin hot reload, lifecycle hooks, parallel execution
+- `crates/js-plugin-host/src/lib.rs` — JS plugin host (Boa engine) with Vite-compatible hooks
 - `crates/core/src/html.rs` — HTML entry processing
 - `crates/core/src/edge.rs` — Edge bundle generation
 - `bin/pledge.js` — JS shim that resolves and spawns native binary
 - `bin/postinstall.js` — Downloads binary from GitHub Releases
-- `package.json` — npm package definition (`pledgepack@0.1.1`)
+- `package.json` — npm package definition (`pledgepack@0.1.8`)
 
-### pledgejs (pledgelabs/pledgejs repo)
-- `packages/pledgepack/` — Mirror of pledgepack JS shim for monorepo dev
-- `packages/pledgejs/` — Main framework package (to be built)
+### PledgeStack (pledgeandgrow/pledgestack repo)
+- `packages/cli/` — Main framework package (published as `pledgestack` on npm)
+- `packages/core/` — Core rendering (SSR, RSC, SSG, static export)
+- `packages/server/` — Node.js + edge server runtime, instrumentation, HMR, server utilities
+- `packages/shared/` — Shared types and config
+- `packages/client/` — Client-side hydration and state
+- `packages/auth/` — Authentication middleware
+- `packages/state/` — Client state management
+- `packages/api/` — API route helpers
+- `packages/seo/` — SEO and metadata
+- `packages/a11y/` — Accessibility utilities
+- `packages/overlay/` — Dev overlay UI
 
 ---
 
 ## Versioning Strategy
 
-- **pledgepack** and **pledgejs** version independently
-- pledgejs `package.json` specifies `pledgepack: "^0.1.1"` (caret range)
-- Breaking changes in pledgepack require pledgejs to update its dependency range
-- pledgejs can pin pledgepack version for stability: `pledgepack: "0.1.1"` (exact)
+- **PledgePack** and **PledgeStack** version independently
+- PledgeStack `package.json` specifies `pledgepack: "^0.1.8"` (caret range)
+- Breaking changes in PledgePack require PledgeStack to update its dependency range
+- PledgeStack can pin PledgePack version for stability: `pledgepack: "0.1.8"` (exact)
 
 ---
 
 ## Publishing Flow
 
 ```
-1. Build pledgepack binary:     cargo build --release
-2. Create GitHub Release:       gh release create v0.1.1 pledge-x86_64-pc-windows-msvc.zip
-3. Publish pledgepack to npm:   npm publish (from pledgerepo)
-4. Update pledgejs dependency:  pledgejs package.json → pledgepack: "^0.1.1"
-5. Publish pledgejs to npm:     npm publish (from pledgelabs/pledgejs)
+1. Build PledgePack binary:     cargo build --release
+2. Create GitHub Release:       gh release create v0.1.8 pledge-x86_64-pc-windows-msvc.zip
+3. Publish PledgePack to npm:   npm publish (from pledgepack repo)
+4. Update PledgeStack dependency:  pledgestack package.json → pledgepack: "^0.1.8"
+5. Publish PledgeStack to npm:     npm publish (from packages/cli directory)
 ```
 
 ---
 
-## What pledgejs Agent Needs to Know
+## What PledgeStack Agent Needs to Know
 
-1. **pledgepack is the bundler** — don't reimplement bundling, transforming, or dev server in pledgejs
-2. **pledgejs wraps pledgepack** — spawn `pledge` binary via `runPledgepack()` from `pledgepack` package
-3. **Use pledgepack plugins** — all framework features (RSC, SSR, routing) are implemented as pledgepack plugins
+1. **PledgePack is the bundler** — don't reimplement bundling, transforming, or dev server in PledgeStack
+2. **PledgeStack wraps PledgePack** — spawn `pledge` binary via `runPledgepack()` from `pledgepack` package
+3. **Use PledgePack plugins** — framework features (RSC, SSR, routing) use PledgePack's JS plugin hooks
 4. **Virtual modules** — use `resolveId` + `load` plugin hooks for `__pledge_router`, `__pledge_manifest`, etc.
-5. **Config generation** — pledgejs generates `pledge.config.ts` from `pledgejs.config.ts`
-6. **No Rust needed** — pledgejs is pure TypeScript/JavaScript
+5. **Config** — PledgeStack reads `pledge.config.ts` directly (no separate framework config)
+6. **No Rust needed** — PledgeStack is pure TypeScript/JavaScript
 7. **Binary is automatic** — `npm install pledgepack` handles binary download via postinstall
-8. **Dev server** — pledgepack runs the HTTP server, pledgejs injects middleware via plugins
-9. **SSR server** — pledgejs runs its own Node.js server for production SSR (`pledgejs start`)
-10. **Test runner** — use `pledge test` directly, pledgepack has full Vitest-compatible runner
+8. **Dev server** — PledgePack runs the HTTP server, PledgeStack injects middleware via `configureServer` hook
+9. **SSR server** — PledgeStack runs its own Node.js server for production SSR (`pledge start` via `startNodeServer`)
+10. **Edge server** — PledgeStack provides `createEdgeHandler` for Cloudflare/Vercel/Deno
+11. **Test runner** — use `pledge test` directly, PledgePack has full Vitest-compatible runner

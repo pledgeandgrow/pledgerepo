@@ -93,4 +93,4 @@ The auto-generated import map now includes `scopes` entries for packages with mu
 ### Status: ✅ Resolved
 - Release profile uses `strip = true`, `lto = "fat"`, and `opt-level = "z"` for size.
 - WASM plugin host crate removed — wasmtime dependency (~10MB) eliminated entirely.
-- Minimal build targets ~15MB.
+- Release binary ~23.6MB (includes Oxc, Lightning CSS, Boa JS runtime, notify, tokio, axum).
