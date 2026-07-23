@@ -33,13 +33,13 @@ npm install -g pledgepack
 npm install --save-dev pledgepack
 ```
 
-The npm package includes the prebuilt native binary for Windows x64. The postinstall script ensures the binary is executable on Unix platforms and downloads the appropriate binary from GitHub Releases for Linux/macOS. If no prebuilt binary is available, it falls back to building from source (requires Rust + Zig).
+The npm package is lightweight (~10 KB). The postinstall script automatically downloads the prebuilt native binary for your platform from GitHub Releases. If no prebuilt binary is available, it falls back to building from source (requires Rust + Zig).
 
 Supported platforms:
 
-- **Windows** x64 (binary included in package), arm64 (downloaded by postinstall)
-- **Linux** x64/arm64 (downloaded by postinstall)
-- **macOS** x64/arm64 (downloaded by postinstall, Intel + Apple Silicon)
+- **Windows** x64/arm64 (MSVC)
+- **Linux** x64/arm64 (GNU/glibc)
+- **macOS** x64/arm64 (Intel + Apple Silicon)
 
 ## Usage
 
