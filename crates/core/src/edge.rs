@@ -68,12 +68,10 @@ pub fn generate_edge_bundle(
     // Generate deployment config files
     match target {
         EdgeTarget::Cloudflare => {
-            let wrangler = r#"{
-  "name": "pledge-app",
-  "version": "0.0.1",
-  "main": "worker.js",
-  "compatibility_date": "2024-01-01"
-}
+            let wrangler = r#"name = "pledge-app"
+version = "0.0.1"
+main = "worker.js"
+compatibility_date = "2024-01-01"
 "#;
             std::fs::write(out_dir.join("wrangler.toml"), wrangler)?;
         }

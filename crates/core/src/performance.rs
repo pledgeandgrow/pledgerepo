@@ -182,9 +182,15 @@ impl PrefetchStrategy {
 
 /// Generate `<link rel="modulepreload">` tags for entry chunk dependencies.
 pub fn generate_modulepreload_tags(chunk_files: &[String]) -> String {
+    generate_modulepreload_tags_with_base(chunk_files, "/")
+}
+
+/// Generate `<link rel="modulepreload">` tags with base path prefix.
+pub fn generate_modulepreload_tags_with_base(chunk_files: &[String], base: &str) -> String {
+    let base = base.trim_end_matches('/');
     chunk_files
         .iter()
-        .map(|f| format!(r#"<link rel="modulepreload" href="/{}">"#, f))
+        .map(|f| format!(r#"<link rel="modulepreload" href="{}/{}">"#, base, f))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -195,10 +201,21 @@ pub fn generate_prefetch_tags(
     current_route: &str,
     strategy: PrefetchStrategy,
 ) -> String {
+    generate_prefetch_tags_with_base(route_chunks, current_route, strategy, "/")
+}
+
+/// Generate `<link rel="prefetch">` tags with base path prefix.
+pub fn generate_prefetch_tags_with_base(
+    route_chunks: &HashMap<String, Vec<String>>,
+    current_route: &str,
+    strategy: PrefetchStrategy,
+    base: &str,
+) -> String {
     if strategy == PrefetchStrategy::None {
         return String::new();
     }
 
+    let base = base.trim_end_matches('/');
     let mut tags = Vec::new();
 
     // Find sibling/child routes that are likely to be navigated to next
@@ -216,18 +233,18 @@ pub fn generate_prefetch_tags(
             for file in files {
                 let tag = match strategy {
                     PrefetchStrategy::Load => {
-                        format!(r#"<link rel="prefetch" href="/{}" as="script">"#, file)
+                        format!(r#"<link rel="prefetch" href="{}/{}" as="script">"#, base, file)
                     }
                     PrefetchStrategy::Viewport => {
                         format!(
-                            r#"<link rel="prefetch" href="/{}" as="script" data-prefetch-strategy="viewport">"#,
-                            file
+                            r#"<link rel="prefetch" href="{}/{}" as="script" data-prefetch-strategy="viewport">"#,
+                            base, file
                         )
                     }
                     PrefetchStrategy::Hover => {
                         format!(
-                            r#"<link rel="prefetch" href="/{}" as="script" data-prefetch-strategy="hover" data-prefetch-route="{}">"#,
-                            file, route
+                            r#"<link rel="prefetch" href="{}/{}" as="script" data-prefetch-strategy="hover" data-prefetch-route="{}">"#,
+                            base, file, route
                         )
                     }
                     _ => continue,

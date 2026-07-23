@@ -82,6 +82,9 @@ pub fn transform(
         ModuleKind::Yaml => transform_yaml(source),
         ModuleKind::Csv => transform_csv(source),
         ModuleKind::Tsv => transform_tsv(source),
+        ModuleKind::Sass => transform_sass(source, file_path, is_production, config),
+        ModuleKind::Toml => transform_toml(source),
+        ModuleKind::Shader => transform_shader(source, file_path),
         _ => Ok(TransformOutput {
             code: source.to_string(),
             source_map: None,
@@ -146,6 +149,12 @@ fn transform_js(
             options.jsx.runtime = JsxRuntime::Automatic;
             options.jsx.development = !is_production;
             options.jsx.import_source = Some("vue".to_string());
+        }
+        Framework::Next | Framework::TanStack | Framework::PledgeStack => {
+            // Next.js, TanStack, and PledgeStack all use React automatic runtime
+            options.jsx.runtime = JsxRuntime::Automatic;
+            options.jsx.development = !is_production;
+            options.jsx.import_source = Some("react".to_string());
         }
         _ => {
             // React: automatic JSX runtime (React 17+)
@@ -214,7 +223,7 @@ fn transform_js(
         code = apply_define(&code, &config.define);
     }
     
-    if !is_production && config.framework == Framework::React && is_react_component(source, file_path) {
+    if !is_production && matches!(config.framework, Framework::React | Framework::Next | Framework::TanStack | Framework::PledgeStack) && is_react_component(source, file_path) {
         code = inject_fast_refresh(&code, file_path);
     }
 
@@ -301,20 +310,38 @@ fn inline_process_env(code: &str, is_production: bool) -> String {
     let node_env = if is_production { "\"production\"" } else { "\"development\"" };
     result = result.replace("process.env.NODE_ENV", node_env);
 
-    // Replace other common process.env.* variables from the actual environment
-    for (key, value) in std::env::vars() {
-        let pattern = format!("process.env.{}", key);
-        if result.contains(&pattern) {
-            // Determine replacement type: booleans/numbers as-is, strings quoted
-            let replacement = if value == "true" || value == "false" {
-                value.clone()
-            } else if value.parse::<f64>().is_ok() {
-                value.clone()
-            } else {
-                format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
-            };
-            result = result.replace(&pattern, &replacement);
+    // Replace other process.env.* variables — only scan for patterns that appear in the code
+    // to avoid iterating all environment variables (security: don't inline secrets)
+    let mut env_vars_to_replace: Vec<(String, String)> = Vec::new();
+    let mut search_pos = 0;
+    while let Some(pos) = result[search_pos..].find("process.env.") {
+        let abs_pos = search_pos + pos;
+        let after = &result[abs_pos + "process.env.".len()..];
+        // Extract the variable name (alphanumeric + underscore)
+        let var_name: String = after.chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        if !var_name.is_empty() && var_name != "NODE_ENV" {
+            let pattern = format!("process.env.{}", var_name);
+            // Only replace if we haven't already processed this variable
+            if !env_vars_to_replace.iter().any(|(p, _)| p == &pattern) {
+                if let Ok(value) = std::env::var(&var_name) {
+                    env_vars_to_replace.push((pattern, value));
+                }
+            }
         }
+        search_pos = abs_pos + "process.env.".len();
+    }
+
+    for (pattern, value) in env_vars_to_replace {
+        let replacement = if value == "true" || value == "false" {
+            value.clone()
+        } else if value.parse::<f64>().is_ok() {
+            value.clone()
+        } else {
+            format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+        };
+        result = result.replace(&pattern, &replacement);
     }
 
     // Eliminate dead branches after env var inlining:
@@ -331,6 +358,55 @@ fn inline_process_env(code: &str, is_production: bool) -> String {
 /// Handles simple if-statements with constant conditions.
 fn eliminate_dead_branches(code: &str) -> String {
     let mut result = code.to_string();
+
+    // Pattern: if ("x" === "x") { ... } — always true, keep if-block
+    // Pattern: if ("x" !== "x") { ... } — always false, remove if-block
+    // These result from process.env.NODE_ENV inlining
+    let str_cmp_patterns: Vec<(&str, bool)> = vec![
+        ("\"production\" === \"production\"", true),
+        ("\"production\" !== \"production\"", false),
+        ("\"development\" === \"development\"", true),
+        ("\"development\" !== \"development\"", false),
+        ("\"production\" == \"production\"", true),
+        ("\"production\" != \"production\"", false),
+    ];
+
+    for (pattern, is_true) in &str_cmp_patterns {
+        let search = format!("if ({})", pattern);
+        while let Some(pos) = result.find(&search) {
+            if let Some((block_start, block_end)) = find_block_after(&result, pos + search.len()) {
+                let after = &result[block_end..];
+                if after.trim_start().starts_with("else") {
+                    let else_start = block_end + after.find("else").unwrap();
+                    if *is_true {
+                        // Keep if-block, remove else
+                        if let Some((_, else_be)) = find_block_after(&result, else_start + 4) {
+                            let if_content = result[block_start + 1..block_end].to_string();
+                            result.replace_range(pos..else_be + 1, if_content.trim());
+                            continue;
+                        }
+                    } else {
+                        // Remove if-block, keep else content
+                        if let Some((else_bs, else_be)) = find_block_after(&result, else_start + 4) {
+                            let else_content = result[else_bs + 1..else_be].to_string();
+                            result.replace_range(pos..else_be + 1, else_content.trim());
+                            continue;
+                        }
+                    }
+                }
+                if *is_true {
+                    // No else — unwrap the if-block
+                    let if_content = result[block_start + 1..block_end].to_string();
+                    result.replace_range(pos..block_end + 1, if_content.trim());
+                } else {
+                    // No else — just remove the if block
+                    result.replace_range(pos..block_end + 1, "");
+                }
+            } else {
+                break;
+            }
+        }
+    }
 
     // Pattern: if (false) { ... } — remove the entire if block
     // We need to find matching braces, handling nesting
@@ -412,6 +488,28 @@ fn find_block_after(code: &str, start: usize) -> Option<(usize, usize)> {
                     if code.as_bytes()[pos] == b'\\' { pos += 1; }
                     pos += 1;
                 }
+            }
+            b'`' => {
+                // Skip template literals — may contain ${...} expressions
+                pos += 1;
+                while pos < code.len() && code.as_bytes()[pos] != b'`' {
+                    if code.as_bytes()[pos] == b'\\' { pos += 1; }
+                    pos += 1;
+                }
+            }
+            b'/' if pos + 1 < code.len() && code.as_bytes()[pos + 1] == b'/' => {
+                // Skip line comments
+                while pos < code.len() && code.as_bytes()[pos] != b'\n' {
+                    pos += 1;
+                }
+            }
+            b'/' if pos + 1 < code.len() && code.as_bytes()[pos + 1] == b'*' => {
+                // Skip block comments
+                pos += 2;
+                while pos + 1 < code.len() && !(code.as_bytes()[pos] == b'*' && code.as_bytes()[pos + 1] == b'/') {
+                    pos += 1;
+                }
+                pos += 1;
             }
             _ => {}
         }
@@ -2617,7 +2715,56 @@ const TAILWIND_UTILITIES: &str = r#"
 .cursor-pointer { cursor: pointer; }
 "#;
 
-// ─── MDX / GraphQL / YAML / CSV / TSV transforms ──────────────────────
+// ─── MDX / GraphQL / YAML / CSV / TSV / SASS transforms ──────────────
+
+fn transform_sass(source: &str, file_path: &str, is_production: bool, config: &PledgeConfig) -> Result<TransformOutput> {
+    use grass::{OutputStyle, Options};
+
+    let is_indented = file_path.ends_with(".sass");
+    let style = if is_indented {
+        grass::InputSyntax::Sass
+    } else {
+        grass::InputSyntax::Scss
+    };
+
+    let output_style = if is_production {
+        OutputStyle::Compressed
+    } else {
+        OutputStyle::Expanded
+    };
+
+    let options = Options::default()
+        .style(output_style)
+        .input_syntax(style);
+
+    let css = grass::from_string(source, &options)
+        .map_err(|e| anyhow::anyhow!("Sass compilation error in {}: {}", file_path, e))?;
+
+    let is_css_module = file_path.ends_with(".module.scss") || file_path.ends_with(".module.sass");
+
+    let css_modules = if is_css_module {
+        Some(generate_css_module_map(&css, file_path))
+    } else {
+        None
+    };
+
+    let source_map = if !is_production && config.source_maps {
+        Some(crate::css_features::generate_css_source_map(file_path, source, &css))
+    } else {
+        None
+    };
+
+    Ok(TransformOutput {
+        code: css,
+        source_map,
+        css_modules,
+        is_css: true,
+        extracted_css: None,
+        is_worker: false,
+        dynamic_imports: Vec::new(),
+        content_hash: None,
+    })
+}
 
 fn transform_mdx(source: &str, file_path: &str) -> Result<TransformOutput> {
     let result = crate::asset_pipeline::compile_mdx(source, file_path);
@@ -2677,6 +2824,87 @@ fn transform_csv(source: &str) -> Result<TransformOutput> {
 
 fn transform_tsv(source: &str) -> Result<TransformOutput> {
     let code = crate::asset_pipeline::transform_tsv(source);
+    Ok(TransformOutput {
+        code,
+        source_map: None,
+        css_modules: None,
+        is_css: false,
+        extracted_css: None,
+        is_worker: false,
+        dynamic_imports: Vec::new(),
+        content_hash: None,
+    })
+}
+
+/// #61: Transform TOML into an ES module with named exports + default export
+fn transform_toml(source: &str) -> Result<TransformOutput> {
+    let value: toml::Value = toml::from_str(source)
+        .map_err(|e| anyhow::anyhow!("TOML parse error: {}", e))?;
+
+    // Convert toml::Value to serde_json::Value for consistent serialization
+    let json_value: serde_json::Value = serde_json::to_value(&value)
+        .map_err(|e| anyhow::anyhow!("TOML to JSON conversion error: {}", e))?;
+
+    let mut code = String::new();
+
+    // Generate named exports for top-level table keys
+    if let serde_json::Value::Object(map) = &json_value {
+        for (key, val) in map {
+            if key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') && !key.chars().next().map(|c| c.is_numeric()).unwrap_or(true) {
+                let val_str = serde_json::to_string(val).unwrap_or_else(|_| "null".to_string());
+                code.push_str(&format!("export const {} = {};\n", key, val_str));
+            }
+        }
+    }
+
+    let default_export = serde_json::to_string(&json_value).unwrap_or_else(|_| source.trim().to_string());
+    code.push_str(&format!("export default {};", default_export));
+
+    Ok(TransformOutput {
+        code,
+        source_map: None,
+        css_modules: None,
+        is_css: false,
+        extracted_css: None,
+        is_worker: false,
+        dynamic_imports: Vec::new(),
+        content_hash: None,
+    })
+}
+
+/// #63: Transform GLSL/WGSL shader files into ES module string exports
+/// Supports .glsl, .vert, .frag, .comp (GLSL) and .wgsl (WebGPU Shading Language)
+/// Exports the shader source as a default string, plus named exports for each
+/// #pragma shader-stage section if present.
+fn transform_shader(source: &str, file_path: &str) -> Result<TransformOutput> {
+    let ext = std::path::Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("glsl");
+
+    let shader_type = match ext {
+        "vert" => "vertex",
+        "frag" => "fragment",
+        "comp" => "compute",
+        "wgsl" => "wgsl",
+        _ => "glsl",
+    };
+
+    // Escape backticks and backslashes for template literal
+    let escaped = source
+        .replace('\\', "\\\\")
+        .replace('`', "\\`")
+        .replace("${", "\\${");
+
+    let code = format!(
+        r#"const shader = `{}`;
+const shaderType = "{}";
+const shaderSource = `{}`;
+export {{ shader, shaderType, shaderSource }};
+export default shader;"#,
+        escaped, shader_type, escaped
+    );
+
     Ok(TransformOutput {
         code,
         source_map: None,

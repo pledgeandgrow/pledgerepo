@@ -228,15 +228,66 @@ impl DepBundler {
 
     /// Resolve a bare specifier to a file path in node_modules
     fn resolve_dep(&self, specifier: &str, node_modules: &PathBuf) -> Result<PathBuf> {
-        // Handle scoped packages: @org/pkg → @org/pkg/index.js or @org/pkg/package.json main
-        let dep_dir = node_modules.join(specifier);
+        // Handle scoped packages and subpaths: @org/pkg/sub → @org/pkg + /sub
+        let (pkg_name, subpath) = if specifier.starts_with('@') {
+            let parts: Vec<&str> = specifier.splitn(3, '/').collect();
+            if parts.len() >= 2 {
+                let pkg = format!("{}/{}", parts[0], parts[1]);
+                let sub = if parts.len() > 2 { parts[2] } else { "" };
+                (pkg, sub)
+            } else {
+                (specifier.to_string(), "")
+            }
+        } else {
+            let parts: Vec<&str> = specifier.splitn(2, '/').collect();
+            if parts.len() > 1 {
+                (parts[0].to_string(), parts[1])
+            } else {
+                (specifier.to_string(), "")
+            }
+        };
+
+        let dep_dir = node_modules.join(&pkg_name);
 
         if dep_dir.is_dir() {
-            // Check package.json for "main" or "module" field
             let pkg_json_path = dep_dir.join("package.json");
             if pkg_json_path.exists() {
                 let pkg = std::fs::read_to_string(&pkg_json_path)?;
                 let pkg_json: serde_json::Value = serde_json::from_str(&pkg)?;
+
+                // Check exports field for subpath
+                if !subpath.is_empty() {
+                    if let Some(exports) = pkg_json.get("exports") {
+                        if let Some(obj) = exports.as_object() {
+                            let key = format!("./{}", subpath);
+                            if let Some(export_val) = obj.get(&key) {
+                                let resolved = if let Some(s) = export_val.as_str() {
+                                    Some(s.to_string())
+                                } else if let Some(conditions) = export_val.as_object() {
+                                    conditions.get("browser")
+                                        .or_else(|| conditions.get("module"))
+                                        .or_else(|| conditions.get("import"))
+                                        .or_else(|| conditions.get("default"))
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string())
+                                } else {
+                                    None
+                                };
+                                if let Some(resolved_path) = resolved {
+                                    let full = dep_dir.join(resolved_path.trim_start_matches("./"));
+                                    if full.exists() {
+                                        return Ok(full);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Try direct subpath file
+                    let direct = dep_dir.join(subpath);
+                    if direct.exists() {
+                        return Ok(direct);
+                    }
+                }
 
                 // Prefer "module" (ESM) over "main" (CJS)
                 let entry = pkg_json

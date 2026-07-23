@@ -16,6 +16,7 @@ pub enum DetectedFramework {
     Nuxt,
     Angular,
     Tanstack,
+    PledgeStack,
     Vanilla,
 }
 
@@ -33,13 +34,17 @@ impl DetectedFramework {
             Self::Nuxt => "nuxt",
             Self::Angular => "angular",
             Self::Tanstack => "tanstack",
+            Self::PledgeStack => "pledgestack",
             Self::Vanilla => "vanilla",
         }
     }
 
     pub fn pledge_framework(&self) -> &'static str {
         match self {
-            Self::React | Self::Next | Self::Tanstack => "react",
+            Self::React => "react",
+            Self::Next => "next",
+            Self::Tanstack => "tanstack",
+            Self::PledgeStack => "pledgestack",
             Self::Vue | Self::Nuxt => "vue",
             Self::Svelte => "svelte",
             Self::Solid => "solid",
@@ -197,6 +202,8 @@ pub fn detect_project(root: &Path) -> ProjectDetection {
         DetectedFramework::Angular
     } else if deps.contains_key("@tanstack/react-router") {
         DetectedFramework::Tanstack
+    } else if deps.contains_key("pledgestack") || deps.contains_key("@pledgestack/core") {
+        DetectedFramework::PledgeStack
     } else if deps.contains_key("solid-js") {
         DetectedFramework::Solid
     } else if deps.contains_key("svelte") {
@@ -307,7 +314,7 @@ fn detect_package_manager(root: &Path) -> PackageManager {
 
 fn detect_entry_file(root: &Path, framework: &DetectedFramework) -> String {
     let candidates = match framework {
-        DetectedFramework::Next | DetectedFramework::Remix => vec!["src/app/root.tsx", "src/app.tsx", "src/main.tsx", "pages/index.tsx", "src/index.tsx"],
+        DetectedFramework::Next | DetectedFramework::Remix | DetectedFramework::PledgeStack => vec!["src/app/root.tsx", "src/app.tsx", "app/layout.tsx", "app/page.tsx", "src/main.tsx", "pages/index.tsx", "src/index.tsx"],
         DetectedFramework::Angular => vec!["src/main.ts", "src/main.tsx"],
         DetectedFramework::Astro => vec!["src/pages/index.astro", "src/index.astro"],
         DetectedFramework::Nuxt => vec!["src/app.vue", "src/main.ts", "src/index.ts"],

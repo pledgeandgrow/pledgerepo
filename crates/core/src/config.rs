@@ -24,7 +24,7 @@ pub struct PledgeConfig {
     pub entry: Vec<String>,
 
     /// Output directory (default: ".pledge")
-    #[serde(default = "default_out_dir")]
+    #[serde(default = "default_out_dir", alias = "output_dir")]
     pub out_dir: PathBuf,
 
     /// Root directory of the project (default: cwd)
@@ -46,6 +46,11 @@ pub struct PledgeConfig {
     /// File extensions to resolve (default: [".tsx", ".ts", ".jsx", ".js", ".json", ".css"])
     #[serde(default)]
     pub extensions: Vec<String>,
+
+    /// Nested resolve config (alternative to flat fields, matches pledge.json format)
+    /// Supports: { alias: [...], extensions: [...], conditions: [...] }
+    #[serde(default)]
+    pub resolve: Option<ResolveConfig>,
 
     /// Whether to enable the persistent filesystem cache
     #[serde(default)]
@@ -78,6 +83,11 @@ pub struct PledgeConfig {
     /// Conditions for package.json exports resolution
     #[serde(default)]
     pub conditions: Vec<String>,
+
+    /// Optimization config (matches pledge.json format)
+    /// Supports: { minify: bool, tree_shake: bool, split_chunks: bool }
+    #[serde(default)]
+    pub optimize: Option<OptimizeConfig>,
 
     /// Environment variable prefixes to inject (default: ["PLEDGE_"])
     #[serde(default)]
@@ -226,6 +236,12 @@ pub struct PledgeConfig {
     /// security: { sri: true, csp: 'auto' }
     #[serde(default)]
     pub security: Option<SecurityConfig>,
+
+    /// Base path for deployment under a subpath (#84)
+    /// e.g., base: '/my-app/' — all asset URLs and import paths adjusted automatically
+    /// Default: "/" (root deployment)
+    #[serde(default = "default_base")]
+    pub base: String,
 }
 
 /// Test configuration (Vitest-compatible)
@@ -282,6 +298,10 @@ fn default_test_environment() -> String {
 
 fn default_out_dir() -> PathBuf {
     PathBuf::from(".pledge")
+}
+
+fn default_base() -> String {
+    "/".to_string()
 }
 
 fn default_test_isolation() -> String {
@@ -395,6 +415,12 @@ pub struct BuildConfig {
     #[serde(default)]
     pub verify_output: bool,
 
+    /// Run TypeScript type checking during build (default: false)
+    /// Integrates `tsc --noEmit` into the build pipeline
+    /// Fails build on type errors with formatted output
+    #[serde(default)]
+    pub type_check: bool,
+
     /// Incremental output: skip writing unchanged chunks in watch mode (default: true)
     /// Compares content hashes and only writes files that changed
     #[serde(default = "default_true")]
@@ -450,6 +476,7 @@ impl Default for BuildConfig {
             env_inline: true,
             preload_strategy: "lazy".to_string(),
             verify_output: false,
+            type_check: false,
             incremental_output: true,
             wasm_simd: "auto".to_string(),
             parallel: None,
@@ -468,11 +495,15 @@ pub enum BuildMode {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Framework {
+    #[default]
+    PledgeStack,
     React,
     Vue,
     Svelte,
     Solid,
-    #[default]
+    Next,
+    TanStack,
+    Astro,
     Auto,
 }
 
@@ -480,6 +511,30 @@ pub enum Framework {
 pub struct PathAlias {
     pub from: String,
     pub to: String,
+}
+
+/// Nested resolve configuration (matches pledge.json format)
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct ResolveConfig {
+    /// Path aliases as a map (e.g., { "@": "./src" })
+    pub alias: std::collections::HashMap<String, String>,
+    /// File extensions to resolve
+    pub extensions: Vec<String>,
+    /// Conditions for package.json exports resolution
+    pub conditions: Vec<String>,
+}
+
+/// Nested optimization configuration (matches pledge.json format)
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct OptimizeConfig {
+    /// Enable minification (default: true in production)
+    pub minify: Option<bool>,
+    /// Enable tree shaking (default: true in production)
+    pub tree_shake: Option<bool>,
+    /// Enable code splitting (default: true in production)
+    pub split_chunks: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -890,7 +945,7 @@ impl Default for PledgeConfig {
             out_dir: PathBuf::from(".pledge"),
             root: PathBuf::from("."),
             mode: BuildMode::Development,
-            framework: Framework::Auto,
+            framework: Framework::PledgeStack,
             alias: vec![],
             extensions: vec![
                 ".tsx".to_string(),
@@ -905,6 +960,8 @@ impl Default for PledgeConfig {
             dev_server: DevServerConfig::default(),
             source_maps: true,
             resolve_alias: vec![],
+            resolve: None,
+            optimize: None,
             proxy: vec![],
             profile: false,
             output_format: OutputFormat::Esm,
@@ -940,11 +997,73 @@ impl Default for PledgeConfig {
             transform_pipeline: None,
             workspaces: None,
             security: None,
+            base: default_base(),
         }
     }
 }
 
 impl PledgeConfig {
+    /// Get the normalized base path (always starts and ends with /).
+    /// e.g., "my-app" -> "/my-app/", "/" -> "/"
+    pub fn base_path(&self) -> String {
+        let base = self.base.trim();
+        if base.is_empty() || base == "/" {
+            return "/".to_string();
+        }
+        let mut result = String::new();
+        if !base.starts_with('/') {
+            result.push('/');
+        }
+        result.push_str(base);
+        if !result.ends_with('/') {
+            result.push('/');
+        }
+        result
+    }
+
+    /// Prefix an asset path with the base path.
+    /// e.g., base="/my-app/", asset="js/index.js" -> "/my-app/js/index.js"
+    /// e.g., base="/", asset="js/index.js" -> "/js/index.js"
+    pub fn asset_url(&self, asset: &str) -> String {
+        let base = self.base_path();
+        let asset = asset.trim_start_matches('/');
+        if base == "/" {
+            format!("/{}", asset)
+        } else {
+            format!("{}{}", base, asset)
+        }
+    }
+
+    /// Normalize config by merging nested `resolve` and `optimize` objects into flat fields.
+    /// This allows both flat (top-level) and nested (pledge.json-style) config formats.
+    pub fn normalize(&mut self) {
+        if let Some(ref resolve) = self.resolve {
+            if !resolve.alias.is_empty() && self.resolve_alias.is_empty() {
+                self.resolve_alias = resolve.alias.iter()
+                    .map(|(from, to)| PathAlias { from: from.clone(), to: to.clone() })
+                    .collect();
+            }
+            if !resolve.extensions.is_empty() && self.extensions.is_empty() {
+                self.extensions = resolve.extensions.clone();
+            }
+            if !resolve.conditions.is_empty() && self.conditions.len() <= 2 {
+                self.conditions = resolve.conditions.clone();
+            }
+        }
+        if let Some(ref opt) = self.optimize {
+            if opt.minify.is_some() {
+                // minify is handled by Oxc in production — this flag controls whether to minify
+                // If explicitly set to false, disable minification by adjusting build config
+                if let Some(false) = opt.minify {
+                    // Will be respected by transform.rs which checks is_production
+                    // This is informational — actual minify control is via BuildMode
+                }
+            }
+            // tree_shake and split_chunks are always enabled in production builds
+            // via the optimizer. These flags are informational.
+        }
+    }
+
     /// Resolve the app directory for file-based routing.
     /// If `app_dir` is explicitly set, use that.
     /// Otherwise auto-detect in priority order:
@@ -1521,4 +1640,46 @@ impl Default for SecurityConfig {
 
 fn default_csp_mode() -> String {
     "off".to_string()
+}
+
+#[cfg(test)]
+mod base_path_tests {
+    use super::*;
+
+    #[test]
+    fn test_base_path_default() {
+        let config = PledgeConfig::default();
+        assert_eq!(config.base_path(), "/");
+    }
+
+    #[test]
+    fn test_base_path_normalized() {
+        let mut config = PledgeConfig::default();
+        config.base = "my-app".to_string();
+        assert_eq!(config.base_path(), "/my-app/");
+
+        config.base = "/my-app".to_string();
+        assert_eq!(config.base_path(), "/my-app/");
+
+        config.base = "/my-app/".to_string();
+        assert_eq!(config.base_path(), "/my-app/");
+
+        config.base = "".to_string();
+        assert_eq!(config.base_path(), "/");
+    }
+
+    #[test]
+    fn test_asset_url_root() {
+        let config = PledgeConfig::default();
+        assert_eq!(config.asset_url("js/index.js"), "/js/index.js");
+        assert_eq!(config.asset_url("/js/index.js"), "/js/index.js");
+    }
+
+    #[test]
+    fn test_asset_url_subpath() {
+        let mut config = PledgeConfig::default();
+        config.base = "/my-app/".to_string();
+        assert_eq!(config.asset_url("js/index.js"), "/my-app/js/index.js");
+        assert_eq!(config.asset_url("/js/index.js"), "/my-app/js/index.js");
+    }
 }

@@ -28,7 +28,7 @@ serde_json = "1"
 bincode = "1"
 
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net", "sync", "signal"] }
 
 # HTTP server
 axum = "0.8"
@@ -38,7 +38,7 @@ tower-http = { version = "0.6", features = ["fs", "cors"] }
 tokio-tungstenite = "0.26"
 
 # Oxc for JS/TS/JSX compilation
-oxc = { version = "0.36", features = ["full"] }
+oxc = { version = "0.36", features = ["parser", "transformer", "codegen", "minifier", "semantic"] }
 
 # Lightning CSS
 lightningcss = "1.0.0-alpha.71"
@@ -81,7 +81,7 @@ dashmap = "6"
 
 # Global allocator (performance)
 mimalloc = "0.1"
-tikv-jemallocator = { version = "0.6", features = ["profiling"] }
+tikv-jemallocator = { version = "0.6" }
 
 # Typed UTF-8 paths
 camino = "1"
@@ -122,6 +122,15 @@ local-ip-address = "0.6"
 # JSON Schema generation for config validation/IDE support
 schemars = "1"
 
+# Pure Rust Sass/SCSS compiler
+grass = "0.13"
+
+# TOML parsing
+toml = "0.8"
+
+# HTTP client for plugin registry
+ureq = { version = "2", features = ["json"] }
+
 # Internal crates
 pledgepack-core = { path = "crates/core" }
 pledgepack-cache = { path = "crates/cache" }
@@ -142,5 +151,14 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
+[profile.release-fast]
+inherits = "release"
+opt-level = 2
+lto = "thin"
+codegen-units = 16
+panic = "unwind"
+strip = false
+
 [profile.dev]
-opt-level = 1
+opt-level = 0
+incremental = true

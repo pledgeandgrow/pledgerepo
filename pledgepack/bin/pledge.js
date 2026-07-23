@@ -38,7 +38,7 @@ for (const candidate of candidates) {
 
 if (!binaryPath) {
   console.error('');
-  console.error('  \x1b[31mpledge\x1b[0m binary not found.');
+  console.error('  \x1b[31mpledgepack\x1b[0m binary not found.');
   console.error('');
   console.error('  This can happen if:');
   console.error('    1. You installed the package but the postinstall script failed');
@@ -66,7 +66,7 @@ child.on('exit', (code) => {
 
 child.on('error', (err) => {
   console.error('');
-  console.error('  \x1b[31mpledge\x1b[0m: Failed to launch binary: ' + err.message);
+  console.error('  \x1b[31mpledgepack\x1b[0m: Failed to launch binary: ' + err.message);
   console.error('');
   process.exit(1);
 });

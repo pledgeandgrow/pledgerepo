@@ -1,11 +1,11 @@
 {
   "name": "pledgepack",
-  "version": "0.1.8",
+  "version": "0.2.1",
   "description": "A Rust+Zig bundler with incremental computation, JS plugins, and Rollup-quality output. Like Vite, Webpack, or Turbopack — but faster.",
   "type": "module",
   "main": "index.js",
   "bin": {
-    "pledge": "./bin/pledge.js"
+    "pledgepack": "bin/pledge.js"
   },
   "scripts": {
     "postinstall": "node ./bin/postinstall.js"

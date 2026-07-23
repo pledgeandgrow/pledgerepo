@@ -85,7 +85,7 @@ impl SolidAdapter {
         if !is_production {
             code.push_str(r#"
 // Solid HMR — reactive scope preservation
-if (import.meta.hot) {
+if (import.meta.hot && typeof window !== 'undefined') {
   import.meta.hot.accept((newModule) => {
     if (newModule) {
       // Solid components are reactive by default — re-executing the module

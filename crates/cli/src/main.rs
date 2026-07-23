@@ -30,7 +30,13 @@ use pledgepack_core::detect;
 use pledgepack_core::doctor;
 use pledgepack_core::migrate;
 use pledgepack_core::config_validate;
+use pledgepack_core::config::Framework;
 use pledgepack_js_plugin_host::JsPluginHost;
+use pledgepack_adapter_react::ReactAdapter;
+use pledgepack_adapter_solid::SolidAdapter;
+use pledgepack_adapter_next::NextAdapter;
+use pledgepack_adapter_tanstack::TanStackAdapter;
+use pledgepack_adapter_pledgestack::PledgeStackAdapter;
 use camino::Utf8PathBuf;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -98,6 +104,10 @@ enum Commands {
         #[arg(long)]
         verify: bool,
 
+        /// Run TypeScript type checking during build (#71)
+        #[arg(long)]
+        type_check: bool,
+
         /// Check bundle size budgets and exit non-zero on violations (#102)
         #[arg(long)]
         check_budgets: bool,
@@ -127,14 +137,18 @@ enum Commands {
         port: Option<u16>,
     },
 
-    /// Scaffold a new project (auto-detects framework if no template given)
+    /// Scaffold a new project (defaults to PledgeStack if no template given)
     Create {
-        /// Template name (react, vue, svelte, solid, vanilla, next, tanstack)
-        /// If omitted, Pledgepack auto-detects the framework from existing files
+        /// Template name (pledgestack, react, vue, svelte, solid, next, tanstack, vanilla)
+        /// If omitted, defaults to pledgestack
         template: Option<String>,
 
         /// Project name / directory
         name: Option<String>,
+
+        /// Flash create — skip wizard, git init, README; just get coding
+        #[arg(long)]
+        flash: bool,
     },
 
     /// Add Pledgepack to an existing project (migrates config from Vite/webpack/CRA)
@@ -185,6 +199,14 @@ enum Commands {
         /// UI mode (browser)
         #[arg(long)]
         ui: bool,
+
+        /// Visual regression testing — screenshot comparison (#75)
+        #[arg(long)]
+        visual: bool,
+
+        /// Update visual baselines instead of comparing
+        #[arg(long)]
+        update_baselines: bool,
     },
 
     /// Manage the cache
@@ -235,6 +257,71 @@ enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+
+    /// Open the PledgePack Playground — interactive transform REPL (#66)
+    Playground {
+        /// Port to serve the playground on
+        #[arg(short, long)]
+        port: Option<u16>,
+    },
+
+    /// Manage PledgePack plugins — search, install, list, docs (#67, #68, #69)
+    Plugin {
+        #[command(subcommand)]
+        action: PluginAction,
+    },
+
+    /// Analyze why a module is included in the bundle (#82)
+    Why {
+        /// Module name or path to trace
+        module: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum PluginAction {
+    /// Search the npm registry for PledgePack plugins
+    Search {
+        /// Search query (optional)
+        query: Option<String>,
+    },
+
+    /// Install a plugin from npm
+    Install {
+        /// Plugin package name
+        name: String,
+
+        /// Install as dev dependency
+        #[arg(long)]
+        dev: bool,
+    },
+
+    /// List installed PledgePack plugins
+    List,
+
+    /// Scaffold a new plugin project (#68)
+    Create {
+        /// Plugin name
+        name: String,
+
+        /// Plugin description
+        #[arg(long)]
+        description: Option<String>,
+
+        /// Author name
+        #[arg(long)]
+        author: Option<String>,
+    },
+
+    /// Generate API docs from a plugin source file (#69)
+    Docs {
+        /// Path to the plugin source file (index.js or index.ts)
+        file: PathBuf,
+
+        /// Output file path (default: stdout)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -270,6 +357,7 @@ async fn main() -> Result<()> {
         PledgeConfig::load(&root_path)?
     };
     config.root = std::fs::canonicalize(&root_path).unwrap_or(root_path);
+    config.normalize();
 
     // Feature 94: Apply plugin presets
     if !config.presets.is_empty() {
@@ -325,7 +413,7 @@ async fn main() -> Result<()> {
             pledgepack_dev_server::serve(engine, &config).await?;
         }
 
-        Commands::Build { out_dir, no_sourcemap, profile, watch, verify, check_budgets, env, codegen } => {
+        Commands::Build { out_dir, no_sourcemap, profile, watch, verify, check_budgets, env, codegen, type_check } => {
             if let Some(out) = out_dir {
                 config.out_dir = out.into_std_path_buf();
             }
@@ -337,6 +425,9 @@ async fn main() -> Result<()> {
             }
             if verify {
                 config.build.verify_output = true;
+            }
+            if type_check {
+                config.build.type_check = true;
             }
             if check_budgets {
                 config.budgets.enabled = true;
@@ -419,12 +510,25 @@ async fn main() -> Result<()> {
             let result = engine.build().await?;
             pb.inc(1);
 
+            // #71: Type checking during build
+            if config.build.type_check {
+                pb.set_message("Type checking");
+                let tc_result = pledgepack_core::type_check::run_type_check(&config.root)?;
+                if !tc_result.success {
+                    pb.finish_and_clear();
+                    println!("\n  \x1b[31m✗ Type check failed:\x1b[0m\n");
+                    print!("{}", pledgepack_core::type_check::format_type_check_result(&tc_result));
+                    anyhow::bail!("Type check failed with {} error(s)", tc_result.errors.len());
+                } else {
+                    println!("  \x1b[32m✓\x1b[0m {}", pledgepack_core::type_check::format_type_check_result(&tc_result));
+                }
+            }
+
             pb.set_message("Optimizing chunks");
             let optimize_start = std::time::Instant::now();
             // Run optimizer (tree shaking, code splitting, vendor/shared chunks)
             // Use optimize_with_config for manual_chunks and inline_dynamic_imports support
-            let entry_ids: Vec<pledgepack_core::ModuleId> = engine.modules().values()
-                .take(1).map(|m| m.id).collect();
+            let entry_ids = engine.entry_ids();
             let mut optimizer = pledgepack_optimizer::Optimizer::new();
             let chunks = optimizer.optimize_with_config(
                 &entry_ids,
@@ -442,6 +546,68 @@ async fn main() -> Result<()> {
             engine.emit()?;
             let emit_ms = emit_start.elapsed().as_millis();
             pb.inc(1);
+
+            // Run framework adapter for route generation, SSR manifests, and full-stack features
+            let out_dir_full = config.root.join(&config.out_dir);
+            match config.framework {
+                Framework::Next => {
+                    pb.set_message("Generating Next.js routes");
+                    let mut next_adapter = NextAdapter::new(&config.root);
+                    next_adapter.discover_routes()?;
+                    let router_code = next_adapter.generate_router_code();
+                    let router_path = out_dir_full.join("__pledge_next_router.js");
+                    std::fs::create_dir_all(&out_dir_full)?;
+                    std::fs::write(&router_path, &router_code)?;
+                    let ssr_manifest = next_adapter.generate_ssr_manifest();
+                    let manifest_path = out_dir_full.join("__pledge_next_ssr_manifest.json");
+                    std::fs::write(&manifest_path, &ssr_manifest)?;
+                    tracing::info!("Next.js adapter: {} routes, SSR manifest generated", next_adapter.routes.len());
+                    pb.inc(1);
+                }
+                Framework::TanStack => {
+                    pb.set_message("Generating TanStack routes");
+                    let mut tanstack_adapter = TanStackAdapter::new(&config.root);
+                    tanstack_adapter.discover_routes()?;
+                    let route_tree = tanstack_adapter.generate_route_tree();
+                    let route_path = out_dir_full.join("__pledge_tanstack_route_tree.js");
+                    std::fs::create_dir_all(&out_dir_full)?;
+                    std::fs::write(&route_path, &route_tree)?;
+                    let route_manifest = tanstack_adapter.generate_route_manifest();
+                    let manifest_path = out_dir_full.join("__pledge_tanstack_manifest.json");
+                    std::fs::write(&manifest_path, &route_manifest)?;
+                    tracing::info!("TanStack adapter: {} routes, manifest generated", tanstack_adapter.routes.len());
+                    pb.inc(1);
+                }
+                Framework::PledgeStack => {
+                    pb.set_message("Generating PledgeStack routes");
+                    let mut ps_adapter = PledgeStackAdapter::new(&config.root);
+                    ps_adapter.discover()?;
+                    std::fs::create_dir_all(&out_dir_full)?;
+                    // Write route manifest (frontend + API + backend + middleware)
+                    let manifest_path = out_dir_full.join("__pledge_ps_manifest.json");
+                    ps_adapter.write_manifest(&manifest_path)?;
+                    // Prepare .psx files for Rust compilation
+                    let copied = ps_adapter.prepare_psx_files(&out_dir_full)?;
+                    if !copied.is_empty() {
+                        tracing::info!("PledgeStack: copied {} .psx files for compilation", copied.len());
+                    }
+                    let manifest = ps_adapter.manifest();
+                    tracing::info!("PledgeStack adapter: {} frontend routes, {} API routes, {} backend routes",
+                        manifest.frontend.len(), manifest.api.len(), manifest.backend.len());
+                    pb.inc(1);
+                }
+                Framework::Solid => {
+                    // Solid adapter transform is handled inline by core transform.rs
+                    // The adapter is available for advanced HMR boundary detection if needed
+                    let _solid = SolidAdapter::new();
+                }
+                Framework::React => {
+                    // React adapter transform is handled inline by core transform.rs
+                    // The adapter is available for advanced Fast Refresh boundary detection if needed
+                    let _react = ReactAdapter::new();
+                }
+                _ => {}
+            }
 
             // Generate env type declarations if enabled
             if config.env_dts {
@@ -467,13 +633,30 @@ async fn main() -> Result<()> {
                 tracing::info!("HTML entry: {} scripts, {} stylesheets, {} preloads",
                     html_entry.scripts.len(), html_entry.stylesheets.len(), html_entry.module_preloads.len());
 
-                // If HTML has multiple script entries, add them to config entry
-                if html_entry.scripts.len() > 1 {
-                    tracing::info!("Multi-script entry: {} entry points detected", html_entry.scripts.len());
+                // Add HTML script entries to config so the engine processes them
+                for script in &html_entry.scripts {
+                    let script_path = script.trim_start_matches("./").trim_start_matches("/");
+                    // Resolve relative to the HTML file's directory
+                    let resolved = if script_path.starts_with("http") || script_path.starts_with("//") {
+                        continue; // Skip external URLs
+                    } else {
+                        let base = config.resolve_base_dir().unwrap_or_default();
+                        let full = if base.is_empty() {
+                            script_path.to_string()
+                        } else {
+                            format!("{}/{}", base, script_path)
+                        };
+                        full
+                    };
+                    if !config.entry.contains(&resolved) {
+                        config.entry.push(resolved);
+                    }
                 }
+                tracing::info!("Entry points: {:?}", config.entry);
             }
 
             // File-based routing: scan app/ directory if auto-detected or configured
+            // Generate __pledge_router with build-relative imports so it resolves in dist/
             if let Some(app_dir) = config.resolve_app_dir() {
                 let route_table = pledgepack_core::router::scan_app_dir(&config.root, &app_dir)?;
                 if !route_table.routes.is_empty() {
@@ -481,9 +664,13 @@ async fn main() -> Result<()> {
                     for route in &route_table.routes {
                         tracing::info!("  {} → {}", route.pattern, route.file);
                     }
-                    // Generate virtual router module
-                    let router_module = route_table.generate_router_module();
-                    let router_path = config.out_dir.join("__pledge_router.js");
+                    // Generate virtual router module with relative imports for build output
+                    let out_dir_full = config.root.join(&config.out_dir);
+                    // Calculate relative prefix from out_dir back to project root
+                    let depth = config.out_dir.components().count();
+                    let prefix = "../".repeat(depth);
+                    let router_module = route_table.generate_router_module_build(&prefix);
+                    let router_path = out_dir_full.join("__pledge_router.js");
                     std::fs::write(&router_path, &router_module)?;
                     tracing::info!("  Generated router: {}", router_path.display());
                 }
@@ -510,7 +697,7 @@ async fn main() -> Result<()> {
             if let Some(ref edge_target) = config.edge_target {
                 if let Some(target) = edge::EdgeTarget::from_str(edge_target) {
                     let out_dir = config.root.join(&config.out_dir);
-                    let bundle_code = String::new(); // Would use engine.collect_module_code()
+                    let bundle_code = engine.collect_bundle_code();
                     edge::generate_edge_bundle(target, &bundle_code, None, &out_dir)?;
                 }
             }
@@ -840,12 +1027,17 @@ async fn main() -> Result<()> {
             axum::serve(listener, app).await?;
         }
 
-        Commands::Create { template, name } => {
-            use dialoguer::{Select, Input, Confirm};
+        Commands::Create { template, name, flash } => {
             use console::style;
 
-            // If no template provided and we're in a TTY, run interactive wizard
-            let (template, project_name) = if template.is_none() && atty::is(atty::Stream::Stdin) {
+            // #12: Flash create — skip wizard, use defaults, minimal output
+            let (template, project_name) = if flash {
+                let project_name = name.unwrap_or_else(|| "my-app".to_string());
+                let template = template.unwrap_or_else(|| "pledgestack".to_string());
+                (template, project_name)
+            } else if template.is_none() && atty::is(atty::Stream::Stdin) {
+                use dialoguer::{Select, Input, Confirm};
+
                 println!("\n  {} Pledgepack Create Wizard\n", style("pledge create").cyan().bold());
 
                 // Project name
@@ -857,6 +1049,7 @@ async fn main() -> Result<()> {
 
                 // Framework selection
                 let frameworks = [
+                    "PledgeStack (React + Rust full-stack)",
                     "React",
                     "Vue",
                     "Svelte",
@@ -872,12 +1065,13 @@ async fn main() -> Result<()> {
                     .interact()?;
 
                 let template = match framework_idx {
-                    0 => "react",
-                    1 => "vue",
-                    2 => "svelte",
-                    3 => "solid",
-                    4 => "next",
-                    5 => "tanstack",
+                    0 => "pledgestack",
+                    1 => "react",
+                    2 => "vue",
+                    3 => "svelte",
+                    4 => "solid",
+                    5 => "next",
+                    6 => "tanstack",
                     _ => "vanilla",
                 }.to_string();
 
@@ -940,8 +1134,13 @@ async fn main() -> Result<()> {
             } else {
                 let project_name = name.unwrap_or_else(|| "my-app".to_string());
                 let template = template.unwrap_or_else(|| {
+                    // Default to pledgestack, but auto-detect if existing project files suggest otherwise
                     let detection = detect::detect_project(std::path::Path::new("."));
-                    detection.framework.as_str().to_string()
+                    if detection.framework == detect::DetectedFramework::Vanilla {
+                        "pledgestack".to_string()
+                    } else {
+                        detection.framework.as_str().to_string()
+                    }
                 });
                 (template, project_name)
             };
@@ -953,24 +1152,75 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
 
-            std::fs::create_dir_all(project_dir)?;
-            std::fs::create_dir_all(project_dir.join("src"))?;
+            // #5: Cached create templates — check if template is cached locally
+            let cache_dir = dirs::cache_dir()
+                .or_else(|| std::env::var_os("HOME").map(std::path::PathBuf::from))
+                .map(|d| d.join(".pledge").join("templates").join(&template));
+            let cached = cache_dir
+                .as_ref()
+                .map(|d| d.join("package.json").exists())
+                .unwrap_or(false);
 
-            // Create package.json
-            let pkg = serde_json::json!({
-                "name": project_name,
-                "version": "0.1.0",
-                "scripts": {
-                    "dev": "pledge dev",
-                    "build": "pledge build",
-                    "preview": "pledge preview"
+            if cached {
+                // Copy from cache — instant template reuse
+                std::fs::create_dir_all(project_dir)?;
+                std::fs::create_dir_all(project_dir.join("src"))?;
+                if let Some(ref cache_dir) = cache_dir {
+                    copy_dir_recursive(cache_dir, project_dir)?;
                 }
-            });
-            std::fs::write(project_dir.join("package.json"), serde_json::to_string_pretty(&pkg)?)?;
 
-            // Create pledge.config.ts
-            let pledge_config = match template.as_str() {
-                "vue" => r#"import { defineConfig } from 'pledge';
+                // Update package.json with actual project name
+                let pkg_path = project_dir.join("package.json");
+                let mut pkg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&pkg_path)?)?;
+                if let Some(obj) = pkg.as_object_mut() {
+                    obj.insert("name".to_string(), serde_json::Value::String(project_name.clone()));
+                }
+                std::fs::write(pkg_path, serde_json::to_string_pretty(&pkg)?)?;
+
+                // Regenerate index.html with actual project name
+                std::fs::write(project_dir.join("index.html"), &html::generate_default_html(
+                    "src/index.tsx",
+                    &project_name,
+                ))?;
+
+                // Update entry file project name for vue/svelte/solid templates
+                let entry_path = project_dir.join("src/index.tsx");
+                let entry_content = std::fs::read_to_string(&entry_path).unwrap_or_default();
+                // Replace any previous project name placeholder with the new one
+                let updated_entry = entry_content
+                    .replace("__PLEDGE_PROJECT_NAME__", &project_name);
+                std::fs::write(entry_path, updated_entry)?;
+            } else {
+                // Generate from scratch and cache
+                std::fs::create_dir_all(project_dir)?;
+                std::fs::create_dir_all(project_dir.join("src"))?;
+
+                // Create package.json
+                let pkg = serde_json::json!({
+                    "name": project_name,
+                    "version": "0.1.0",
+                    "scripts": {
+                        "dev": "pledge dev",
+                        "build": "pledge build",
+                        "preview": "pledge preview"
+                    }
+                });
+                std::fs::write(project_dir.join("package.json"), serde_json::to_string_pretty(&pkg)?)?;
+
+                // Create pledge.config.ts
+                let pledge_config = match template.as_str() {
+                    "pledgestack" => r#"import { defineConfig } from 'pledge';
+
+export default defineConfig({
+  entry: ['src/index.tsx'],
+  framework: 'pledgestack',
+  devServer: {
+    port: 3000,
+    hmr: true,
+  },
+});
+"#,
+                    "vue" => r#"import { defineConfig } from 'pledge';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -981,7 +1231,7 @@ export default defineConfig({
   },
 });
 "#,
-                "svelte" => r#"import { defineConfig } from 'pledge';
+                    "svelte" => r#"import { defineConfig } from 'pledge';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -992,7 +1242,7 @@ export default defineConfig({
   },
 });
 "#,
-                "solid" => r#"import { defineConfig } from 'pledge';
+                    "solid" => r#"import { defineConfig } from 'pledge';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1003,11 +1253,11 @@ export default defineConfig({
   },
 });
 "#,
-                "next" => r#"import { defineConfig } from 'pledge';
+                    "next" => r#"import { defineConfig } from 'pledge';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
-  framework: 'react',
+  framework: 'next',
   devServer: {
     port: 3000,
     hmr: true,
@@ -1015,7 +1265,18 @@ export default defineConfig({
   plugins: [],
 });
 "#,
-                "tanstack" => r#"import { defineConfig } from 'pledge';
+                    "tanstack" => r#"import { defineConfig } from 'pledge';
+
+export default defineConfig({
+  entry: ['src/index.tsx'],
+  framework: 'tanstack',
+  devServer: {
+    port: 3000,
+    hmr: true,
+  },
+});
+"#,
+                    _ => r#"import { defineConfig } from 'pledge';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1026,68 +1287,73 @@ export default defineConfig({
   },
 });
 "#,
-                _ => r#"import { defineConfig } from 'pledge';
+                };
+                std::fs::write(project_dir.join("pledge.config.ts"), pledge_config)?;
 
-export default defineConfig({
-  entry: ['src/index.tsx'],
-  framework: 'react',
-  devServer: {
-    port: 3000,
-    hmr: true,
-  },
-});
-"#,
-            };
-            std::fs::write(project_dir.join("pledge.config.ts"), pledge_config)?;
-
-            // Create .env file
-            std::fs::write(project_dir.join(".env"), r#"# Pledge environment variables
+                // Create .env file
+                std::fs::write(project_dir.join(".env"), r#"# Pledge environment variables
 PLEDGE_APP_NAME=My App
 PLEDGE_API_URL=http://localhost:8080
 "#)?;
 
-            // Create .env.local (gitignored)
-            std::fs::write(project_dir.join(".env.local"), r#"# Local environment variables (not committed)
+                // Create .env.local (gitignored)
+                std::fs::write(project_dir.join(".env.local"), r#"# Local environment variables (not committed)
 PLEDGE_API_URL=http://localhost:3000
 "#)?;
 
-            // Create index.html
-            std::fs::write(project_dir.join("index.html"), &html::generate_default_html(
-                "src/index.tsx",
-                &project_name,
-            ))?;
+                // Create index.html
+                std::fs::write(project_dir.join("index.html"), &html::generate_default_html(
+                    "src/index.tsx",
+                    &project_name,
+                ))?;
 
-            // Create entry file based on template
-            let entry = match template.as_str() {
-                "vue" => r##"// Vue template
+                // Create entry file based on template
+                // Use __PLEDGE_PROJECT_NAME__ placeholder for cache-friendly templates
+                let entry = match template.as_str() {
+                    "pledgestack" => r##"// PledgeStack template — React frontend + Rust backend
+function App() {
+  return React.createElement("h1", null, "Hello from PledgeStack!");
+}
+
 const root = document.getElementById("root");
 if (root) {
-  root.innerHTML = `<h1 style="color:#6366f1;">${project_name}</h1>`;
+  root.innerHTML = "";
+  const h1 = document.createElement("h1");
+  h1.textContent = "__PLEDGE_PROJECT_NAME__";
+  h1.style.color = "#6366f1";
+  root.appendChild(h1);
+}
+export default App;
+"##,
+                    "vue" => r##"// Vue template
+const root = document.getElementById("root");
+if (root) {
+  root.innerHTML = `<h1 style="color:#6366f1;">__PLEDGE_PROJECT_NAME__</h1>`;
 }
 export default {};
 "##,
-                "svelte" => r##"// Svelte template
+                    "svelte" => r##"// Svelte template
 const root = document.getElementById("root");
 if (root) {
-  root.innerHTML = `<h1 style="color:#ff3e00;">${project_name}</h1>`;
+  root.innerHTML = `<h1 style="color:#ff3e00;">__PLEDGE_PROJECT_NAME__</h1>`;
 }
 export default {};
 "##,
-                "solid" => r##"// Solid template
+                    "solid" => r##"// Solid template
 const root = document.getElementById("root");
 if (root) {
-  root.innerHTML = `<h1 style="color:#2c4f7c;">${project_name}</h1>`;
+  root.innerHTML = `<h1 style="color:#2c4f7c;">__PLEDGE_PROJECT_NAME__</h1>`;
 }
 export default {};
 "##,
-                "vanilla" => r#"// Vanilla template
+                    "vanilla" => r#"// Vanilla template
 const root = document.getElementById("root");
 if (root) {
-  root.innerHTML = `<h1>${project_name}</h1>`;
+  root.innerHTML = `<h1>__PLEDGE_PROJECT_NAME__</h1>`;
 }
 export default {};
 "#,
-                _ => r##"// React template
+                    _ => r##"// React template
 function App() {
   return React.createElement("h1", null, "Hello from Pledge!");
 }
@@ -1102,22 +1368,94 @@ if (root) {
 }
 export default App;
 "##,
-            };
+                };
 
-            let entry_content = entry.replace("${project_name}", &project_name);
-            std::fs::write(project_dir.join("src/index.tsx"), entry_content)?;
+                let entry_content = entry.replace("__PLEDGE_PROJECT_NAME__", &project_name);
+                std::fs::write(project_dir.join("src/index.tsx"), entry_content)?;
 
-            // Create utils.ts
-            std::fs::write(project_dir.join("src/utils.ts"), r#"export function greet(name: string): string {
+                // Create PledgeStack app directory structure (Next.js-style file-based routing)
+                if template == "pledgestack" {
+                    std::fs::create_dir_all(project_dir.join("app"))?;
+                    // Root layout
+                    std::fs::write(project_dir.join("app/layout.tsx"), r#"export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}
+"#)?;
+                    // Home page
+                    std::fs::write(project_dir.join("app/page.tsx"), r##"export default function Home() {
+  return (
+    <div style={{ padding: "2rem", fontFamily: "system-ui" }}>
+      <h1 style={{ color: "#6366f1" }}>__PLEDGE_PROJECT_NAME__</h1>
+      <p>Built with PledgeStack — React frontend + Rust backend</p>
+    </div>
+  );
+}
+"##)?;
+                    // API route example
+                    std::fs::create_dir_all(project_dir.join("app/api/hello"))?;
+                    std::fs::write(project_dir.join("app/api/hello/route.ts"), r#"export async function GET() {
+  return Response.json({ message: "Hello from PledgeStack API!" });
+}
+"#)?;
+                    // Server entry point (Rust backend)
+                    std::fs::create_dir_all(project_dir.join("server"))?;
+                    std::fs::write(project_dir.join("server/main.rs"), r#"// PledgeStack server entry point
+// This file is compiled with cargo and runs the Rust backend
+
+fn main() {
+    println!("PledgeStack server starting...");
+    // Add your server logic here
+}
+"#)?;
+                    // Cargo.toml for the server
+                    std::fs::write(project_dir.join("server/Cargo.toml"), r#"[package]
+name = "pledgestack-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+"#)?;
+                    // Update .gitignore for PledgeStack
+                    std::fs::write(project_dir.join(".gitignore"), ".pledge/\ntarget/\nnode_modules/\n.env.local\npledge-env.d.ts\nserver/target/\n")?;
+                }
+
+                // Create utils.ts
+                std::fs::write(project_dir.join("src/utils.ts"), r#"export function greet(name: string): string {
   return `Hello, ${name}!`;
 }
 "#)?;
 
-            // Create .gitignore
-            std::fs::write(project_dir.join(".gitignore"), ".pledge/\ntarget/\nnode_modules/\n.env.local\npledge-env.d.ts\n")?;
+                // Create .gitignore (skip if already created for pledgestack)
+                if template != "pledgestack" {
+                    std::fs::write(project_dir.join(".gitignore"), ".pledge/\ntarget/\nnode_modules/\n.env.local\npledge-env.d.ts\n")?;
+                }
 
-            println!("\n  \x1b[32m✓\x1b[0m Created {} project: {}\n", template, project_name);
-            println!("  \x1b[90mcd {} && pledge dev\x1b[0m\n", project_name);
+                // Cache template for instant reuse (#5)
+                if let Some(ref cache_dir) = cache_dir {
+                    let _ = std::fs::create_dir_all(cache_dir);
+                    let _ = std::fs::create_dir_all(cache_dir.join("src"));
+                    let _ = copy_dir_recursive(project_dir, cache_dir);
+                    // Write placeholder version of entry file to cache
+                    let _ = std::fs::write(cache_dir.join("src/index.tsx"), entry);
+                }
+            }
+
+            // #8: Pre-warmed module graph — scan source files on create
+            let pledge_dir = project_dir.join(".pledge");
+            let _ = std::fs::create_dir_all(&pledge_dir);
+            prewarm_module_graph(project_dir, &pledge_dir);
+
+            if flash {
+                println!("\n  \x1b[32m✓\x1b[0m {} — {}\n", template, project_name);
+                println!("  \x1b[90mcd {} && pledge dev\x1b[0m\n", project_name);
+            } else {
+                println!("\n  \x1b[32m✓\x1b[0m Created {} project: {}\n", template, project_name);
+                println!("  \x1b[90mcd {} && pledge dev\x1b[0m\n", project_name);
+            }
         }
 
         Commands::Init { force, framework } => {
@@ -1583,7 +1921,7 @@ export default App;
             axum::serve(listener, app).await?;
         }
 
-        Commands::Test { pattern, watch, ui } => {
+        Commands::Test { pattern, watch, ui, visual, update_baselines } => {
             println!("\n  \x1b[36mpledge test\x1b[0m — running tests...\n");
 
             let pattern = pattern.unwrap_or_else(|| {
@@ -1679,6 +2017,40 @@ export default App;
             if config.test.coverage {
                 println!("  \x1b[90mCoverage report ({}):\x1b[0m", config.test.coverage_reporter);
                 println!("  \x1b[90m  Coverage data collected from {} file(s)\x1b[0m\n", all_summaries.len());
+            }
+
+            // #75: Visual regression testing
+            if visual {
+                println!("  \x1b[36mVisual regression testing\x1b[0m — screenshot comparison\n");
+
+                let mut vr_config = pledgepack_core::visual_regression::VisualRegressionConfig::default();
+                vr_config.enabled = true;
+                vr_config.update_baselines = update_baselines;
+
+                // Use dev server port for capturing screenshots
+                let port = config.dev_server.port;
+
+                match pledgepack_core::visual_regression::run_visual_tests(&vr_config, port) {
+                    Ok(report) => {
+                        print!("\n{}", pledgepack_core::visual_regression::format_visual_report(&report));
+
+                        if report.failed > 0 {
+                            // Generate HTML report
+                            let html = pledgepack_core::visual_regression::generate_visual_html_report(&report);
+                            let report_path = config.root.join(".pledge").join("visual-report.html");
+                            std::fs::create_dir_all(report_path.parent().unwrap_or(&config.root))?;
+                            std::fs::write(&report_path, &html)?;
+                            println!("  \x1b[90mVisual report: {}\x1b[0m\n", report_path.display());
+
+                            if !update_baselines {
+                                anyhow::bail!("Visual regression: {} page(s) failed", report.failed);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("  \x1b[31m✗ Visual regression failed: {}\x1b[0m\n", e);
+                    }
+                }
             }
 
             if watch {
@@ -1933,9 +2305,193 @@ export default App;
                 println!("{}", pretty);
             }
         }
+
+        Commands::Playground { port } => {
+            let port = port.unwrap_or(8080);
+            println!("\n  \x1b[36mpledge playground\x1b[0m — interactive transform REPL\n");
+            pledgepack_core::playground::serve_playground(port)?;
+        }
+
+        Commands::Plugin { action } => match action {
+            PluginAction::Search { query } => {
+                println!("\n  \x1b[36mpledge plugin search\x1b[0m — searching npm registry...\n");
+                let q = query.as_deref();
+                match pledgepack_core::plugin_registry::search_plugins(q) {
+                    Ok(plugins) => {
+                        if plugins.is_empty() {
+                            println!("  \x1b[33mNo plugins found\x1b[0m\n");
+                        } else {
+                            println!("  \x1b[32mFound {} plugin(s):\x1b[0m\n", plugins.len());
+                            print!("{}", pledgepack_core::plugin_registry::format_plugin_list(&plugins));
+                        }
+                    }
+                    Err(e) => {
+                        println!("  \x1b[31m✗\x1b[0m Search failed: {}\n", e);
+                    }
+                }
+            }
+            PluginAction::Install { name, dev } => {
+                println!("\n  \x1b[36mpledge plugin install\x1b[0m\n");
+                if let Err(e) = pledgepack_core::plugin_registry::install_plugin(&name, dev) {
+                    println!("  \x1b[31m✗\x1b[0m Install failed: {}\n", e);
+                }
+            }
+            PluginAction::List => {
+                println!("\n  \x1b[36mpledge plugin list\x1b[0m — installed plugins\n");
+                let root = std::path::Path::new(".");
+                match pledgepack_core::plugin_registry::list_installed_plugins(root) {
+                    Ok(plugins) => {
+                        if plugins.is_empty() {
+                            println!("  \x1b[90mNo plugins installed\x1b[0m\n");
+                        } else {
+                            print!("{}", pledgepack_core::plugin_registry::format_plugin_list(&plugins));
+                        }
+                    }
+                    Err(e) => {
+                        println!("  \x1b[31m✗\x1b[0m {}\n", e);
+                    }
+                }
+            }
+            PluginAction::Create { name, description, author } => {
+                println!("\n  \x1b[36mpledge plugin create\x1b[0m — scaffolding new plugin\n");
+
+                let opts = pledgepack_core::plugin_template::PluginTemplateOptions {
+                    name: name.clone(),
+                    description: description.unwrap_or_else(|| format!("PledgePack plugin: {}", name)),
+                    author: author.unwrap_or_else(|| "Your Name".to_string()),
+                    hooks: pledgepack_core::plugin_template::PluginHook::all(),
+                };
+
+                let out_dir = std::path::PathBuf::from(&name);
+                match pledgepack_core::plugin_template::scaffold_plugin(&opts, &out_dir) {
+                    Ok(()) => {
+                        println!("  \x1b[32m✓\x1b[0m Plugin scaffolded: {}\n", out_dir.display());
+                        println!("  \x1b[90mcd {} && pledge dev\x1b[0m\n", name);
+                    }
+                    Err(e) => {
+                        println!("  \x1b[31m✗\x1b[0m Failed: {}\n", e);
+                    }
+                }
+            }
+            PluginAction::Docs { file, output } => {
+                println!("\n  \x1b[36mpledge plugin docs\x1b[0m — generating API docs\n");
+
+                let source = match std::fs::read_to_string(&file) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        println!("  \x1b[31m✗\x1b[0m Cannot read {}: {}\n", file.display(), e);
+                        return Ok(());
+                    }
+                };
+
+                match pledgepack_core::plugin_docs::generate_plugin_docs(&source) {
+                    Ok(docs) => {
+                        let markdown = pledgepack_core::plugin_docs::render_markdown(&docs);
+                        if let Some(out_path) = output {
+                            std::fs::write(&out_path, &markdown)?;
+                            println!("  \x1b[32m✓\x1b[0m Docs written to {}\n", out_path.display());
+                        } else {
+                            println!("{}", markdown);
+                        }
+                    }
+                    Err(e) => {
+                        println!("  \x1b[31m✗\x1b[0m Failed: {}\n", e);
+                    }
+                }
+            }
+        },
+
+        Commands::Why { module } => {
+            println!("\n  \x1b[36mpledge why\x1b[0m — analyzing why '{}' is in the bundle\n", module);
+
+            let mut engine = BuildEngine::new(Arc::new(config.clone()));
+            let _ = engine.build().await?;
+
+            let analysis = pledgepack_core::analyzer::analyze_build(&engine)?;
+            let chains = pledgepack_core::analyzer::find_import_chains(&analysis, &module);
+
+            if chains.is_empty() {
+                println!("  \x1b[33mModule '{}' not found in bundle\x1b[0m\n", module);
+            } else {
+                for (i, chain) in chains.iter().enumerate() {
+                    println!("  \x1b[90mChain #{}:\x1b[0m", i + 1);
+                    for (j, mod_name) in chain.iter().enumerate() {
+                        let prefix = if j == 0 {
+                            "  \x1b[36m→\x1b[0m "
+                        } else {
+                            "  \x1b[90m→\x1b[0m "
+                        };
+                        println!("{}{}", prefix, mod_name);
+                    }
+                    println!();
+                }
+            }
+        }
     }
 
     Ok(())
+}
+
+/// Recursively copy a directory tree (for template caching)
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let path = entry.path();
+        let dest_path = dst.join(entry.file_name());
+        if path.is_dir() {
+            // Skip node_modules and .pledge dirs in cache
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name == "node_modules" || name == ".pledge" || name == ".git" {
+                    continue;
+                }
+            }
+            copy_dir_recursive(&path, &dest_path)?;
+        } else if path.is_file() {
+            std::fs::copy(&path, &dest_path)?;
+        }
+    }
+    Ok(())
+}
+
+/// #8: Pre-warmed module graph — scan source files on create so dev server starts faster
+fn prewarm_module_graph(project_dir: &std::path::Path, pledge_dir: &std::path::Path) {
+    let mut modules: Vec<serde_json::Value> = Vec::new();
+
+    fn scan_dir(dir: &std::path::Path, root: &std::path::Path, modules: &mut Vec<serde_json::Value>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name == "node_modules" || name.starts_with('.') {
+                            continue;
+                        }
+                    }
+                    scan_dir(&path, root, modules);
+                } else if path.is_file() {
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    if matches!(ext, "ts" | "tsx" | "js" | "jsx" | "css" | "json" | "vue" | "svelte" | "scss" | "sass") {
+                        let rel = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+                        let kind = pledgepack_core::module::ModuleKind::from_extension(&format!(".{}", ext));
+                        modules.push(serde_json::json!({
+                            "path": rel,
+                            "kind": format!("{:?}", kind),
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    scan_dir(project_dir, project_dir, &mut modules);
+
+    let graph = serde_json::json!({
+        "version": 1,
+        "modules": modules,
+    });
+
+    let _ = std::fs::write(pledge_dir.join("module-graph.json"), serde_json::to_string_pretty(&graph).unwrap_or_default());
 }
 
 /// Recursively collect test files matching a pattern using globset

@@ -69,19 +69,33 @@ pub fn generate_production_html(
     css_files: &[String],
     additional_meta: &HashMap<String, String>,
 ) -> String {
+    generate_production_html_with_base(template_html, entry_scripts, css_files, additional_meta, "/")
+}
+
+/// Generate production HTML with hashed asset references and base path
+pub fn generate_production_html_with_base(
+    template_html: &str,
+    entry_scripts: &[(String, String)],
+    css_files: &[String],
+    additional_meta: &HashMap<String, String>,
+    base: &str,
+) -> String {
+    let base = base.trim_end_matches('/');
+    let prefix = if base.is_empty() { String::new() } else { base.to_string() };
+
     let mut html = template_html.to_string();
 
     // Replace script src references with hashed versions
     for (original, hashed) in entry_scripts {
         let old_src = format!(r#"src="{}""#, original);
-        let new_src = format!(r#"src="/{}""#, hashed);
+        let new_src = format!(r#"src="{}/{}""#, prefix, hashed);
         html = html.replace(&old_src, &new_src);
     }
 
     // Inject CSS <link> tags before </head>
     let css_links: String = css_files
         .iter()
-        .map(|css| format!(r#"    <link rel="stylesheet" href="/{}" />"#, css))
+        .map(|css| format!(r#"    <link rel="stylesheet" href="{}/{}" />"#, prefix, css))
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -114,12 +128,33 @@ pub fn generate_production_html_with_preloads(
     prefetch: bool,
     additional_meta: &HashMap<String, String>,
 ) -> String {
+    generate_production_html_with_preloads_and_base(
+        template_html, entry_scripts, css_files, async_chunks,
+        module_preload, preload, prefetch, additional_meta, "/",
+    )
+}
+
+/// Generate production HTML with full preload/prefetch, modulepreload, and base path support
+pub fn generate_production_html_with_preloads_and_base(
+    template_html: &str,
+    entry_scripts: &[(String, String)],
+    css_files: &[String],
+    async_chunks: &[String],
+    module_preload: bool,
+    preload: bool,
+    prefetch: bool,
+    additional_meta: &HashMap<String, String>,
+    base: &str,
+) -> String {
+    let base = base.trim_end_matches('/');
+    let prefix = if base.is_empty() { String::new() } else { base.to_string() };
+
     let mut html = template_html.to_string();
 
     // Replace script src references with hashed versions for all entry scripts
     for (original, hashed) in entry_scripts {
         let old_src = format!(r#"src="{}""#, original);
-        let new_src = format!(r#"src="/{}""#, hashed);
+        let new_src = format!(r#"src="{}/{}""#, prefix, hashed);
         html = html.replace(&old_src, &new_src);
     }
 
@@ -127,28 +162,28 @@ pub fn generate_production_html_with_preloads(
 
     // CSS links
     for css in css_files {
-        head_injections.push_str(&format!(r#"    <link rel="stylesheet" href="/{}" />"#, css));
+        head_injections.push_str(&format!(r#"    <link rel="stylesheet" href="{}/{}" />"#, prefix, css));
         head_injections.push('\n');
     }
 
     // Module preload directives for async chunks
     if module_preload {
         for chunk in async_chunks {
-            head_injections.push_str(&format!(r#"    <link rel="modulepreload" href="/{}" />"#, chunk));
+            head_injections.push_str(&format!(r#"    <link rel="modulepreload" href="{}/{}" />"#, prefix, chunk));
             head_injections.push('\n');
         }
     }
 
     // Preload directives for critical assets (first CSS file)
     if preload && !css_files.is_empty() {
-        head_injections.push_str(&format!(r#"    <link rel="preload" href="/{}" as="style" />"#, css_files[0]));
+        head_injections.push_str(&format!(r#"    <link rel="preload" href="{}/{}" as="style" />"#, prefix, css_files[0]));
         head_injections.push('\n');
     }
 
     // Prefetch directives for async chunks
     if prefetch {
         for chunk in async_chunks {
-            head_injections.push_str(&format!(r#"    <link rel="prefetch" href="/{}" />"#, chunk));
+            head_injections.push_str(&format!(r#"    <link rel="prefetch" href="{}/{}" />"#, prefix, chunk));
             head_injections.push('\n');
         }
     }
@@ -168,6 +203,12 @@ pub fn generate_production_html_with_preloads(
 
 /// Generate a default index.html if none exists
 pub fn generate_default_html(entry: &str, title: &str) -> String {
+    generate_default_html_with_base(entry, title, "/")
+}
+
+/// Generate a default index.html with base path support
+pub fn generate_default_html_with_base(entry: &str, title: &str, base: &str) -> String {
+    let base = base.trim_end_matches('/');
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -178,10 +219,11 @@ pub fn generate_default_html(entry: &str, title: &str) -> String {
 </head>
 <body>
     <div id="root"></div>
-    <script type="module" src="/{entry}"></script>
+    <script type="module" src="{base}/{entry}"></script>
 </body>
 </html>"#,
         title = title,
+        base = base,
         entry = entry,
     )
 }

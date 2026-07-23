@@ -150,29 +150,89 @@ pub fn resolve(specifier: &str, importer: &str, root: &std::path::Path) -> Resul
 
     // Handle bare specifiers — look in node_modules
     let node_modules = root.join("node_modules");
-    for ext in &["", ".js", ".mjs", ".cjs"] {
-        let candidate = if ext.is_empty() {
-            node_modules.join(specifier)
+
+    // Handle scoped packages: @org/pkg or @org/pkg/subpath
+    let (pkg_dir_name, subpath) = if specifier.starts_with('@') {
+        let parts: Vec<&str> = specifier.splitn(3, '/').collect();
+        if parts.len() >= 2 {
+            let pkg = format!("{}/{}", parts[0], parts[1]);
+            let sub = if parts.len() > 2 { format!("/{}", parts[2]) } else { String::new() };
+            (pkg, sub)
         } else {
-            node_modules.join(format!("{}{}", specifier, ext))
-        };
-        if candidate.exists() {
-            return Ok(candidate.canonicalize().unwrap_or(candidate));
+            (specifier.to_string(), String::new())
         }
-        // Check package.json main field
-        let pkg_json = node_modules.join(specifier).join("package.json");
-        if pkg_json.exists() {
-            if let Ok(content) = std::fs::read_to_string(&pkg_json) {
+    } else {
+        let parts: Vec<&str> = specifier.splitn(2, '/').collect();
+        if parts.len() > 1 {
+            (parts[0].to_string(), format!("/{}", parts[1]))
+        } else {
+            (specifier.to_string(), String::new())
+        }
+    };
+
+    let dep_dir = node_modules.join(&pkg_dir_name);
+    if dep_dir.is_dir() {
+        // Check exports field first
+        let pkg_json_path = dep_dir.join("package.json");
+        if pkg_json_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&pkg_json_path) {
                 if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
+                    // Check exports for subpath
+                    if !subpath.is_empty() {
+                        if let Some(exports) = pkg.get("exports") {
+                            if let Some(obj) = exports.as_object() {
+                                let key = format!(".{}", subpath);
+                                if let Some(export_val) = obj.get(&key) {
+                                    let resolved = if let Some(s) = export_val.as_str() {
+                                        Some(s.to_string())
+                                    } else if let Some(conditions) = export_val.as_object() {
+                                        conditions.get("browser")
+                                            .or_else(|| conditions.get("module"))
+                                            .or_else(|| conditions.get("import"))
+                                            .or_else(|| conditions.get("default"))
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string())
+                                    } else {
+                                        None
+                                    };
+                                    if let Some(resolved_path) = resolved {
+                                        let full = dep_dir.join(resolved_path.trim_start_matches("./"));
+                                        if full.exists() {
+                                            return Ok(full.canonicalize().unwrap_or(full));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Fallback: module or main
                     let main = pkg.get("module").or_else(|| pkg.get("main"))
                         .and_then(|v| v.as_str()).unwrap_or("index.js");
-                    let main_path = node_modules.join(specifier).join(main);
+                    let main_path = dep_dir.join(main);
                     if main_path.exists() {
                         return Ok(main_path.canonicalize().unwrap_or(main_path));
                     }
                 }
             }
         }
+        // Fall back to index.js
+        let index = dep_dir.join("index.js");
+        if index.exists() {
+            return Ok(index.canonicalize().unwrap_or(index));
+        }
+        // Try subpath as direct file
+        if !subpath.is_empty() {
+            let direct = dep_dir.join(subpath.trim_start_matches('/'));
+            if direct.exists() {
+                return Ok(direct.canonicalize().unwrap_or(direct));
+            }
+        }
+    }
+
+    // Try direct file resolution
+    let direct = node_modules.join(format!("{}.js", specifier));
+    if direct.exists() {
+        return Ok(direct.canonicalize().unwrap_or(direct));
     }
 
     Err(anyhow::anyhow!("Cannot resolve '{}' from '{}'", specifier, importer))

@@ -58,6 +58,10 @@ fn parse_framework(s: &str) -> Option<Framework> {
         "vue" => Some(Framework::Vue),
         "svelte" => Some(Framework::Svelte),
         "solid" => Some(Framework::Solid),
+        "next" => Some(Framework::Next),
+        "tanstack" => Some(Framework::TanStack),
+        "astro" => Some(Framework::Astro),
+        "pledgestack" => Some(Framework::PledgeStack),
         "auto" => Some(Framework::Auto),
         _ => None,
     }

@@ -15,9 +15,9 @@ const binaryName = platform() === 'win32' ? 'pledge.exe' : 'pledge';
 const candidates = [
   join(__dirname, '..', 'target', 'release', binaryName),
   join(__dirname, '..', 'target', 'debug', binaryName),
-  join(__dirname, 'bin', platformKey, binaryName),
-  join(__dirname, 'bin', 'platform', platformKey, binaryName),
-  join(__dirname, 'bin', binaryName),
+  join(__dirname, platformKey, binaryName),
+  join(__dirname, 'platform', platformKey, binaryName),
+  join(__dirname, binaryName),
 ];
 
 let binaryPath = null;
@@ -37,7 +37,7 @@ for (const candidate of candidates) {
 export function runPledgepack(args = [], options = {}) {
   if (!binaryPath) {
     return Promise.reject(new Error(
-      'pledge binary not found. Run "npm rebuild pledgepack" or build from source.'
+      'pledgepack binary not found. Run "npm rebuild pledgepack" or build from source.'
     ));
   }
 
@@ -61,5 +61,9 @@ export function getBinaryPath() {
   return binaryPath;
 }
 
-export default { runPledgepack, getBinaryPath };
+export function resolveBinary() {
+  return binaryPath;
+}
+
+export default { runPledgepack, getBinaryPath, resolveBinary };
 

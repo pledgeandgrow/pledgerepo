@@ -109,17 +109,44 @@ impl Optimizer {
         modules.par_iter().for_each(|(id, module)| {
             let source = String::from_utf8_lossy(&module.source);
 
-            // Heuristic: modules with top-level statements that aren't
-            // import/export are considered to have side effects
+            // Heuristic: modules with top-level statements that perform
+            // actual side effects (function calls, assignments, etc.)
+            // Declarations (function, const, let, var, class) are NOT side effects.
             let has_side_effects = source
                 .lines()
                 .any(|line| {
                     let trimmed = line.trim();
+                    if trimmed.is_empty()
+                        || trimmed.starts_with("import ")
+                        || trimmed.starts_with("export ")
+                        || trimmed.starts_with("//")
+                        || trimmed.starts_with("/*")
+                        || trimmed.starts_with("*")
+                        || trimmed.starts_with("function ")
+                        || trimmed.starts_with("const ")
+                        || trimmed.starts_with("let ")
+                        || trimmed.starts_with("var ")
+                        || trimmed.starts_with("class ")
+                        || trimmed.starts_with("interface ")
+                        || trimmed.starts_with("type ")
+                        || trimmed.starts_with("enum ")
+                        || trimmed.starts_with("}")
+                        || trimmed.starts_with(")")
+                        || trimmed.starts_with("async function")
+                        || trimmed.starts_with("export default function")
+                        || trimmed.starts_with("export function")
+                        || trimmed.starts_with("export const")
+                        || trimmed.starts_with("export class")
+                        || trimmed.starts_with("export async function")
+                        || trimmed.starts_with("export type")
+                        || trimmed.starts_with("export interface")
+                        || trimmed.starts_with("export enum")
+                        || trimmed.starts_with("export *")
+                    {
+                        return false;
+                    }
+                    // Actual side effects: top-level function calls, assignments, console.*, etc.
                     !trimmed.is_empty()
-                        && !trimmed.starts_with("import ")
-                        && !trimmed.starts_with("export ")
-                        && !trimmed.starts_with("//")
-                        && !trimmed.starts_with("/*")
                 });
 
             if has_side_effects {
@@ -186,13 +213,13 @@ impl Optimizer {
             }
 
             // Merge local results into shared map
-            let mut global = module_users.lock().unwrap();
+            let mut global = module_users.lock().unwrap_or_else(|e| e.into_inner());
             for (id, entries) in local_users {
                 global.entry(id).or_default().extend(entries);
             }
         });
 
-        let module_users = module_users.into_inner().unwrap();
+        let module_users = module_users.into_inner().unwrap_or_else(|e| e.into_inner());
 
         // Vendor modules: in node_modules (parallelized)
         let entry_module_set: HashSet<ModuleId> = entry_modules.iter().copied().collect();

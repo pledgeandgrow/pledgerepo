@@ -80,6 +80,9 @@ impl SerializableModuleGraph {
             ModuleKind::Yaml => "yaml",
             ModuleKind::Csv => "csv",
             ModuleKind::Tsv => "tsv",
+            ModuleKind::Sass => "sass",
+            ModuleKind::Toml => "toml",
+            ModuleKind::Shader => "shader",
             ModuleKind::Unknown => "unknown",
         };
 

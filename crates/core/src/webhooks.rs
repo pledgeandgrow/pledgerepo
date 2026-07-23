@@ -53,25 +53,32 @@ pub async fn send_webhook(
         serde_json::to_string(&event)?
     };
 
-    let client = reqwest::Client::new();
-    let mut req = client.post(url).body(body).header("Content-Type", "application/json");
+    let url = url.clone();
+    let headers = config.headers.clone();
 
-    for (key, value) in &config.headers {
-        req = req.header(key, value);
-    }
+    tokio::task::spawn_blocking(move || {
+        let mut req = ureq::post(&url)
+            .set("Content-Type", "application/json");
 
-    match req.send().await {
-        Ok(resp) => {
-            if resp.status().is_success() {
-                info!("Webhook sent to {}", url);
-            } else {
-                warn!("Webhook returned status {} from {}", resp.status(), url);
+        for (key, value) in &headers {
+            req = req.set(key, value);
+        }
+
+        match req.send_string(&body) {
+            Ok(resp) => {
+                if resp.status() >= 200 && resp.status() < 300 {
+                    info!("Webhook sent to {}", url);
+                } else {
+                    warn!("Webhook returned status {} from {}", resp.status(), url);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to send webhook to {}: {}", url, e);
             }
         }
-        Err(e) => {
-            warn!("Failed to send webhook to {}: {}", url, e);
-        }
-    }
+    })
+    .await
+    .ok();
 
     Ok(())
 }

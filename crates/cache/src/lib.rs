@@ -153,7 +153,10 @@ impl FunctionCache {
     fn write_to_disk(&self, key: &CacheKey, entry: &CacheEntry) -> Result<()> {
         let path = self.cache_path(key);
         let data = bincode::serialize(entry)?;
-        std::fs::write(path, data)?;
+        // Atomic write: write to temp file, then rename to final path
+        let tmp_path = path.with_extension("tmp");
+        std::fs::write(&tmp_path, &data)?;
+        std::fs::rename(&tmp_path, &path)?;
         Ok(())
     }
 }

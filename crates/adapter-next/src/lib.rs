@@ -71,7 +71,10 @@ impl NextAdapter {
         // Check for pages/ directory (Pages Router)
         let pages_dir = self.root.join("pages");
         if pages_dir.exists() && pages_dir.is_dir() {
-            self.router_type = RouterType::PagesRouter;
+            // Only switch to PagesRouter if no App Router routes were found
+            if self.routes.is_empty() {
+                self.router_type = RouterType::PagesRouter;
+            }
             self.discover_pages_routes(&pages_dir, "")?;
         }
 

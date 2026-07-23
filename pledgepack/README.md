@@ -33,13 +33,13 @@ npm install -g pledgepack
 npm install --save-dev pledgepack
 ```
 
-The postinstall script automatically downloads the prebuilt native binary for your platform from GitHub Releases. Supported platforms:
+The npm package includes the prebuilt native binary for Windows. The postinstall script ensures the binary is executable on Unix platforms and downloads the appropriate binary from GitHub Releases for Linux/macOS. If no prebuilt binary is available, it falls back to building from source (requires Rust + Zig).
 
-- **Linux** x64/arm64
-- **macOS** x64/arm64 (Intel + Apple Silicon)
-- **Windows** x64/arm64
+Supported platforms:
 
-If no prebuilt binary is available, it falls back to building from source (requires Rust + Zig).
+- **Windows** x64/arm64 (binary included in package)
+- **Linux** x64/arm64 (downloaded by postinstall)
+- **macOS** x64/arm64 (downloaded by postinstall, Intel + Apple Silicon)
 
 ## Usage
 
@@ -69,6 +69,8 @@ pledge create solid my-app
 pledge create next my-app
 pledge create tanstack my-app
 pledge create vanilla my-app
+pledge create pledgestack my-app  # React + Rust backend (default)
+pledge create my-app              # Default template (PledgeStack)
 
 # Add pledgepack to existing project (migrates from Vite/webpack/CRA)
 pledge init
@@ -99,6 +101,15 @@ pledge generate-env-types
 
 # Generate shell completions
 pledge completions --shell bash
+
+# Interactive transform REPL
+pledge playground
+
+# Build telemetry dashboard
+pledge dashboard
+
+# Generate JSON Schema for config
+pledge schema
 ```
 
 ### Programmatic API
@@ -222,6 +233,7 @@ const isDev = import.meta.env.PLEDGE_DEV;
 | **Astro** | Full | `.astro`, frontmatter, islands-ready |
 | **Next.js** | Adapter | App Router, Pages Router, API routes, SSR |
 | **TanStack** | Adapter | File-based routing, route tree generation |
+| **PledgeStack** | Adapter | React frontend + Rust backend, `.rs`/`.psx`, route macros |
 | **Vanilla TS/JS** | Full | `.ts`, `.js`, `.mjs` |
 
 ## Features

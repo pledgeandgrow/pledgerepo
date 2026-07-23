@@ -152,8 +152,19 @@ function tryBuildFromSource() {
   }
 
   console.warn('  \x1b[31mpledge\x1b[0m: Could not build from source.');
-  console.warn('  Make sure Rust is installed: https://rustup.rs');
-  console.warn('  And the source repo is available.');
+  console.warn('');
+  console.warn('  The native binary could not be installed. To fix this:');
+  console.warn('  you can either:');
+  console.warn('');
+  console.warn('  1. Install Rust and build from source:');
+  console.warn('     https://rustup.rs');
+  console.warn('     git clone https://github.com/pledgeandgrow/pledgerepo');
+  console.warn('     cd pledgerepo && cargo build --release');
+  console.warn('');
+  console.warn('  2. Open an issue with your platform info:');
+  console.warn('     https://github.com/pledgeandgrow/pledgerepo/issues');
+  console.warn('');
+  console.warn('  Platform: ' + platformKey);
   console.warn('');
 }
 

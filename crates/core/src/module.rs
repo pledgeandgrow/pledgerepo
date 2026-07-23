@@ -27,6 +27,9 @@ pub enum ModuleKind {
     Yaml,
     Csv,
     Tsv,
+    Sass,
+    Toml,
+    Shader,
     Unknown,
 }
 
@@ -50,6 +53,9 @@ impl ModuleKind {
             ".yaml" | ".yml" => Self::Yaml,
             ".csv" => Self::Csv,
             ".tsv" => Self::Tsv,
+            ".scss" | ".sass" => Self::Sass,
+            ".toml" => Self::Toml,
+            ".glsl" | ".frag" | ".vert" | ".comp" | ".wgsl" => Self::Shader,
             ".png" | ".jpg" | ".jpeg" | ".gif" | ".svg" | ".webp" | ".ico" |
             ".woff" | ".woff2" | ".ttf" | ".otf" | ".eot" |
             ".mp4" | ".webm" | ".mp3" | ".wav" | ".pdf" => Self::Asset,

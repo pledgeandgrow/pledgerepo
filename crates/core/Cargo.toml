@@ -40,9 +40,6 @@ brotli = "7"
 # Serialization for module graph persistence
 bincode = { workspace = true }
 
-# HTTP client for webhooks (#105)
-reqwest = "0.12"
-
 # Date/time formatting for telemetry dashboard (#101)
 chrono = "0.4"
 
@@ -73,3 +70,12 @@ humansize = { workspace = true }
 
 # JSON Schema generation for config validation
 schemars = { workspace = true }
+
+# Pure Rust Sass/SCSS compiler
+grass = { workspace = true }
+
+# TOML parsing
+toml = { workspace = true }
+
+# HTTP client for plugin registry
+ureq = { workspace = true }

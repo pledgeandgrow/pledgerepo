@@ -22,6 +22,10 @@ pledgepack-cache = { workspace = true }
 pledgepack-resolver = { workspace = true }
 pledgepack-js-plugin-host = { workspace = true }
 pledgepack-adapter-react = { workspace = true }
+pledgepack-adapter-solid = { workspace = true }
+pledgepack-adapter-next = { workspace = true }
+pledgepack-adapter-tanstack = { workspace = true }
+pledgepack-adapter-pledgestack = { workspace = true }
 pledgepack-optimizer = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
@@ -40,6 +44,7 @@ comfy-table = { workspace = true }
 miette = { workspace = true, features = ["fancy"] }
 clap_mangen = { workspace = true }
 schemars = { workspace = true }
+dirs = "5"
 
 [features]
 default = []

@@ -126,6 +126,7 @@ pub struct HmrUpdate {
 }
 
 pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
+    let start = std::time::Instant::now();
     let port = config.dev_server.port;
     let host = config.dev_server.host.clone();
 
@@ -277,6 +278,7 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
     }
 
     let addr = format!("{}:{}", host, port);
+    let elapsed_ms = start.elapsed().as_millis();
 
     // Auto-open browser if configured
     if config.dev_server.open {
@@ -302,6 +304,8 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
             generate_self_signed_cert(cert_path, key_path)?;
             info!("Self-signed certificate generated at {:?}", cert_path);
         }
+
+        println!("\n  \x1b[32mReady in {}ms\x1b[0m\n", elapsed_ms);
 
         // Use tokio-rustls for TLS
         let cert = match std::fs::read(cert_path) {
@@ -337,6 +341,7 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
         };
         axum::serve(tls_listener, app).await?;
     } else {
+        println!("\n  \x1b[32mReady in {}ms\x1b[0m\n", elapsed_ms);
         info!("Dev server running at http://{}", addr);
         if let Ok(ip) = local_ip_address::local_ip() {
             info!("  → Network: http://{}:{}", ip, port);

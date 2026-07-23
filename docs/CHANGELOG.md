@@ -4,6 +4,138 @@ Development history of the Pledge build system enhancements.
 
 ---
 
+## Release 0.1.13 (2026-07-17)
+
+### Summary
+Archived 10 completed goals across Pillars 3 and 4 from `GOALS.md` to `ARCHIVE.md`. Includes 4 plugin ecosystem goals (#66, #67, #68, #69) and 6 developer tooling goals (#71, #72, #73, #74, #75, #82). GOALS.md now contains 10 remaining goals.
+
+### Completed Goals
+- **#66 PledgePack playground** — `playground.rs` with `serve_playground()` serves an interactive HTML REPL on localhost:8080 (configurable). Self-contained page with code editor, transform options, and live output. CLI: `pledge playground [--port]`.
+- **#67 Plugin registry** — `plugin_registry.rs` with `search_plugins()` queries npm registry via `ureq` for `pledgepack-plugin-*` packages. `install_plugin()` auto-detects package manager. `list_installed_plugins()` scans `node_modules/`. CLI: `pledge plugin search/install/list`.
+- **#68 Plugin template generator** — `plugin_template.rs` with `scaffold_plugin()` generates complete plugin projects: `package.json`, `index.js` with hook stubs, `pledge.config.ts`, test file, README. CLI: `pledge plugin create <name>`.
+- **#69 Plugin docs generator** — `plugin_docs.rs` with `generate_plugin_docs()` parses JSDoc and hook signatures from plugin source. `render_markdown()` produces formatted API docs. CLI: `pledge plugin docs <file> [-o]`.
+- **#71 Type checking during build** — `type_check.rs` with `run_type_check()` executes `tsc --noEmit` and parses errors. `BuildConfig.type_check` field. Integrated into build pipeline after build, before optimization. CLI: `pledge build --type-check`.
+- **#72 Type-aware tree shaking** — `strip_type_only_imports()` in `type_check.rs` detects and removes `import type` statements from runtime bundle.
+- **#73 .d.ts bundling** — `bundle_declarations()` in `type_check.rs` recursively inlines `.d.ts` imports into a single declaration file for library mode.
+- **#74 Type-safe plugin API** — `plugin_types.rs` generates TypeScript interfaces for `PledgePlugin`, `PluginContext`, hook results, and `RollupPlugin` compatibility. `publish_plugin_types()` writes to `dist/pledgepack-plugin.d.ts`.
+- **#75 Visual regression testing** — `visual_regression.rs` with `run_visual_tests()` captures screenshots, compares pixel diffs against baselines (threshold 0.01), generates HTML reports. CLI: `pledge test --visual [--update-baselines]`.
+- **#82 `pledge why` command** — `find_import_chains()` in `analyzer.rs` uses BFS to trace import paths from entry points to target module. CLI: `pledge why <module>`.
+
+### Files Changed
+- `crates/core/src/playground.rs` — New module: interactive playground server
+- `crates/core/src/plugin_registry.rs` — New module: npm plugin search/install/list
+- `crates/core/src/plugin_template.rs` — New module: plugin project scaffolding
+- `crates/core/src/plugin_docs.rs` — New module: JSDoc-based docs generation
+- `crates/core/src/type_check.rs` — New module: type checking, type-only import stripping, .d.ts bundling
+- `crates/core/src/plugin_types.rs` — New module: TypeScript plugin API type declarations
+- `crates/core/src/visual_regression.rs` — New module: screenshot comparison and HTML reports
+- `crates/core/src/lib.rs` — Added `pub mod` declarations for 7 new modules
+- `crates/core/src/analyzer.rs` — Added `find_import_chains()` and `bfs_path()` for `pledge why`
+- `crates/core/src/config.rs` — Added `type_check: bool` to `BuildConfig`
+- `crates/cli/src/main.rs` — Added `Playground`, `Plugin` (with subcommands), `Why` CLI commands; `--type-check` flag on Build; `--visual`/`--update-baselines` flags on Test; type check integration in build pipeline; visual regression integration in test command
+- `Cargo.toml` — Added `ureq` to workspace dependencies
+- `crates/core/Cargo.toml` — Added `ureq` to core dependencies
+- `docs/ARCHIVE.md` — Added 10 completed goals with implementation evidence
+- `docs/GOALS.md` — Removed 10 completed goals, updated count from 65 to 75 completed
+
+---
+
+## Release 0.1.12 (2026-07-17)
+
+### Summary
+Archived 7 completed goals across Pillars 1, 2, and 3 from `GOALS.md` to `ARCHIVE.md`. Includes 5 DX goals (#5, #8, #12, #15, #24), 1 differentiator goal (#42), and 1 plugin goal (#45 — SASS compilation). GOALS.md now contains 28 remaining goals.
+
+### Completed Goals
+- **#5 Cached create templates** — Template files cached to `~/.pledge/templates/<framework>/` on first `pledge create`; subsequent creates copy from cache with `copy_dir_recursive()`. Uses `__PLEDGE_PROJECT_NAME__` placeholder for project name substitution.
+- **#8 Pre-warmed module graph** — `prewarm_module_graph()` in `main.rs` scans source files post-creation and writes `.pledge/module-graph.json` with module paths and kinds for faster dev server cold starts.
+- **#12 Flash create** — `--flash` flag on `pledge create` skips interactive wizard, uses minimal output, no git init or README.
+- **#15 Instant route scanning** — Confirmed `scan_app_dir()` in `router.rs` is Rust-native, called by `router_handler` in dev server. No JS runtime involved.
+- **#24 Time-to-first-paint metric** — `serve()` in `dev-server/src/lib.rs` measures startup time with `std::time::Instant` and prints `Ready in Xms` (green) before server starts listening.
+- **#42 Open governance** — Conceptual differentiator; PledgePack is not owned by a hosting company. No code changes.
+- **#45 SASS compilation** — `transform_sass()` in `transform.rs` uses `grass` crate (v0.13, pure Rust) for SCSS/SASS compilation. Supports both syntaxes, CSS modules, source maps, production compression. `ModuleKind::Sass` registered in `module.rs` and `module_graph.rs`.
+
+### Files Changed
+- `Cargo.toml` — Added `grass = "0.13"` to workspace dependencies
+- `crates/core/Cargo.toml` — Added `grass = { workspace = true }` to core dependencies
+- `crates/core/src/module.rs` — Added `Sass` variant to `ModuleKind` enum, `.scss`/`.sass` extension mapping
+- `crates/core/src/module_graph.rs` — Added `ModuleKind::Sass => "sass"` to kind string match
+- `crates/core/src/transform.rs` — Added `transform_sass()` function and wired into transform dispatch
+- `crates/dev-server/src/lib.rs` — Added startup timing and `Ready in Xms` print
+- `crates/cli/Cargo.toml` — Added `dirs = "5"` dependency
+- `crates/cli/src/main.rs` — Added `--flash` flag, cached template logic, `prewarm_module_graph()`, `copy_dir_recursive()` helpers
+- `docs/ARCHIVE.md` — Added 7 completed goals with implementation evidence
+- `docs/GOALS.md` — Removed 7 completed goals, updated count from 50 to 57 completed
+
+---
+
+## Release 0.1.11 (2026-07-17)
+
+### Summary
+Archived 4 completed Data & Type plugin goals from `GOALS.md` to `ARCHIVE.md`. All 4 were implemented as built-in features. GOALS.md now contains 35 remaining goals.
+
+### Completed Goals
+- **#55 Env types** — `env.rs` with `EnvVars::generate_dts()` produces `pledge-env.d.ts` with `ImportMetaEnv` interface, type inference from `.env` values, CLI `pledge generate-env-types` command
+- **#56 GraphQL** — `parse_graphql()` + `graphql_to_module()` in `asset_pipeline.rs`, `transform_graphql()` in `transform.rs`, `GraphqlCodegenConfig` in `advanced.rs` for schema-to-TypeScript codegen, `GraphqlConfig` in `config.rs`
+- **#59 CSV** — `transform_csv()` in `asset_pipeline.rs` with header-row parsing, ES module generation, `ModuleKind::Csv` and `ModuleKind::Tsv` registered
+- **#60 YAML** — `transform_yaml()` in `asset_pipeline.rs` using `serde_yaml` for nested structures/lists/anchors, `ModuleKind::Yaml` registered
+
+### Not Implemented (Kept in GOALS.md)
+- **#45 Sass** — `CssPreprocessor::Sass` detection exists but no actual SCSS/SASS compilation
+- **#52 Favicons** — No favicon generation code found
+- **#57 Prisma** — No Prisma client generation or query logging code found
+- **#58 Drizzle** — No Drizzle ORM schema analysis or migration helpers found
+- **#61 TOML** — No `transform_toml` function or `ModuleKind::Toml` registered
+
+### Files Changed
+- `docs/ARCHIVE.md` — Added "Data & Type Plugins" subsection with 4 completed goals and implementation evidence
+- `docs/GOALS.md` — Removed 4 completed goals, updated count from 46 to 50 completed
+
+---
+
+## Release 0.1.10 (2026-07-17)
+
+### Summary
+Archived 10 completed Pillar 3 plugin ecosystem goals from `GOALS.md` to `ARCHIVE.md`. All 10 were implemented as built-in features rather than separate plugins. GOALS.md now contains 39 remaining goals.
+
+### Completed Goals
+- **#43 MDX** — `compile_mdx()` in `asset_pipeline.rs` with frontmatter extraction, markdown-to-JSX, `ModuleKind::Mdx`
+- **#44 Tailwind** — `tailwind_v4.rs` with v4 CSS-first config (`@theme`, `@utility`, `@variant`), PostCSS Tailwind v3 in `postcss.rs`
+- **#46 Vue** — `transform_vue()` with SFC parsing, `compile_vue_template()` with directives, scoped CSS, HMR
+- **#47 Svelte** — `transform_svelte()` with `ModuleKind::Svelte`, SFC block extraction, HMR
+- **#48 Solid** — `adapter-solid` crate with `SolidAdapter`, JSX automatic runtime with `solid-js` import source
+- **#49 PostCSS** — `postcss.rs` with config parsing, plugin execution (tailwindcss, autoprefixer, postcss-nested, cssnano, postcss-import), browserslist
+- **#50 Workbox/SW** — `service_worker.rs` with 5 caching strategies, precache, runtime caching, offline fallback
+- **#51 PWA** — `WebAppManifest`, `generate_manifest()`, `generate_pwa_tags()` with icons and SW registration
+- **#53 Image** — `image_pipeline.rs` with responsive srcset, WebP/JPEG encoding, blur placeholder (LQIP), `ImageConfig`
+- **#54 Fonts** — `fonts.rs` with subsetting (Latin/Cyrillic/Greek/Vietnamese), `@font-face` generation, preload hints
+
+### Not Implemented (Kept in GOALS.md)
+- **#45 Sass** — `CssPreprocessor::Sass` detection exists but no actual SCSS/SASS compilation
+- **#52 Favicons** — No favicon generation code found
+
+### Files Changed
+- `docs/ARCHIVE.md` — Added "Pillar 3: Plugin Ecosystem & Community (10 Completed ✅)" section with implementation evidence
+- `docs/GOALS.md` — Removed 10 completed goals, updated count from 36 to 46 completed
+
+---
+
+## Release 0.1.9 (2026-07-17)
+
+### Summary
+Archived 36 completed Roadmap v3 goals from `GOALS.md` to `ARCHIVE.md`. GOALS.md now contains only the 49 remaining uncompleted goals across all four pillars.
+
+### Changes
+- **Moved 19 Pillar 1 goals to ARCHIVE.md** — Zero-config create, pre-built binary hot start, lazy dependency install, instant HMR, single binary, progressive template selection, instant TypeScript, no Babel/SWC, built-in env loading, dev server ready before browser, no config required, no polyfill boot, pre-bundled React, streaming HTML shell, no webpack runtime, instant CSS, no node_modules traversal, warm binary cache, parallel file scanning
+- **Moved 17 Pillar 2 goals to ARCHIVE.md** — Native dev server, no Node.js bottleneck, Boa plugin sandbox, binary distribution, zero JS in hot path, built-in test runner, bundle analyzer, LSP, migration tooling, edge bundle generation, native file watcher, declarative config, single CLI, pledge doctor, pledge bench, pledge cache, framework-agnostic bundler
+- **Updated GOALS.md** — Reduced from 85 to 49 remaining goals (5 unimplemented Pillar 1, 1 Pillar 2, 27 Pillar 3 plugin ecosystem, 16 Pillar 4 developer tooling)
+- **Added link to ARCHIVE.md** in GOALS.md header
+
+### Files Changed
+- `docs/ARCHIVE.md` — Added "Roadmap v3: 85 Goals (36 Completed ✅)" section with all completed goals and implementation evidence
+- `docs/GOALS.md` — Removed 36 completed goals, added archive link, kept 49 remaining goals
+
+---
+
 ## Release 0.1.8 (2026-07-17)
 
 ### Summary

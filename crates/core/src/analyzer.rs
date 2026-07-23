@@ -526,3 +526,249 @@ pub fn generate_dependency_graph_html(analysis: &BundleAnalysis) -> String {
         edges,
     )
 }
+
+/// #65: Generate an HTML flamegraph visualization of the bundle.
+/// Shows modules as horizontal bars stacked by chunk, with width proportional to size.
+/// Supports hover tooltips with module details and click-to-zoom.
+pub fn generate_flamegraph_html(analysis: &BundleAnalysis) -> String {
+    // Build flamegraph data: group modules by chunk, sort by size descending
+    let mut chunk_data: Vec<(String, usize, Vec<&ModuleAnalysis>)> = Vec::new();
+
+    for chunk in &analysis.chunks {
+        let chunk_modules: Vec<&ModuleAnalysis> = analysis
+            .modules
+            .iter()
+            .filter(|m| chunk.modules.contains(&m.path))
+            .collect();
+        chunk_data.push((chunk.name.clone(), chunk.size, chunk_modules));
+    }
+
+    // Also include unchunked modules
+    let chunked_paths: std::collections::HashSet<&str> = analysis
+        .chunks
+        .iter()
+        .flat_map(|c| c.modules.iter().map(|s| s.as_str()))
+        .collect();
+    let unchunked: Vec<&ModuleAnalysis> = analysis
+        .modules
+        .iter()
+        .filter(|m| !chunked_paths.contains(m.path.as_str()))
+        .collect();
+    if !unchunked.is_empty() {
+        let total: usize = unchunked.iter().map(|m| m.transformed_size).sum();
+        chunk_data.push(("(unchunked)".to_string(), total, unchunked));
+    }
+
+    // Sort chunks by size descending
+    chunk_data.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let max_size = chunk_data.iter().map(|(_, s, _)| *s).max().unwrap_or(1);
+
+    // Generate flamegraph bars as JSON
+    let bars_json: Vec<serde_json::Value> = chunk_data
+        .iter()
+        .map(|(name, size, modules)| {
+            let module_list: Vec<serde_json::Value> = modules
+                .iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "path": m.path,
+                        "size": m.transformed_size,
+                        "kind": m.kind,
+                        "isEntry": m.is_entry,
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "name": name,
+                "size": size,
+                "width": (*size as f64 / max_size as f64 * 100.0).round(),
+                "modules": module_list,
+            })
+        })
+        .collect();
+
+    let bars_str = serde_json::to_string(&bars_json).unwrap_or_default();
+
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PledgePack Flamegraph — Bundle Analyzer</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{ background: #1a1a2e; color: #e0e0e0; font-family: 'SF Mono', 'Fira Code', monospace; padding: 20px; }}
+  h1 {{ font-size: 18px; margin-bottom: 16px; color: #8be9fd; }}
+  .summary {{ display: flex; gap: 20px; margin-bottom: 20px; font-size: 13px; }}
+  .summary span {{ color: #bd93f9; }}
+  #flamegraph {{ display: flex; flex-direction: column; gap: 2px; }}
+  .bar {{ display: flex; height: 28px; border-radius: 3px; overflow: hidden; cursor: pointer; transition: opacity 0.2s; }}
+  .bar:hover {{ opacity: 0.85; }}
+  .bar-label {{ display: flex; align-items: center; padding: 0 10px; white-space: nowrap; font-size: 12px; color: #fff; }}
+  .bar-size {{ margin-left: auto; padding-right: 10px; font-size: 11px; opacity: 0.7; }}
+  .module-list {{ margin-left: 20px; border-left: 2px solid #444; padding-left: 12px; margin-top: 4px; display: none; }}
+  .bar.expanded + .module-list {{ display: block; }}
+  .module-item {{ display: flex; align-items: center; height: 22px; border-radius: 2px; margin: 1px 0; cursor: pointer; transition: opacity 0.2s; }}
+  .module-item:hover {{ opacity: 0.8; }}
+  .module-item .name {{ padding: 0 8px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+  .module-item .size {{ margin-left: auto; padding-right: 8px; font-size: 10px; opacity: 0.6; }}
+  .tooltip {{ position: fixed; background: #16213e; border: 1px solid #444; padding: 8px 12px; border-radius: 4px; font-size: 12px; pointer-events: none; z-index: 100; display: none; max-width: 400px; }}
+  .legend {{ margin-top: 20px; font-size: 12px; color: #888; }}
+  .legend span {{ display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }}
+</style>
+</head>
+<body>
+<h1>🔥 PledgePack Flamegraph</h1>
+<div class="summary">
+  <div>Total modules: <span>{}</span></div>
+  <div>Total size: <span>{}</span></div>
+  <div>Chunks: <span>{}</span></div>
+</div>
+<div id="flamegraph"></div>
+<div class="legend">
+  <span style="background:#ff5555"></span> Entry
+  <span style="background:#50fa7b"></span> CSS
+  <span style="background:#f1fa8c"></span> JS/TS
+  <span style="background:#bd93f9"></span> Other
+</div>
+<div class="tooltip" id="tooltip"></div>
+<script>
+  const bars = {};
+  const tooltip = document.getElementById('tooltip');
+  const container = document.getElementById('flamegraph');
+
+  function colorFor(kind, isEntry) {{
+    if (isEntry) return '#ff5555';
+    if (kind === 'css' || kind === 'sass') return '#50fa7b';
+    if (kind === 'js' || kind === 'ts' || kind === 'jsx' || kind === 'tsx') return '#f1fa8c';
+    return '#bd93f9';
+  }}
+
+  function formatSize(bytes) {{
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1048576).toFixed(1) + ' MB';
+  }}
+
+  bars.forEach(bar => {{
+    const row = document.createElement('div');
+    row.className = 'bar';
+    row.style.width = Math.max(bar.width, 5) + '%';
+    row.style.background = colorFor('chunk', false);
+    row.innerHTML = '<span class="bar-label">' + bar.name + '</span><span class="bar-size">' + formatSize(bar.size) + '</span>';
+    row.onclick = () => row.classList.toggle('expanded');
+
+    const modList = document.createElement('div');
+    modList.className = 'module-list';
+    bar.modules.sort((a,b) => b.size - a.size).forEach(m => {{
+      const item = document.createElement('div');
+      item.className = 'module-item';
+      item.style.width = Math.max((m.size / bar.size * 100), 3) + '%';
+      item.style.background = colorFor(m.kind, m.isEntry);
+      item.innerHTML = '<span class="name">' + m.path + '</span><span class="size">' + formatSize(m.size) + '</span>';
+      item.onmousemove = (e) => {{
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX + 12) + 'px';
+        tooltip.style.top = (e.clientY + 12) + 'px';
+        tooltip.innerHTML = '<strong>' + m.path + '</strong><br>Size: ' + formatSize(m.size) + '<br>Kind: ' + m.kind + (m.isEntry ? '<br><em>Entry point</em>' : '');
+      }};
+      item.onmouseleave = () => tooltip.style.display = 'none';
+      modList.appendChild(item);
+    }});
+    container.appendChild(row);
+    container.appendChild(modList);
+  }});
+</script>
+</body>
+</html>"#,
+        bars_str,
+        analysis.total_modules,
+        crate::format_size(analysis.total_transformed_size),
+        analysis.chunks.len(),
+    )
+}
+
+/// Find import chains from entry points to a target module (#82 — pledge why)
+/// Returns a list of chains, where each chain is a list of module paths
+/// from the entry point to the target module.
+pub fn find_import_chains(analysis: &BundleAnalysis, target: &str) -> Vec<Vec<String>> {
+    let target_lower = target.to_lowercase();
+
+    // Build adjacency list from module dependencies
+    let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+    let mut entries: Vec<String> = Vec::new();
+
+    for m in &analysis.modules {
+        adj.insert(m.path.clone(), m.dependencies.clone());
+        if m.is_entry {
+            entries.push(m.path.clone());
+        }
+    }
+
+    // Find modules matching the target
+    let matches: Vec<&str> = analysis.modules
+        .iter()
+        .filter(|m| {
+            let p = m.path.to_lowercase();
+            p.contains(&target_lower)
+        })
+        .map(|m| m.path.as_str())
+        .collect();
+
+    if matches.is_empty() {
+        return Vec::new();
+    }
+
+    // BFS from each entry to find paths to any matching module
+    let mut chains = Vec::new();
+
+    for entry in &entries {
+        for target_mod in &matches {
+            if let Some(chain) = bfs_path(&adj, entry, target_mod) {
+                chains.push(chain);
+            }
+        }
+    }
+
+    // Deduplicate
+    chains.sort();
+    chains.dedup();
+
+    chains
+}
+
+/// BFS to find a path from source to target in the dependency graph
+fn bfs_path(adj: &HashMap<String, Vec<String>>, source: &str, target: &str) -> Option<Vec<String>> {
+    if source == target {
+        return Some(vec![source.to_string()]);
+    }
+
+    let mut visited = HashSet::new();
+    let mut queue: Vec<(String, Vec<String>)> = vec![(source.to_string(), vec![source.to_string()])];
+
+    while let Some((node, path)) = queue.pop() {
+        if visited.contains(&node) {
+            continue;
+        }
+        visited.insert(node.clone());
+
+        if let Some(deps) = adj.get(&node) {
+            for dep in deps {
+                if dep == target {
+                    let mut full_path = path.clone();
+                    full_path.push(dep.clone());
+                    return Some(full_path);
+                }
+                if !visited.contains(dep) {
+                    let mut new_path = path.clone();
+                    new_path.push(dep.clone());
+                    queue.push((dep.clone(), new_path));
+                }
+            }
+        }
+    }
+
+    None
+}
