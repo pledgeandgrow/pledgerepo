@@ -189,8 +189,10 @@ pub fn optimize_font_css(css: &str) -> String {
             has_display = true;
         }
 
-        if in_font_face && trimmed == "}" && !has_display {
-            modified.push_str("  font-display: swap;\n");
+        if in_font_face && trimmed == "}" {
+            if !has_display {
+                modified.push_str("  font-display: swap;\n");
+            }
             in_font_face = false;
         }
 

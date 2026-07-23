@@ -1030,6 +1030,10 @@ async fn main() -> Result<()> {
         Commands::Create { template, name, flash } => {
             use console::style;
 
+            // CSS framework and package manager choices from wizard
+            let mut css_choice: Option<String> = None;
+            let mut pm_choice: Option<String> = None;
+
             // #12: Flash create — skip wizard, use defaults, minimal output
             let (template, project_name) = if flash {
                 let project_name = name.unwrap_or_else(|| "my-app".to_string());
@@ -1095,13 +1099,14 @@ async fn main() -> Result<()> {
                     .default(0)
                     .interact()?;
 
-                let _css = match css_idx {
+                let css = match css_idx {
                     1 => "tailwind",
                     2 => "unocss",
                     3 => "panda-css",
                     4 => "vanilla-extract",
                     _ => "none",
                 };
+                css_choice = Some(css.to_string());
 
                 // Package manager
                 let pkg_managers = ["npm", "yarn", "pnpm", "bun"];
@@ -1111,7 +1116,8 @@ async fn main() -> Result<()> {
                     .default(0)
                     .interact()?;
 
-                let _pm = pkg_managers[pm_idx];
+                let pm = pkg_managers[pm_idx];
+                pm_choice = Some(pm.to_string());
 
                 // Summary
                 println!("\n  {} Project will be created with:", style("Summary").dim());
@@ -1190,13 +1196,22 @@ async fn main() -> Result<()> {
                 let updated_entry = entry_content
                     .replace("__PLEDGE_PROJECT_NAME__", &project_name);
                 std::fs::write(entry_path, updated_entry)?;
+
+                // Also replace placeholder in app/page.tsx for PledgeStack
+                let page_path = project_dir.join("app/page.tsx");
+                if page_path.exists() {
+                    let page_content = std::fs::read_to_string(&page_path).unwrap_or_default();
+                    let updated_page = page_content
+                        .replace("__PLEDGE_PROJECT_NAME__", &project_name);
+                    std::fs::write(page_path, updated_page)?;
+                }
             } else {
                 // Generate from scratch and cache
                 std::fs::create_dir_all(project_dir)?;
                 std::fs::create_dir_all(project_dir.join("src"))?;
 
-                // Create package.json
-                let pkg = serde_json::json!({
+                // Create package.json with optional CSS framework devDependencies
+                let mut pkg = serde_json::json!({
                     "name": project_name,
                     "version": "0.1.0",
                     "scripts": {
@@ -1205,11 +1220,33 @@ async fn main() -> Result<()> {
                         "preview": "pledge preview"
                     }
                 });
+                if let Some(ref css) = css_choice {
+                    let dev_deps = match css.as_str() {
+                        "tailwind" => serde_json::json!({
+                            "tailwindcss": "^3.4.0",
+                            "postcss": "^8.4.0",
+                            "autoprefixer": "^10.4.0"
+                        }),
+                        "unocss" => serde_json::json!({
+                            "unocss": "^0.58.0"
+                        }),
+                        "panda-css" => serde_json::json!({
+                            "@pandacss/dev": "^0.30.0"
+                        }),
+                        "vanilla-extract" => serde_json::json!({
+                            "@vanilla-extract/css": "^1.14.0"
+                        }),
+                        _ => serde_json::json!({})
+                    };
+                    if let Some(obj) = pkg.as_object_mut() {
+                        obj.insert("devDependencies".to_string(), dev_deps);
+                    }
+                }
                 std::fs::write(project_dir.join("package.json"), serde_json::to_string_pretty(&pkg)?)?;
 
                 // Create pledge.config.ts
                 let pledge_config = match template.as_str() {
-                    "pledgestack" => r#"import { defineConfig } from 'pledge';
+                    "pledgestack" => r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1220,7 +1257,7 @@ export default defineConfig({
   },
 });
 "#,
-                    "vue" => r#"import { defineConfig } from 'pledge';
+                    "vue" => r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1231,7 +1268,7 @@ export default defineConfig({
   },
 });
 "#,
-                    "svelte" => r#"import { defineConfig } from 'pledge';
+                    "svelte" => r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1242,7 +1279,7 @@ export default defineConfig({
   },
 });
 "#,
-                    "solid" => r#"import { defineConfig } from 'pledge';
+                    "solid" => r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1253,7 +1290,7 @@ export default defineConfig({
   },
 });
 "#,
-                    "next" => r#"import { defineConfig } from 'pledge';
+                    "next" => r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1265,7 +1302,7 @@ export default defineConfig({
   plugins: [],
 });
 "#,
-                    "tanstack" => r#"import { defineConfig } from 'pledge';
+                    "tanstack" => r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1276,7 +1313,7 @@ export default defineConfig({
   },
 });
 "#,
-                    _ => r#"import { defineConfig } from 'pledge';
+                    _ => r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1373,6 +1410,21 @@ export default App;
                 let entry_content = entry.replace("__PLEDGE_PROJECT_NAME__", &project_name);
                 std::fs::write(project_dir.join("src/index.tsx"), entry_content)?;
 
+                // PledgeStack app/page.tsx content (declared here so it's accessible in cache block)
+                let page_content: Option<&str> = if template == "pledgestack" {
+                    Some(r##"export default function Home() {
+  return (
+    <div style={{ padding: "2rem", fontFamily: "system-ui" }}>
+      <h1 style={{ color: "#6366f1" }}>__PLEDGE_PROJECT_NAME__</h1>
+      <p>Built with PledgeStack — React frontend + Rust backend</p>
+    </div>
+  );
+}
+"##)
+                } else {
+                    None
+                };
+
                 // Create PledgeStack app directory structure (Next.js-style file-based routing)
                 if template == "pledgestack" {
                     std::fs::create_dir_all(project_dir.join("app"))?;
@@ -1386,15 +1438,7 @@ export default App;
 }
 "#)?;
                     // Home page
-                    std::fs::write(project_dir.join("app/page.tsx"), r##"export default function Home() {
-  return (
-    <div style={{ padding: "2rem", fontFamily: "system-ui" }}>
-      <h1 style={{ color: "#6366f1" }}>__PLEDGE_PROJECT_NAME__</h1>
-      <p>Built with PledgeStack — React frontend + Rust backend</p>
-    </div>
-  );
-}
-"##)?;
+                    std::fs::write(project_dir.join("app/page.tsx"), page_content.unwrap().replace("__PLEDGE_PROJECT_NAME__", &project_name))?;
                     // API route example
                     std::fs::create_dir_all(project_dir.join("app/api/hello"))?;
                     std::fs::write(project_dir.join("app/api/hello/route.ts"), r#"export async function GET() {
@@ -1434,6 +1478,37 @@ edition = "2021"
                     std::fs::write(project_dir.join(".gitignore"), ".pledge/\ntarget/\nnode_modules/\n.env.local\npledge-env.d.ts\n")?;
                 }
 
+                // Create CSS framework config files based on wizard selection
+                if let Some(ref css) = css_choice {
+                    match css.as_str() {
+                        "tailwind" => {
+                            std::fs::write(project_dir.join("tailwind.config.js"), r#"/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{ts,tsx,js,jsx}'],
+  theme: { extend: {} },
+  plugins: [],
+};
+"#)?;
+                            std::fs::write(project_dir.join("postcss.config.js"), r#"export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+"#)?;
+                        }
+                        "unocss" => {
+                            std::fs::write(project_dir.join("uno.config.ts"), r#"import { defineConfig } from 'unocss';
+
+export default defineConfig({
+  presets: [],
+});
+"#)?;
+                        }
+                        _ => {}
+                    }
+                }
+
                 // Cache template for instant reuse (#5)
                 if let Some(ref cache_dir) = cache_dir {
                     let _ = std::fs::create_dir_all(cache_dir);
@@ -1441,6 +1516,10 @@ edition = "2021"
                     let _ = copy_dir_recursive(project_dir, cache_dir);
                     // Write placeholder version of entry file to cache
                     let _ = std::fs::write(cache_dir.join("src/index.tsx"), entry);
+                    // Write placeholder version of app/page.tsx to cache (PledgeStack)
+                    if let Some(pc) = page_content {
+                        let _ = std::fs::write(cache_dir.join("app/page.tsx"), pc);
+                    }
                 }
             }
 
@@ -1454,7 +1533,23 @@ edition = "2021"
                 println!("  \x1b[90mcd {} && pledge dev\x1b[0m\n", project_name);
             } else {
                 println!("\n  \x1b[32m✓\x1b[0m Created {} project: {}\n", template, project_name);
-                println!("  \x1b[90mcd {} && pledge dev\x1b[0m\n", project_name);
+                if let Some(ref pm) = pm_choice {
+                    let install_cmd = match pm.as_str() {
+                        "yarn" => "yarn",
+                        "pnpm" => "pnpm install",
+                        "bun" => "bun install",
+                        _ => "npm install",
+                    };
+                    let run_cmd = match pm.as_str() {
+                        "yarn" => "yarn",
+                        "pnpm" => "pnpm",
+                        "bun" => "bun",
+                        _ => "npx",
+                    };
+                    println!("  \x1b[90mcd {}\n  {}  # install dependencies\n  {} pledge dev\x1b[0m\n", project_name, install_cmd, run_cmd);
+                } else {
+                    println!("  \x1b[90mcd {} && pledge dev\x1b[0m\n", project_name);
+                }
             }
         }
 

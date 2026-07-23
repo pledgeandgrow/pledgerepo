@@ -172,8 +172,8 @@ impl Optimizer {
             }
             reachable.insert(id);
 
-            // Follow dependencies
-            let deps = graph.get_dependents(id, 256);
+            // Follow dependencies (modules that this module imports)
+            let deps = graph.get_dependencies(id, 256);
             for dep in deps {
                 if !reachable.contains(&dep) {
                     queue.push(dep);
@@ -207,7 +207,7 @@ impl Optimizer {
                 }
                 visited.insert(id);
                 local_users.entry(id).or_default().insert(*entry);
-                for dep in graph.get_dependents(id, 256) {
+                for dep in graph.get_dependencies(id, 256) {
                     queue.push(dep);
                 }
             }
@@ -278,7 +278,7 @@ impl Optimizer {
                             chunk_modules.push(id);
                         }
                     }
-                    for dep in graph.get_dependents(id, 256) {
+                    for dep in graph.get_dependencies(id, 256) {
                         queue.push(dep);
                     }
                 }

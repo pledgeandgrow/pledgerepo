@@ -173,7 +173,7 @@ PledgeStack auto-generates or extends the PledgePack config:
 
 ```typescript
 // PledgeStack generates this pledge.config.ts
-import { defineConfig } from 'pledge';
+import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['app/entry.tsx'],
@@ -336,7 +336,7 @@ export default defineConfig({
 
 ### pledge.config.ts (consumed by PledgePack)
 ```typescript
-import { defineConfig } from 'pledge';
+import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['app/entry.tsx'],

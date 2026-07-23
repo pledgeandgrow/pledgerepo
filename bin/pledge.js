@@ -3,37 +3,63 @@
 // and forwards all arguments to it.
 
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { platform, arch } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
 
 const plat = platform();
 const ar = arch();
 const binaryName = plat === 'win32' ? 'pledge.exe' : 'pledge';
 const platformKey = `${plat}-${ar}`;
 
-// Possible binary locations:
-// 1. Already built in target/release/ (dev mode)
-// 2. Already built in target/debug/ (dev mode)
-// 3. Downloaded to bin/{platform-key}/ by postinstall (npm install)
-// 4. Staged in bin/platform/{platform-key}/ (CI publish)
-// 5. Direct binary in bin/ (local install)
-const candidates = [
-  join(__dirname, '..', 'target', 'release', binaryName),
-  join(__dirname, '..', 'target', 'debug', binaryName),
-  join(__dirname, platformKey, binaryName),
-  join(__dirname, 'platform', platformKey, binaryName),
-  join(__dirname, binaryName),
-];
+// Check @pledgepack/* scoped packages first (npm install path)
+const platformPackages = {
+  'darwin': { 'arm64': '@pledgepack/darwin-arm64', 'x64': '@pledgepack/darwin-x64' },
+  'linux': { 'x64': '@pledgepack/linux-x64-gnu', 'arm64': '@pledgepack/linux-arm64-gnu' },
+  'win32': { 'x64': '@pledgepack/win32-x64-msvc', 'arm64': '@pledgepack/win32-arm64-msvc' },
+};
 
 let binaryPath = null;
-for (const candidate of candidates) {
-  if (existsSync(candidate)) {
-    binaryPath = candidate;
-    break;
+
+const packageName = platformPackages[plat]?.[ar];
+if (packageName) {
+  try {
+    const pkgPath = require.resolve(packageName);
+    const pkgDir = dirname(pkgPath);
+    const candidates = plat === 'win32'
+      ? [join(pkgDir, 'bin', 'pledge.exe'), join(pkgDir, 'bin', 'pledge')]
+      : [join(pkgDir, 'bin', 'pledge'), join(pkgDir, 'bin', 'pledge.exe')];
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) {
+        binaryPath = candidate;
+        break;
+      }
+    }
+  } catch {
+    // Platform package not installed
+  }
+}
+
+// Fallback to local binary locations
+if (!binaryPath) {
+  const candidates = [
+    join(__dirname, '..', 'target', 'release', binaryName),
+    join(__dirname, '..', 'target', 'debug', binaryName),
+    join(__dirname, platformKey, binaryName),
+    join(__dirname, 'platform', platformKey, binaryName),
+    join(__dirname, binaryName),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      binaryPath = candidate;
+      break;
+    }
   }
 }
 

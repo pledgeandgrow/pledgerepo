@@ -379,7 +379,7 @@ mod tests {
         let source = r#"
             import React from "react";
             import { createRoot } from "react-dom/client";
-            import { defineConfig } from "pledge";
+            import { defineConfig } from "pledgepack";
             import "./local.css";
             import "../utils.js";
         "#;
@@ -387,7 +387,7 @@ mod tests {
         DepBundler::extract_bare_imports(source, &mut imports);
         assert!(imports.contains("react"));
         assert!(imports.contains("react-dom/client"));
-        assert!(imports.contains("pledge"));
+        assert!(imports.contains("pledgepack"));
         assert!(!imports.contains("./local.css"));
         assert!(!imports.contains("../utils.js"));
     }

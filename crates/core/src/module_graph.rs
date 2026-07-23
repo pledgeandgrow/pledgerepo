@@ -83,6 +83,8 @@ impl SerializableModuleGraph {
             ModuleKind::Sass => "sass",
             ModuleKind::Toml => "toml",
             ModuleKind::Shader => "shader",
+            ModuleKind::Psx => "psx",
+            ModuleKind::Ps => "ps",
             ModuleKind::Unknown => "unknown",
         };
 

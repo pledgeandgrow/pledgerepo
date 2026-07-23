@@ -40,7 +40,7 @@ impl ReactAdapter {
 
         let source_type = SourceType::from_path(path).unwrap_or_else(|_| {
             match kind {
-                ModuleKind::Tsx => SourceType::tsx(),
+                ModuleKind::Tsx | ModuleKind::Psx => SourceType::tsx(),
                 ModuleKind::TypeScript => SourceType::ts(),
                 ModuleKind::Jsx => SourceType::jsx(),
                 _ => SourceType::mjs(),
@@ -118,15 +118,13 @@ impl ReactAdapter {
 if (import.meta.hot) {{
   import.meta.hot.accept(() => {{
     if (typeof window !== 'undefined' && window.__pledge_fast_refresh) {{
-      window.__pledge_fast_refresh('{}', () => import(import.meta.url));
+      if (typeof window.__pledge_fast_refresh === 'function') {{
+        window.__pledge_fast_refresh('{}', () => import(import.meta.url));
+      }} else if (window.__pledge_fast_refresh.render) {{
+        window.__pledge_fast_refresh.render();
+      }}
     }}
   }});
-  if (typeof window !== 'undefined') {{
-    window.__pledge_fast_refresh = window.__pledge_fast_refresh || ((name, reload) => {{
-      console.log('[pledge] Fast Refresh:', name);
-      reload();
-    }});
-  }}
 }}
 "#,
                 component_name

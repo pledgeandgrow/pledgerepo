@@ -111,21 +111,21 @@ impl NextAdapter {
                 };
 
                 if let Some(p) = param {
-                    let mut route = Route {
-                        path: new_prefix.clone(),
-                        file: path.strip_prefix(&self.root).unwrap_or(&path).to_string_lossy().to_string(),
-                        kind: RouteKind::Page,
-                        params: vec![p],
-                    };
-                    // Check for page.tsx/page.ts in this directory
+                    // Check for page file in this dynamic route directory
                     let page_file = find_file(&path, &["page.tsx", "page.ts", "page.jsx", "page.js"]);
                     if page_file.exists() {
-                        route.file = page_file.strip_prefix(&self.root).unwrap_or(&page_file).to_string_lossy().to_string();
+                        let route = Route {
+                            path: new_prefix.clone(),
+                            file: page_file.strip_prefix(&self.root).unwrap_or(&page_file).to_string_lossy().to_string(),
+                            kind: RouteKind::Page,
+                            params: vec![p],
+                        };
                         self.routes.push(route);
                     }
-                } else {
-                    self.discover_app_routes(&path, &new_prefix)?;
                 }
+
+                // Always recurse to find nested routes
+                self.discover_app_routes(&path, &new_prefix)?;
             } else {
                 // File-level routes
                 let kind = match name.as_str() {

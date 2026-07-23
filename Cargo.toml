@@ -16,10 +16,10 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.8"
+version = "0.2.2"
 edition = "2024"
 license = "MIT"
-authors = ["pledgepack"]
+authors = ["Pledge and Grow"]
 
 [workspace.dependencies]
 # Serialization
@@ -43,8 +43,9 @@ oxc = { version = "0.36", features = ["parser", "transformer", "codegen", "minif
 # Lightning CSS
 lightningcss = "1.0.0-alpha.71"
 
-# Hashing (for cache keys)
+# Hashing (for cache keys and SRI)
 blake3 = "1"
+sha2 = "0.10"
 
 # Base64 encoding for inline assets
 base64 = "0.22"

@@ -77,6 +77,12 @@ unsafe extern "C" {
         out_ids: *mut u32,
         out_capacity: usize,
     ) -> usize;
+    pub fn pledge_graph_get_dependencies(
+        g: ModuleGraphHandle,
+        module_id: u32,
+        out_ids: *mut u32,
+        out_capacity: usize,
+    ) -> usize;
 
     // I/O operations
     pub fn pledge_io_read_file(
@@ -135,6 +141,21 @@ impl Graph {
         let mut ids = vec![0u32; capacity];
         let count = unsafe {
             pledge_graph_get_dependents(
+                self.handle,
+                module_id,
+                ids.as_mut_ptr(),
+                capacity,
+            )
+        };
+        ids.truncate(count);
+        ids
+    }
+
+    /// Get the dependencies of a module (modules it imports — forward edges).
+    pub fn get_dependencies(&self, module_id: u32, capacity: usize) -> Vec<u32> {
+        let mut ids = vec![0u32; capacity];
+        let count = unsafe {
+            pledge_graph_get_dependencies(
                 self.handle,
                 module_id,
                 ids.as_mut_ptr(),

@@ -30,6 +30,10 @@ pub enum ModuleKind {
     Sass,
     Toml,
     Shader,
+    /// PledgeStack PSX file — Rust + JSX hybrid (.psx)
+    Psx,
+    /// PledgeStack PS file — pure Rust server module (.ps)
+    Ps,
     Unknown,
 }
 
@@ -56,6 +60,8 @@ impl ModuleKind {
             ".scss" | ".sass" => Self::Sass,
             ".toml" => Self::Toml,
             ".glsl" | ".frag" | ".vert" | ".comp" | ".wgsl" => Self::Shader,
+            ".psx" => Self::Psx,
+            ".ps" => Self::Ps,
             ".png" | ".jpg" | ".jpeg" | ".gif" | ".svg" | ".webp" | ".ico" |
             ".woff" | ".woff2" | ".ttf" | ".otf" | ".eot" |
             ".mp4" | ".webm" | ".mp3" | ".wav" | ".pdf" => Self::Asset,
@@ -64,11 +70,16 @@ impl ModuleKind {
     }
 
     pub fn is_typescript(&self) -> bool {
-        matches!(self, Self::TypeScript | Self::Tsx)
+        matches!(self, Self::TypeScript | Self::Tsx | Self::Psx)
     }
 
     pub fn is_jsx(&self) -> bool {
-        matches!(self, Self::Jsx | Self::Tsx)
+        matches!(self, Self::Jsx | Self::Tsx | Self::Psx)
+    }
+
+    /// Returns true if this module type is a PledgeStack-specific format (PSX or PS)
+    pub fn is_pledgestack(&self) -> bool {
+        matches!(self, Self::Psx | Self::Ps)
     }
 }
 

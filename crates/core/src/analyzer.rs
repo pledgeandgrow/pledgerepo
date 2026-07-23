@@ -126,6 +126,8 @@ pub fn analyze_build(engine: &BuildEngine) -> Result<BundleAnalysis> {
             ModuleKind::Svelte => "svelte",
             ModuleKind::Astro => "astro",
             ModuleKind::Worker => "worker",
+            ModuleKind::Psx => "psx",
+            ModuleKind::Ps => "ps",
             _ => "unknown",
         };
 

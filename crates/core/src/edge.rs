@@ -117,7 +117,7 @@ const PLEDGE_CSS = `{}`;
 {}
 const htmlTemplate = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Pledge App</title>{}</head>
-<body><div id="root"></div><script type="module">{}</script></body></html>`;
+<body><div id="root"></div><script type="module">{}</script>{}</body></html>`;
 
 export default {{
   async fetch(request, env, ctx) {{
@@ -136,6 +136,7 @@ export default {{
         css_injection,
         if css_code.is_some() { r#"<style id="__pledge_css"></style>"# } else { "" },
         bundle_code,
+        if css_code.is_some() { "<script>if(typeof PLEDGE_CSS!=='undefined'){var s=document.getElementById('__pledge_css');if(s)s.textContent=PLEDGE_CSS;}</script>" } else { "" },
     )
 }
 
@@ -156,7 +157,7 @@ const PLEDGE_CSS = `{}`;
 {}
 const htmlTemplate = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Pledge App</title>{}</head>
-<body><div id="root"></div><script type="module">{}</script></body></html>`;
+<body><div id="root"></div><script type="module">{}</script>{}</body></html>`;
 
 export const config = {{
   runtime: 'edge',
@@ -174,6 +175,7 @@ export default async function handler(request) {{
         css_injection,
         if css_code.is_some() { r#"<style id="__pledge_css"></style>"# } else { "" },
         bundle_code,
+        if css_code.is_some() { "<script>if(typeof PLEDGE_CSS!=='undefined'){var s=document.getElementById('__pledge_css');if(s)s.textContent=PLEDGE_CSS;}</script>" } else { "" },
     )
 }
 
@@ -194,7 +196,7 @@ const PLEDGE_CSS = `{}`;
 {}
 const htmlTemplate = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Pledge App</title>{}</head>
-<body><div id="root"></div><script type="module">{}</script></body></html>`;
+<body><div id="root"></div><script type="module">{}</script>{}</body></html>`;
 
 Deno.serve(async (request) => {{
   return new Response(htmlTemplate, {{
@@ -208,6 +210,7 @@ Deno.serve(async (request) => {{
         css_injection,
         if css_code.is_some() { r#"<style id="__pledge_css"></style>"# } else { "" },
         bundle_code,
+        if css_code.is_some() { "<script>if(typeof PLEDGE_CSS!=='undefined'){var s=document.getElementById('__pledge_css');if(s)s.textContent=PLEDGE_CSS;}</script>" } else { "" },
     )
 }
 

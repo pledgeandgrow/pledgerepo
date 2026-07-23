@@ -554,6 +554,8 @@ fn setup_test_harness(context: &mut Context) {
             __run_test(name, fn, false);
         };
 
+        var __pledge_suite_first_test = {};
+
         function __run_test(name, fn, skip) {
             if (skip) {
                 __pledge_test_results.push({
@@ -564,6 +566,14 @@ fn setup_test_harness(context: &mut Context) {
                     duration: 0
                 });
                 return;
+            }
+
+            // Run beforeAll hooks once per suite (on first test in the suite)
+            if (!__pledge_suite_first_test[__pledge_current_suite]) {
+                __pledge_suite_first_test[__pledge_current_suite] = true;
+                for (var i = 0; i < __pledge_before_all.length; i++) {
+                    try { __pledge_before_all[i](); } catch(e) {}
+                }
             }
 
             // Run beforeEach hooks
@@ -715,16 +725,15 @@ fn setup_test_harness(context: &mut Context) {
 
         // vi mock object (Vitest compatibility)
         var vi = {
-            fn: function(impl) { return impl || function(){}; },
-            mock: function() {},
-            unmock: function() {},
-            spyOn: function(obj, method) { return obj[method]; },
-            stubGlobal: function(name, value) { globalThis[name] = value; },
             fn: function(impl) {
                 var mockFn = impl || function(){};
                 mockFn.mock = { calls: [], results: [] };
                 return mockFn;
-            }
+            },
+            mock: function() {},
+            unmock: function() {},
+            spyOn: function(obj, method) { return obj[method]; },
+            stubGlobal: function(name, value) { globalThis[name] = value; }
         };
     "#;
 
@@ -767,22 +776,31 @@ fn setup_module_shim(context: &mut Context, _file_path: &Path) {
 fn strip_typescript(source: &str) -> String {
     let mut result = String::with_capacity(source.len());
     let mut in_string = false;
-    let string_char = ['"', '\'', '`'];
+    let mut string_delim = '\0';
     let mut chars = source.chars().peekable();
 
     while let Some(ch) = chars.next() {
         // Track string literals
-        if string_char.contains(&ch) {
-            if !in_string {
-                in_string = true;
-            } else {
-                in_string = false;
-            }
+        if !in_string && (ch == '"' || ch == '\'' || ch == '`') {
+            in_string = true;
+            string_delim = ch;
             result.push(ch);
             continue;
         }
-
         if in_string {
+            if ch == '\\' {
+                // Escape — push this char and the next one
+                result.push(ch);
+                if let Some(&next) = chars.peek() {
+                    result.push(next);
+                    chars.next();
+                }
+                continue;
+            }
+            if ch == string_delim {
+                in_string = false;
+                string_delim = '\0';
+            }
             result.push(ch);
             continue;
         }

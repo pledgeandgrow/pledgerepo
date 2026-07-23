@@ -240,6 +240,8 @@ pub struct BundleSizeDiff {
     pub changed: Vec<BundleEntryDiff>,
     pub total_size_delta: i64,
     pub total_gzip_delta: i64,
+    pub old_total_size: usize,
+    pub new_total_size: usize,
     pub has_regressions: bool,
 }
 
@@ -312,6 +314,8 @@ pub fn diff_snapshots(
         changed,
         total_size_delta,
         total_gzip_delta,
+        old_total_size: old.total_size,
+        new_total_size: new.total_size,
         has_regressions,
     }
 }
@@ -323,12 +327,13 @@ pub fn format_diff_report(diff: &BundleSizeDiff) -> String {
     report.push_str("# Bundle Size Diff\n\n");
 
     if diff.total_size_delta != 0 {
+        let pct = if diff.old_total_size > 0 { diff.total_size_delta as f64 / diff.old_total_size as f64 * 100.0 } else { 0.0 };
         let sign = if diff.total_size_delta > 0 { "+" } else { "" };
         report.push_str(&format!(
             "**Total size:** {}{} bytes ({:+.2}%)\n\n",
             sign,
             diff.total_size_delta,
-            diff.total_size_delta as f64 / 100.0
+            pct
         ));
     }
 
@@ -618,7 +623,8 @@ fn convert_esm_to_cjs(source: &str, _module_name: &str) -> String {
         let trimmed = line.trim();
 
         // Convert: import { foo } from './bar' → const { foo } = require('./bar')
-        if trimmed.starts_with("import ") {
+        // Convert: import defaultExport from './bar' → const defaultExport = require('./bar')
+        if trimmed.starts_with("import ") && trimmed.contains(" from ") {
             let converted = trimmed
                 .replace("import ", "const ")
                 .replace(" from ", " = require(")
@@ -628,12 +634,12 @@ fn convert_esm_to_cjs(source: &str, _module_name: &str) -> String {
             continue;
         }
 
-        // Convert: import defaultExport from './bar' → const defaultExport = require('./bar')
-        if trimmed.starts_with("import ") && trimmed.contains(" from ") {
-            let converted = trimmed
-                .replace("import ", "const ")
-                .replace(" from ", " = require(")
-                + ")";
+        // Convert: import 'foo' (side-effect only) → require('foo')
+        if trimmed.starts_with("import ") && !trimmed.contains(" from ") {
+            let mut converted = trimmed.replace("import ", "require(");
+            if !converted.ends_with(')') {
+                converted.push(')');
+            }
             result.push_str(&converted);
             result.push('\n');
             continue;

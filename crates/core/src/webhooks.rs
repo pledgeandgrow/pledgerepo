@@ -89,7 +89,7 @@ fn format_slack_payload(event: &BuildEvent) -> String {
     let color = if event.success { "good" } else { "danger" };
 
     let error_field = event.error.as_ref()
-        .map(|e| format!(r#","fields":[{{"title":"Error","value":"{}","short":false}}]"#, e))
+        .map(|e| format!(r#",{{"title":"Error","value":"{}","short":false}}"#, e))
         .unwrap_or_default();
 
     format!(

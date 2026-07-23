@@ -49,6 +49,18 @@ export fn pledge_graph_get_dependents(
     return g.getDependents(module_id, out_ids[0..out_capacity]);
 }
 
+export fn pledge_graph_get_dependencies(
+    g: *graph.ModuleGraph,
+    module_id: u32,
+    out_ids: [*]u32,
+    out_capacity: usize,
+) callconv(.c) usize {
+    const deps = g.getDependencies(module_id);
+    const count = @min(deps.len, out_capacity);
+    @memcpy(out_ids[0..count], deps[0..count]);
+    return count;
+}
+
 // I/O operations
 export fn pledge_io_read_file(
     path_ptr: [*]const u8,

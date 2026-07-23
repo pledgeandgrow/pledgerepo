@@ -1,11 +1,12 @@
 {
   "name": "pledgepack",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A Rust+Zig bundler with incremental computation, JS plugins, and Rollup-quality output. Like Vite, Webpack, or Turbopack — but faster.",
   "type": "module",
   "main": "index.js",
   "bin": {
-    "pledgepack": "bin/pledge.js"
+    "pledgepack": "bin/pledge.js",
+    "pledge": "bin/pledge.js"
   },
   "scripts": {
     "postinstall": "node ./bin/postinstall.js"
@@ -14,7 +15,8 @@
     "bin/",
     "index.js",
     "pledge.json",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "keywords": [
     "build-tool",
@@ -52,6 +54,14 @@
   },
   "bugs": {
     "url": "https://github.com/pledgeandgrow/pledgerepo/issues"
+  },
+  "optionalDependencies": {
+    "@pledgepack/darwin-arm64": "0.2.2",
+    "@pledgepack/darwin-x64": "0.2.2",
+    "@pledgepack/linux-x64-gnu": "0.2.2",
+    "@pledgepack/linux-arm64-gnu": "0.2.2",
+    "@pledgepack/win32-x64-msvc": "0.2.2",
+    "@pledgepack/win32-arm64-msvc": "0.2.2"
   },
   "engines": {
     "node": ">=18"

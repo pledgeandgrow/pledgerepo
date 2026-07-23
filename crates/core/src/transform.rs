@@ -55,6 +55,17 @@ pub fn transform(
         ModuleKind::TypeScript | ModuleKind::Tsx | ModuleKind::Jsx | ModuleKind::JavaScript => {
             transform_js(source, kind, file_path, is_production, config)
         }
+        ModuleKind::Psx => transform_js(source, ModuleKind::Tsx, file_path, is_production, config),
+        ModuleKind::Ps => Ok(TransformOutput {
+            code: source.to_string(),
+            source_map: None,
+            css_modules: None,
+            is_css: false,
+            extracted_css: None,
+            is_worker: false,
+            dynamic_imports: Vec::new(),
+            content_hash: None,
+        }),
         ModuleKind::Css => transform_css(source, file_path, is_production, config),
         ModuleKind::Json => transform_json(source),
         ModuleKind::Asset => transform_asset(file_path, source.as_bytes(), is_production, config),

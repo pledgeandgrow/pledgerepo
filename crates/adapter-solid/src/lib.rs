@@ -35,7 +35,7 @@ impl SolidAdapter {
 
         let source_type = SourceType::from_path(path).unwrap_or_else(|_| {
             match kind {
-                ModuleKind::Tsx => SourceType::tsx(),
+                ModuleKind::Tsx | ModuleKind::Psx => SourceType::tsx(),
                 ModuleKind::TypeScript => SourceType::ts(),
                 ModuleKind::Jsx => SourceType::jsx(),
                 _ => SourceType::mjs(),

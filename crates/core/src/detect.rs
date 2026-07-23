@@ -378,7 +378,7 @@ pub fn generate_config(detection: &ProjectDetection) -> String {
     };
 
     format!(
-        r#"import {{ defineConfig }} from 'pledge';
+        r#"import {{ defineConfig }} from 'pledgepack';
 
 export default defineConfig({{
   entry: ['{}'],

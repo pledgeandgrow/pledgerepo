@@ -130,7 +130,7 @@ fn migrate_vite_config(content: &str) -> Result<MigrationResult> {
     }
 
     // Build pledge.config.ts
-    let mut config = String::from("import { defineConfig } from 'pledge';\n\nexport default defineConfig({\n");
+    let mut config = String::from("import { defineConfig } from 'pledgepack';\n\nexport default defineConfig({\n");
     config.push_str(&format!("  entry: ['{}'],\n", entry));
     config.push_str("  framework: 'auto',\n");
     config.push_str(&format!("  devServer: {{\n    port: {},\n    host: '{}',\n    hmr: true,\n  }},\n", port, host));
@@ -232,7 +232,7 @@ fn migrate_webpack_config(content: &str) -> Result<MigrationResult> {
         warnings.push("webpack DefinePlugin detected — use Pledgepack's env injection (import.meta.env.*) instead".to_string());
     }
 
-    let mut config = String::from("import { defineConfig } from 'pledge';\n\nexport default defineConfig({\n");
+    let mut config = String::from("import { defineConfig } from 'pledgepack';\n\nexport default defineConfig({\n");
     config.push_str(&format!("  entry: ['{}'],\n", entry.trim_start_matches("./")));
     config.push_str("  framework: 'auto',\n");
     config.push_str(&format!("  outDir: '{}',\n", out_dir));
@@ -268,7 +268,7 @@ fn migrate_cra_config(content: &str) -> Result<MigrationResult> {
         warnings.push("Webpack overrides detected — review if equivalent Pledgepack config is needed".to_string());
     }
 
-    let config = r#"import { defineConfig } from 'pledge';
+    let config = r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -308,7 +308,7 @@ fn migrate_next_config(content: &str) -> Result<MigrationResult> {
         warnings.push("Next.js App Router detected — use Pledgepack's Next.js adapter".to_string());
     }
 
-    let config = r#"import { defineConfig } from 'pledge';
+    let config = r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/app/root.tsx'],

@@ -210,7 +210,7 @@ pledge manpages       # Generate man pages
 Pledge supports TypeScript config files with full autocompletion via `defineConfig`:
 
 ```typescript
-import { defineConfig } from 'pledge';
+import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],

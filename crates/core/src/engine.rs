@@ -82,6 +82,8 @@ pub struct BuildEngine {
     is_incremental: bool,
     /// Auto-discovered entry points from appDir (populated by build())
     auto_entries: Vec<String>,
+    /// Module IDs of the actual entry points (not all modules)
+    entry_module_ids: Vec<ModuleId>,
 }
 
 #[derive(Debug, Clone)]
@@ -168,6 +170,7 @@ impl BuildEngine {
             git_invalidator: Some(git_invalidator).filter(|g| g.is_available()),
             is_incremental,
             auto_entries: Vec::new(),
+            entry_module_ids: Vec::new(),
         }
     }
 
@@ -275,6 +278,8 @@ document.addEventListener("click", function(e) {
         // Record entry module IDs in the serializable graph
         let entry_ids: Vec<ModuleId> = self.path_to_id.values().copied().collect();
         self.module_graph.set_entries(entry_ids.clone());
+        // Store actual entry module IDs for optimizer use
+        self.entry_module_ids = entry_ids.clone();
 
         // Phase 2: Determine which modules need rebuilding (incremental)
         let mut skip_set: HashSet<ModuleId> = HashSet::new();
@@ -985,9 +990,26 @@ document.addEventListener("click", function(e) {
         &self.modules
     }
 
-    /// Get the entry module IDs (modules resolved from config entry points)
+    /// Get the entry module IDs (modules resolved from config entry points).
+    /// Returns only the actual entry points, not all resolved modules.
     pub fn entry_ids(&self) -> Vec<ModuleId> {
-        self.path_to_id.values().copied().collect()
+        if !self.entry_module_ids.is_empty() {
+            self.entry_module_ids.clone()
+        } else {
+            // Fallback: if entry_module_ids wasn't populated (e.g., dev server),
+            // derive from config entry + auto_entries
+            let entries: Vec<String> = if !self.auto_entries.is_empty() {
+                self.auto_entries.clone()
+            } else {
+                self.config.entry.clone()
+            };
+            entries.iter()
+                .filter_map(|e| {
+                    let path = self.config.root.join(e);
+                    self.path_to_id.get(&path).copied()
+                })
+                .collect()
+        }
     }
 
     /// Collect all module code into a single bundle string for edge bundle generation.

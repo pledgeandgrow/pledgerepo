@@ -2,8 +2,14 @@
 .pledge/
 /target
 /zig-out
-/zig-cache
+/.zig-cache
 dist/
+
+# Native binaries (built artifacts, not source)
+*.exe
+*.zip
+pledgepack/bin/pledge.exe
+pledgepack/bin/pledge
 
 # Dependencies
 node_modules/

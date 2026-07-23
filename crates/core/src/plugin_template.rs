@@ -111,7 +111,7 @@ export default {{
 
     // pledge.config.ts for the plugin itself
     let config = format!(r#"// PledgePack config for {name} plugin development
-import {{ defineConfig }} from "pledgepack/config";
+import {{ defineConfig }} from "pledgepack";
 
 export default defineConfig({{
   entry: ["test/fixture.tsx"],
@@ -160,7 +160,7 @@ export function App() {
 
 ```ts
 // pledge.config.ts
-import {{ defineConfig }} from "pledgepack/config";
+import {{ defineConfig }} from "pledgepack";
 
 export default defineConfig({{
   plugins: ["{name}"],

@@ -65,7 +65,11 @@ pub fn run_type_check(root: &Path) -> Result<TypeCheckResult> {
     let tsc_path = tsc.unwrap();
 
     // Run tsc --noEmit --pretty false for parseable output
-    let output = Command::new(&tsc_path)
+    let mut cmd = Command::new(&tsc_path);
+    if tsc_path == "npx" {
+        cmd.arg("tsc");
+    }
+    let output = cmd
         .args(["--noEmit", "--pretty", "false", "--format", "json"])
         .current_dir(root)
         .output()?;

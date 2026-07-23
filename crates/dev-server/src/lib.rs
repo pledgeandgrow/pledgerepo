@@ -1573,15 +1573,7 @@ fn rewrite_cjs_requires(source: &str, module_path: &str) -> String {
             let relative_path = &result[quote_start..quote_end];
 
             // Resolve relative to module directory
-            let resolved = if relative_path.starts_with("./") {
-                format!("/node_modules/{}/{}", module_dir, &relative_path[2..])
-            } else if relative_path.starts_with("../") {
-                // Go up one directory
-                let parent_dir = module_dir.rsplit_once('/').map(|(d, _)| d).unwrap_or(module_dir);
-                format!("/node_modules/{}/{}", parent_dir, &relative_path[3..])
-            } else {
-                relative_path.to_string()
-            };
+            let resolved = resolve_relative_require(module_dir, relative_path);
 
             result = format!("{}require(\"{}\"){}", &result[..start], resolved, &result[quote_end + 2..]);
         } else {
@@ -1596,14 +1588,7 @@ fn rewrite_cjs_requires(source: &str, module_path: &str) -> String {
             let quote_end = start + end;
             let relative_path = &result[quote_start..quote_end];
 
-            let resolved = if relative_path.starts_with("./") {
-                format!("/node_modules/{}/{}", module_dir, &relative_path[2..])
-            } else if relative_path.starts_with("../") {
-                let parent_dir = module_dir.rsplit_once('/').map(|(d, _)| d).unwrap_or(module_dir);
-                format!("/node_modules/{}/{}", parent_dir, &relative_path[3..])
-            } else {
-                relative_path.to_string()
-            };
+            let resolved = resolve_relative_require(module_dir, relative_path);
 
             result = format!("{}require('{}'){}", &result[..start], resolved, &result[quote_end + 2..]);
         } else {
@@ -1612,6 +1597,27 @@ fn rewrite_cjs_requires(source: &str, module_path: &str) -> String {
     }
 
     result
+}
+
+/// Resolve a relative require() path to an absolute /node_modules/... path.
+/// Handles ./, ../, and multi-level ../../ paths correctly.
+fn resolve_relative_require(module_dir: &str, relative_path: &str) -> String {
+    if relative_path.starts_with("./") {
+        format!("/node_modules/{}/{}", module_dir, &relative_path[2..])
+    } else if relative_path.starts_with("../") {
+        // Count and strip all ../ segments
+        let mut dir = module_dir.to_string();
+        let mut rest = &relative_path[3..];
+        while rest.starts_with("../") {
+            dir = dir.rsplit_once('/').map(|(d, _)| d).unwrap_or(&dir).to_string();
+            rest = &rest[3..];
+        }
+        // Handle remaining ../ (if rest is just "../foo" without another "../")
+        // Actually rest no longer starts with ../, so it's the final path
+        format!("/node_modules/{}/{}", dir, rest)
+    } else {
+        relative_path.to_string()
+    }
 }
 
 /// Rewrite import/export specifiers to browser-compatible URLs.
@@ -1684,13 +1690,14 @@ fn rewrite_imports(code: &str, _current_module_path: &str, aliases: &[pledgepack
             let alias_prefixes = [from_exact, &from_with_slash];
             for &alias_prefix in &alias_prefixes {
                 let search = format!("{}{}", pattern, alias_prefix);
-                while let Some(pos) = result.find(&search) {
-                    let _after_alias = pos + search.len();
+                let mut search_from = 0;
+                while let Some(pos) = result[search_from..].find(&search) {
+                    let pos = search_from + pos;
                     // Replace the alias with the target path
                     let replacement = format!("{}{}", pattern, alias.to);
                     result.replace_range(pos..pos + pattern.len() + alias_prefix.len(), &replacement);
-                    // Don't advance — the replacement might create new matches
-                    break;
+                    // Advance past the replacement to avoid infinite loops
+                    search_from = pos + replacement.len();
                 }
             }
         }

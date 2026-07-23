@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use regex::Regex;
 use std::sync::OnceLock;
 use tracing::{info, warn};
+use sha2::{Sha256, Digest};
+use base64::{Engine, engine::general_purpose};
 
 // ── Feature 81: Subresource Integrity (SRI) hashes ────────────────────
 
@@ -438,38 +440,13 @@ pub fn format_license_report(result: &LicenseCheckResult) -> String {
 // ── Utility ───────────────────────────────────────────────────────────
 
 fn simple_sha256(data: &[u8]) -> Vec<u8> {
-    use std::hash::Hasher;
-    let mut h1 = std::collections::hash_map::DefaultHasher::new();
-    let mut h2 = std::collections::hash_map::DefaultHasher::new();
-    let mut h3 = std::collections::hash_map::DefaultHasher::new();
-    let mut h4 = std::collections::hash_map::DefaultHasher::new();
-    h1.write_u8(0x42); h2.write_u8(0x84); h3.write_u8(0xc6); h4.write_u8(0x08);
-    h1.write(data); h2.write(data); h2.write_u8(0x01);
-    h3.write(data); h3.write_u8(0x02); h4.write(data); h4.write_u8(0x03);
-    let mut result = Vec::with_capacity(32);
-    result.extend_from_slice(&h1.finish().to_le_bytes());
-    result.extend_from_slice(&h2.finish().to_le_bytes());
-    result.extend_from_slice(&h3.finish().to_le_bytes());
-    result.extend_from_slice(&h4.finish().to_le_bytes());
-    result
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().to_vec()
 }
 
 fn base64_encode(data: &[u8]) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::new();
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-        result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
-        result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
-        if chunk.len() > 1 { result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char); }
-        else { result.push('='); }
-        if chunk.len() > 2 { result.push(CHARS[(triple & 0x3F) as usize] as char); }
-        else { result.push('='); }
-    }
-    result
+    general_purpose::STANDARD.encode(data)
 }
 
 #[cfg(test)]

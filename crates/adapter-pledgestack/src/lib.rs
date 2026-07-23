@@ -143,19 +143,22 @@ pub struct MiddlewareEntry {
 pub enum BackendExt {
     /// Standard Rust file
     Rs,
-    /// PledgeStack extension (treated as Rust, copied to .rs for build)
+    /// PledgeStack PSX file — Rust + JSX hybrid (.psx)
     Psx,
+    /// PledgeStack PS file — pure Rust server module (.ps)
+    Ps,
 }
 
 impl BackendExt {
     /// All supported extensions
-    pub const ALL: &[&str] = &["rs", "psx"];
+    pub const ALL: &[&str] = &["rs", "psx", "ps"];
 
     /// Parse from file extension
     pub fn from_ext(ext: &str) -> Option<Self> {
         match ext.to_lowercase().as_str() {
             "rs" => Some(Self::Rs),
             "psx" => Some(Self::Psx),
+            "ps" => Some(Self::Ps),
             _ => None,
         }
     }
@@ -216,11 +219,11 @@ impl PledgeStackAdapter {
         }
 
         // Detect root-level files
-        self.root_layout = find_convention_file(&app_dir, &["layout.tsx", "layout.ts", "layout.jsx", "layout.js", "layout.psx"])
+        self.root_layout = find_convention_file(&app_dir, &["layout.tsx", "layout.ts", "layout.jsx", "layout.js", "layout.psx", "layout.ps"])
             .map(|p| relative_path(&self.root, &p));
-        self.not_found = find_convention_file(&app_dir, &["not-found.tsx", "not-found.ts", "not-found.jsx", "not-found.js", "not-found.psx"])
+        self.not_found = find_convention_file(&app_dir, &["not-found.tsx", "not-found.ts", "not-found.jsx", "not-found.js", "not-found.psx", "not-found.ps"])
             .map(|p| relative_path(&self.root, &p));
-        self.global_error = find_convention_file(&app_dir, &["global-error.tsx", "global-error.ts", "global-error.jsx", "global-error.js", "global-error.psx"])
+        self.global_error = find_convention_file(&app_dir, &["global-error.tsx", "global-error.ts", "global-error.jsx", "global-error.js", "global-error.psx", "global-error.ps"])
             .map(|p| relative_path(&self.root, &p));
 
         self.scan_app_directory(&app_dir, &app_dir, "")?;
@@ -263,10 +266,10 @@ impl PledgeStackAdapter {
                 self.scan_app_directory(app_dir, &path, &new_prefix)?;
             } else if path.is_file() {
                 let is_page = matches!(name.as_str(),
-                    "page.tsx" | "page.ts" | "page.jsx" | "page.js" | "page.psx"
+                    "page.tsx" | "page.ts" | "page.jsx" | "page.js" | "page.psx" | "page.ps"
                 );
                 let is_route = matches!(name.as_str(),
-                    "route.tsx" | "route.ts" | "route.jsx" | "route.js" | "route.psx"
+                    "route.tsx" | "route.ts" | "route.jsx" | "route.js" | "route.psx" | "route.ps"
                 );
 
                 if is_page {
@@ -282,13 +285,13 @@ impl PledgeStackAdapter {
                     // Find layout, template, loading, error, head for this route
                     let route_dir = path.parent().unwrap_or(app_dir);
                     let layout = self.find_nearest_layout(app_dir, route_dir);
-                    let template = find_convention_file(route_dir, &["template.tsx", "template.ts", "template.jsx", "template.js", "template.psx"])
+                    let template = find_convention_file(route_dir, &["template.tsx", "template.ts", "template.jsx", "template.js", "template.psx", "template.ps"])
                         .map(|p| relative_path(&self.root, &p));
-                    let loading = find_convention_file(route_dir, &["loading.tsx", "loading.ts", "loading.jsx", "loading.js", "loading.psx"])
+                    let loading = find_convention_file(route_dir, &["loading.tsx", "loading.ts", "loading.jsx", "loading.js", "loading.psx", "loading.ps"])
                         .map(|p| relative_path(&self.root, &p));
-                    let error_boundary = find_convention_file(route_dir, &["error.tsx", "error.ts", "error.jsx", "error.js", "error.psx"])
+                    let error_boundary = find_convention_file(route_dir, &["error.tsx", "error.ts", "error.jsx", "error.js", "error.psx", "error.ps"])
                         .map(|p| relative_path(&self.root, &p));
-                    let head = find_convention_file(route_dir, &["head.tsx", "head.ts", "head.jsx", "head.js", "head.psx"])
+                    let head = find_convention_file(route_dir, &["head.tsx", "head.ts", "head.jsx", "head.js", "head.psx", "head.ps"])
                         .map(|p| relative_path(&self.root, &p));
 
                     self.frontend_routes.push(FrontendRoute {
@@ -332,7 +335,7 @@ impl PledgeStackAdapter {
     fn find_nearest_layout(&self, app_dir: &Path, route_dir: &Path) -> Option<String> {
         let mut current = route_dir;
         loop {
-            if let Some(layout_path) = find_convention_file(current, &["layout.tsx", "layout.ts", "layout.jsx", "layout.js", "layout.psx"]) {
+            if let Some(layout_path) = find_convention_file(current, &["layout.tsx", "layout.ts", "layout.jsx", "layout.js", "layout.psx", "layout.ps"]) {
                 return Some(relative_path(&self.root, &layout_path));
             }
             if current == app_dir {
@@ -385,7 +388,7 @@ impl PledgeStackAdapter {
                 };
                 self.scan_api_routes_in_app(app_dir, &path, &new_prefix)?;
             } else if path.is_file() {
-                if matches!(name.as_str(), "route.tsx" | "route.ts" | "route.jsx" | "route.js" | "route.psx") {
+                if matches!(name.as_str(), "route.tsx" | "route.ts" | "route.jsx" | "route.js" | "route.psx" | "route.ps") {
                     let route_path = if prefix.is_empty() {
                         "/".to_string()
                     } else {
@@ -454,7 +457,7 @@ impl PledgeStackAdapter {
     fn discover_middleware(&mut self) -> Result<()> {
         // Check root-level middleware.ts (PledgeStack convention)
         let root_mw_candidates = [
-            "middleware.ts", "middleware.tsx", "middleware.js", "middleware.jsx", "middleware.psx",
+            "middleware.ts", "middleware.tsx", "middleware.js", "middleware.jsx", "middleware.psx", "middleware.ps",
         ];
         for candidate in &root_mw_candidates {
             let path = self.root.join(candidate);
@@ -473,7 +476,7 @@ impl PledgeStackAdapter {
 
         // Check app/middleware.ts (PledgeStack convention)
         let app_mw_candidates = [
-            "middleware.ts", "middleware.tsx", "middleware.js", "middleware.jsx", "middleware.psx",
+            "middleware.ts", "middleware.tsx", "middleware.js", "middleware.jsx", "middleware.psx", "middleware.ps",
         ];
         for candidate in &app_mw_candidates {
             let path = self.root.join("app").join(candidate);
@@ -519,13 +522,13 @@ impl PledgeStackAdapter {
         Ok(())
     }
 
-    /// Find server entry point (server/lib.rs or server/lib.psx or server/main.rs)
+    /// Find server entry point (server/lib.rs or server/lib.psx or server/lib.ps or server/main.rs)
     fn discover_server_entry(&mut self) -> Result<()> {
         let server_dir = self.root.join("server");
         if !server_dir.exists() || !server_dir.is_dir() {
             return Ok(());
         }
-        for candidate in &["lib.rs", "lib.psx", "main.rs", "main.psx"] {
+        for candidate in &["lib.rs", "lib.psx", "lib.ps", "main.rs", "main.psx", "main.ps"] {
             let path = server_dir.join(candidate);
             if path.exists() {
                 self.server_entry = Some(path);
@@ -553,14 +556,17 @@ impl PledgeStackAdapter {
         }
     }
 
-    /// Copy .psx files to .rs in the output directory for cargo build
+    /// Copy .psx and .ps files to .rs in the output directory for cargo build
     pub fn prepare_psx_files(&self, out_dir: &Path) -> Result<Vec<(PathBuf, PathBuf)>> {
         let mut copied = Vec::new();
 
         for route in &self.backend_routes {
-            if route.ext == BackendExt::Psx {
+            if route.ext == BackendExt::Psx || route.ext == BackendExt::Ps {
                 let src = self.root.join(&route.file);
-                let rel = route.file.strip_suffix(".psx").unwrap_or(&route.file);
+                let rel = route.file
+                    .strip_suffix(".psx")
+                    .or_else(|| route.file.strip_suffix(".ps"))
+                    .unwrap_or(&route.file);
                 let dst = out_dir.join(format!("{}.rs", rel));
                 if let Some(parent) = dst.parent() {
                     std::fs::create_dir_all(parent)?;
@@ -571,9 +577,12 @@ impl PledgeStackAdapter {
         }
 
         for mw in &self.middleware {
-            if mw.ext == BackendExt::Psx {
+            if mw.ext == BackendExt::Psx || mw.ext == BackendExt::Ps {
                 let src = self.root.join(&mw.file);
-                let rel = mw.file.strip_suffix(".psx").unwrap_or(&mw.file);
+                let rel = mw.file
+                    .strip_suffix(".psx")
+                    .or_else(|| mw.file.strip_suffix(".ps"))
+                    .unwrap_or(&mw.file);
                 let dst = out_dir.join(format!("{}.rs", rel));
                 if let Some(parent) = dst.parent() {
                     std::fs::create_dir_all(parent)?;
@@ -585,13 +594,16 @@ impl PledgeStackAdapter {
 
         if let Some(ref entry) = self.server_entry {
             let ext = entry.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext == "psx" {
+            if ext == "psx" || ext == "ps" {
                 let rel = entry
                     .strip_prefix(&self.root)
                     .unwrap_or(entry)
                     .to_string_lossy()
                     .replace('\\', "/");
-                let rel_no_ext = rel.strip_suffix(".psx").unwrap_or(&rel);
+                let rel_no_ext = rel
+                    .strip_suffix(".psx")
+                    .or_else(|| rel.strip_suffix(".ps"))
+                    .unwrap_or(&rel);
                 let dst = out_dir.join(format!("{}.rs", rel_no_ext));
                 if let Some(parent) = dst.parent() {
                     std::fs::create_dir_all(parent)?;
@@ -833,6 +845,7 @@ mod tests {
     fn test_backend_ext_from_str() {
         assert_eq!(BackendExt::from_ext("rs"), Some(BackendExt::Rs));
         assert_eq!(BackendExt::from_ext("psx"), Some(BackendExt::Psx));
+        assert_eq!(BackendExt::from_ext("ps"), Some(BackendExt::Ps));
         assert_eq!(BackendExt::from_ext("tsx"), None);
     }
 

@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{info, warn};
-use boa_engine::{Context, JsValue, JsResult, Source, js_string};
+use boa_engine::{Context, JsValue, Source, js_string};
 use boa_engine::object::ObjectInitializer;
 use boa_engine::NativeFunction;
 
@@ -131,10 +131,12 @@ impl JsPluginHost {
             let plugin = Self::parse_plugin(&source, pathbuf)?;
             info!("Loaded JS plugin: {}", plugin.name);
             
-            // Evaluate the plugin source in the JS context
-            // This makes the exported object available for hook calls
-            let js_source = Source::from_bytes(source.as_str());
-            if let Err(e) = self.context.eval(js_source) {
+            // Strip ESM syntax and evaluate the plugin source in the JS context
+            // Store the exported module object as a global variable for later hook calls
+            let plugin_index = self.plugins.len();
+            let global_name = format!("__pledge_plugin_{}", plugin_index);
+            let js_source = strip_esm_and_assign(&source, &global_name);
+            if let Err(e) = self.context.eval(Source::from_bytes(js_source.as_str())) {
                 warn!("Failed to evaluate plugin {}: {}", plugin.name, e);
             }
             
@@ -274,11 +276,12 @@ impl JsPluginHost {
             if plugin.has_resolve_id {
                 info!("[plugin:{}] resolveId: {}", plugin.name, source);
 
+                let global_name = format!("__pledge_plugin_{}", self.plugins.iter().position(|p| p.name == plugin.name).unwrap_or(0));
                 let js_code = format!(
                     r#"
                     (function() {{
                         try {{
-                            var __pluginModule = {};
+                            var __pluginModule = globalThis['{}'];
                             if (__pluginModule && typeof __pluginModule.resolveId === 'function') {{
                                 var __result = __pluginModule.resolveId({}, {});
                                 if (__result) {{
@@ -291,7 +294,7 @@ impl JsPluginHost {
                         return null;
                     }})()
                     "#,
-                    plugin.source,
+                    global_name,
                     serde_json::to_string(source).unwrap_or_else(|_| "\"\"".to_string()),
                     serde_json::to_string(importer).unwrap_or_else(|_| "\"\"".to_string())
                 );
@@ -323,11 +326,12 @@ impl JsPluginHost {
             if plugin.has_load {
                 info!("[plugin:{}] load: {}", plugin.name, id);
 
+                let global_name = format!("__pledge_plugin_{}", self.plugins.iter().position(|p| p.name == plugin.name).unwrap_or(0));
                 let js_code = format!(
                     r#"
                     (function() {{
                         try {{
-                            var __pluginModule = {};
+                            var __pluginModule = globalThis['{}'];
                             if (__pluginModule && typeof __pluginModule.load === 'function') {{
                                 var __result = __pluginModule.load({});
                                 if (__result && __result.code) {{
@@ -340,7 +344,7 @@ impl JsPluginHost {
                         return null;
                     }})()
                     "#,
-                    plugin.source,
+                    global_name,
                     serde_json::to_string(id).unwrap_or_else(|_| "\"\"".to_string())
                 );
 
@@ -375,11 +379,12 @@ impl JsPluginHost {
                 info!("[plugin:{}] transform: {}", plugin.name, id);
                 
                 // Try to call the plugin's transform function in JS
+                let global_name = format!("__pledge_plugin_{}", self.plugins.iter().position(|p| p.name == plugin.name).unwrap_or(0));
                 let js_code = format!(
                     r#"
                     (function() {{
                         try {{
-                            var __pluginModule = {};
+                            var __pluginModule = globalThis['{}'];
                             if (__pluginModule && typeof __pluginModule.transform === 'function') {{
                                 var __result = __pluginModule.transform({}, "{}");
                                 if (__result && __result.code) {{
@@ -392,7 +397,7 @@ impl JsPluginHost {
                         return null;
                     }})()
                     "#,
-                    plugin.source,
+                    global_name,
                     serde_json::to_string(code).unwrap_or_else(|_| "\"\"".to_string()),
                     id.replace('\\', "/").replace('"', "\\\"")
                 );
@@ -436,11 +441,12 @@ impl JsPluginHost {
             if plugin.has_transform_index_html {
                 info!("[plugin:{}] transformIndexHtml", plugin.name);
 
+                let global_name = format!("__pledge_plugin_{}", self.plugins.iter().position(|p| p.name == plugin.name).unwrap_or(0));
                 let js_code = format!(
                     r#"
                     (function() {{
                         try {{
-                            var __pluginModule = {};
+                            var __pluginModule = globalThis['{}'];
                             if (__pluginModule && typeof __pluginModule.transformIndexHtml === 'function') {{
                                 var __result = __pluginModule.transformIndexHtml({});
                                 if (__result) {{
@@ -459,7 +465,7 @@ impl JsPluginHost {
                         return null;
                     }})()
                     "#,
-                    plugin.source,
+                    global_name,
                     serde_json::to_string(html).unwrap_or_else(|_| "\"\"".to_string())
                 );
 
@@ -520,11 +526,12 @@ impl JsPluginHost {
 
                 // Execute the configureServer hook in JS
                 // The plugin can register middleware by calling server.use(fn)
+                let global_name = format!("__pledge_plugin_{}", self.plugins.iter().position(|p| p.name == plugin.name).unwrap_or(0));
                 let js_code = format!(
                     r#"
                     (function() {{
                         try {{
-                            var __pluginModule = {};
+                            var __pluginModule = globalThis['{}'];
                             if (__pluginModule && typeof __pluginModule.configureServer === 'function') {{
                                 var __registered = [];
                                 var __server = {{
@@ -546,7 +553,7 @@ impl JsPluginHost {
                         return null;
                     }})()
                     "#,
-                    plugin.source
+                    global_name
                 );
 
                 match self.context.eval(Source::from_bytes(js_code.as_str())) {
@@ -585,6 +592,87 @@ impl Default for JsPluginHost {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Strip ESM syntax from plugin source and assign the exported object to a global variable.
+/// Converts `export default { ... }` to `globalThis['name'] = { ... }`
+/// and `export const/let/var/function/class` to their non-export equivalents.
+fn strip_esm_and_assign(source: &str, global_name: &str) -> String {
+    let mut result = String::with_capacity(source.len());
+    let mut in_string = false;
+    let mut string_delim = '\0';
+    let mut chars = source.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if !in_string && (ch == '"' || ch == '\'' || ch == '`') {
+            in_string = true;
+            string_delim = ch;
+            result.push(ch);
+            continue;
+        }
+        if in_string {
+            if ch == '\\' {
+                result.push(ch);
+                if let Some(&next) = chars.peek() {
+                    result.push(next);
+                    chars.next();
+                }
+                continue;
+            }
+            if ch == string_delim {
+                in_string = false;
+                string_delim = '\0';
+            }
+            result.push(ch);
+            continue;
+        }
+
+        if ch == '/' && chars.peek() == Some(&'/') {
+            while let Some(&c) = chars.peek() {
+                if c == '\n' {
+                    result.push(c);
+                    chars.next();
+                    break;
+                }
+                chars.next();
+            }
+            continue;
+        }
+
+        if ch == '/' && chars.peek() == Some(&'*') {
+            chars.next();
+            while let Some(c) = chars.next() {
+                if c == '*' && chars.peek() == Some(&'/') {
+                    chars.next();
+                    break;
+                }
+            }
+            continue;
+        }
+
+        result.push(ch);
+    }
+
+    let result = result
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("export default") {
+                line.replace("export default", &format!("globalThis['{}'] =", global_name))
+            } else if trimmed.starts_with("export const") || trimmed.starts_with("export let") || trimmed.starts_with("export var") {
+                line.replace("export ", "")
+            } else if trimmed.starts_with("export function") || trimmed.starts_with("export class") {
+                line.replace("export ", "")
+            } else if trimmed.starts_with("import ") {
+                String::new()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    result
 }
 
 #[cfg(test)]

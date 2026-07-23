@@ -4,6 +4,46 @@ Development history of the Pledge build system enhancements.
 
 ---
 
+## Release 0.2.2 (2026-07-24)
+
+### Summary
+Publishing readiness release. Fixed repository URLs, added missing platform support, corrected config imports, and added `pledge` CLI bin alias.
+
+### Bug Fixes
+- **Repository URL corrected** — All references changed from `pledgeandgrow/pledgestack` to `pledgeandgrow/pledgerepo` across 7 files (package.json, bin scripts, postinstall)
+- **`pledge` bin alias added** — Both `package.json` files now register `pledge` as a CLI command alongside `pledgepack`
+- **Missing arm64 platform packages** — Added `@pledgepack/linux-arm64-gnu` and `@pledgepack/win32-arm64-msvc` to `optionalDependencies` and all binary resolvers
+- **Config import path fixed** — All `from 'pledge'` imports changed to `from 'pledgepack'` across 10 files (Rust source, READMEs, CONNECTION.md)
+- **`defineConfig` export added** — `pledgepack/index.js` now exports `defineConfig` for TypeScript config autocompletion
+- **`from "pledgepack/config"` fixed** — Changed to `from "pledgepack"` in `plugin_template.rs` (no subpath export exists)
+- **LICENSE file added to npm package** — `pledgepack/LICENSE` created and added to `files` array
+- **Copyright year updated** — Changed from `2024` to `2024-2026`
+- **Platform description corrected** — `pledgepack/README.md` no longer claims Windows arm64 binary is included in package
+- **Root package.json description** — Updated to match npm package description
+
+### Files Changed
+- `Cargo.toml` — Version bump 0.2.1 → 0.2.2
+- `package.json` — Version, description, bin alias, repo URLs
+- `pledgepack/package.json` — Version, bin alias, repo URLs, optionalDependencies, files array
+- `pledgepack/index.js` — Added `defineConfig` export
+- `pledgepack/LICENSE` — New file
+- `pledgepack/README.md` — Import path, platform description, license section
+- `bin/pledge.js` — Repo URL in error message, arm64 platform packages
+- `bin/postinstall.js` — Repo URL in GITHUB_REPO constant and error messages
+- `pledgepack/bin/pledge.js` — Repo URL in error message, arm64 platform packages
+- `pledgepack/bin/postinstall.js` — Repo URL in GITHUB_REPO constant and error messages
+- `crates/cli/src/main.rs` — Config import paths in all `pledge create` templates
+- `crates/core/src/migrate.rs` — Config import paths in Vite/webpack/CRA/Next migration
+- `crates/core/src/detect.rs` — Config import path in `pledge init`
+- `crates/core/src/dep_bundler.rs` — Test fixture and assertion
+- `crates/core/src/plugin_template.rs` — Config import path
+- `README.md` — Config import path
+- `CONNECTION.md` — Config import paths
+- `LICENSE` — Copyright year
+- `docs/CHANGELOG.md` — This entry
+
+---
+
 ## Release 0.1.13 (2026-07-17)
 
 ### Summary
