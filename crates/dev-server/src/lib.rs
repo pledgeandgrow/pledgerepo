@@ -1065,7 +1065,7 @@ fn generate_import_map(config: &PledgeConfig) -> String {
 /// correct version.
 fn build_import_map_scopes(
     root_node_modules: &std::path::Path,
-    top_level_imports: &serde_json::Map<String, serde_json::Value>,
+    _top_level_imports: &serde_json::Map<String, serde_json::Value>,
 ) -> serde_json::Map<String, serde_json::Value> {
     let mut scopes: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
     let mut pkg_versions: HashMap<String, Vec<(String, String)>> = HashMap::new();
@@ -1143,7 +1143,7 @@ fn build_import_map_scopes(
         }
 
         // For each version, create a scope that maps the package to the correct path
-        for (version, parent_path) in &by_version {
+        for (_version, parent_path) in &by_version {
             let scope_key = format!("/node_modules/{}/", parent_path.trim_start_matches("node_modules/"));
             let scope_key = scope_key.replace("//", "/");
 

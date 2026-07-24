@@ -174,7 +174,7 @@ impl PluginHotReloader {
         let plugin_ids: Vec<String> = self.watcher_rx.iter().map(|e| e.key().clone()).collect();
 
         for plugin_id in &plugin_ids {
-            if let Some(mut rx) = self.watcher_rx.get_mut(plugin_id) {
+            if let Some(rx) = self.watcher_rx.get_mut(plugin_id) {
                 while let Ok(path) = rx.try_recv() {
                     // Trigger reload callbacks
                     if let Some(callbacks) = self.reload_callbacks.get(plugin_id) {
@@ -368,7 +368,7 @@ impl SandboxedFs {
         usage.check_fs_read(&self.limits)?;
         drop(usage);
 
-        std::fs::read(path).map_err(|e| SandboxError::PathAccessDenied {
+        std::fs::read(path).map_err(|_e| SandboxError::PathAccessDenied {
             path: path.to_path_buf(),
         })
     }
@@ -379,7 +379,7 @@ impl SandboxedFs {
         usage.check_fs_write(&self.limits)?;
         drop(usage);
 
-        std::fs::write(path, data).map_err(|e| SandboxError::PathAccessDenied {
+        std::fs::write(path, data).map_err(|_e| SandboxError::PathAccessDenied {
             path: path.to_path_buf(),
         })
     }
@@ -578,8 +578,8 @@ impl LifecycleHookRegistry {
 
     /// Remove all hooks for a specific plugin
     pub fn unregister_plugin(&self, plugin_id: &str) {
-        for entry in self.hooks.iter() {
-            let hook = *entry.key();
+        let hooks: Vec<LifecycleHook> = self.hooks.iter().map(|e| *e.key()).collect();
+        for hook in hooks {
             if let Some(mut handlers) = self.hooks.get_mut(&hook) {
                 handlers.retain(|(pid, _)| pid != plugin_id);
             }

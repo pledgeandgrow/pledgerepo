@@ -177,22 +177,16 @@ pub fn scan_app_dir(root: &Path, app_dir: &str) -> anyhow::Result<RouteTable> {
     }
 
     let mut routes: Vec<Route> = vec![];
-    let mut root_layout: Option<String> = None;
-    let mut not_found: Option<String> = None;
-    let mut global_error: Option<String> = None;
-    let mut middleware: Option<String> = None;
-
-    // Check for root-level files
-    root_layout = find_file(&app_path, LAYOUT_FILES)
+    let root_layout = find_file(&app_path, LAYOUT_FILES)
         .map(|p| relative_path(root, &p));
 
-    not_found = find_file(&app_path, NOT_FOUND_FILES)
+    let not_found = find_file(&app_path, NOT_FOUND_FILES)
         .map(|p| relative_path(root, &p));
 
-    global_error = find_file(&app_path, GLOBAL_ERROR_FILES)
+    let global_error = find_file(&app_path, GLOBAL_ERROR_FILES)
         .map(|p| relative_path(root, &p));
 
-    middleware = find_file(&app_path, MIDDLEWARE_FILES)
+    let middleware = find_file(&app_path, MIDDLEWARE_FILES)
         .map(|p| relative_path(root, &p));
 
     // Recursively scan for page and route handler files

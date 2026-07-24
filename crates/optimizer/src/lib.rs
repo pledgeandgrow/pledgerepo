@@ -407,7 +407,7 @@ impl Optimizer {
     pub fn split_by_routes(
         &mut self,
         routes: &[(String, Vec<ModuleId>)],
-        all_modules: &HashMap<ModuleId, ResolvedModule>,
+        _all_modules: &HashMap<ModuleId, ResolvedModule>,
     ) {
         let mut module_route_count: HashMap<ModuleId, usize> = HashMap::new();
 

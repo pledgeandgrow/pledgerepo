@@ -321,7 +321,7 @@ impl DepBundler {
     /// Generate an ESM wrapper for a CJS module
     pub fn cjs_to_esm_wrapper(specifier: &str, cjs_source: &str) -> String {
         // Create an ESM wrapper that imports the CJS module and re-exports
-        let safe_name = specifier.replace('/', "_").replace('@', "").replace('-', "_");
+        let _safe_name = specifier.replace('/', "_").replace('@', "").replace('-', "_");
 
         format!(
             r#"// Pledge pre-bundled: {} (CJS → ESM interop)

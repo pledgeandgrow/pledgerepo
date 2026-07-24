@@ -7,7 +7,6 @@
 //   - Required dependencies
 
 use std::path::Path;
-use std::collections::HashMap;
 
 /// Supported CSS frameworks
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

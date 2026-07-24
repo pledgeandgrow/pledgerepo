@@ -359,7 +359,7 @@ pub fn run_post_build_hooks(ctx: &PostBuildContext) -> Result<PostBuildResult> {
     Ok(result)
 }
 
-fn generate_sitemap(out_dir: &Path, chunks: &[String]) -> String {
+fn generate_sitemap(_out_dir: &Path, chunks: &[String]) -> String {
     let mut urls = vec!["  <url><loc>/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>".to_string()];
     for chunk in chunks {
         if chunk.ends_with(".html") {

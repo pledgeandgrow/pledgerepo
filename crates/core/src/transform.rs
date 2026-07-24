@@ -422,12 +422,12 @@ fn eliminate_dead_branches(code: &str) -> String {
     // Pattern: if (false) { ... } — remove the entire if block
     // We need to find matching braces, handling nesting
     while let Some(pos) = result.find("if (false)") {
-        if let Some((block_start, block_end)) = find_block_after(&result, pos + "if (false)".len()) {
+        if let Some((_block_start, block_end)) = find_block_after(&result, pos + "if (false)".len()) {
             // Also check for trailing else and remove it too if it's an if-false
             let after = &result[block_end..];
             if after.trim_start().starts_with("else") {
                 let else_start = block_end + after.find("else").unwrap();
-                let after_else = &result[else_start + 4..];
+                let _after_else = &result[else_start + 4..];
                 // else { ... } — keep the else block content (unwrapped)
                 if let Some((else_bs, else_be)) = find_block_after(&result, else_start + 4) {
                     let else_content = result[else_bs + 1..else_be].to_string();
@@ -1470,6 +1470,7 @@ enum HtmlNode {
         tag: String,
         attrs: Vec<(String, String)>,
         children: Vec<HtmlNode>,
+        #[allow(dead_code)]
         self_closing: bool,
     },
     Text(String),
@@ -1725,7 +1726,7 @@ fn node_to_render_call(node: &HtmlNode, depth: usize) -> String {
 }
 
 /// Convert HTML attributes to Vue props object
-fn attrs_to_props(attrs: &[(String, String)], indent: &str) -> String {
+fn attrs_to_props(attrs: &[(String, String)], _indent: &str) -> String {
     let mut props: Vec<String> = vec![];
     let mut directives: Vec<String> = vec![];
 
@@ -2218,7 +2219,7 @@ fn extract_astro_template(source: &str) -> String {
 // ─── React Fast Refresh ──────────────────────────────────────────────
 
 /// Check if a source file is a React component (has JSX and starts with capital or function)
-fn is_react_component(source: &str, file_path: &str) -> bool {
+fn is_react_component(source: &str, _file_path: &str) -> bool {
     // Must have JSX
     if !source.contains("<") || !source.contains("/>") && !source.contains("</") {
         return false;
@@ -2312,7 +2313,7 @@ fn transform_worker_imports(code: &str, file_path: &str) -> String {
     for worker_pattern in &worker_patterns {
         while let Some(start) = result.find(worker_pattern) {
             let after = &result[start + worker_pattern.len()..];
-            if let Some(end_quote) = after.find(|c: char| c == '"' || c == '\'') {
+            if let Some(_end_quote) = after.find(|c: char| c == '"' || c == '\'') {
                 let quote_char = after.as_bytes()[0] as char;
                 let spec_start = 1;
                 let spec_rest = &after[spec_start..];
@@ -2465,7 +2466,7 @@ fn detect_dynamic_imports_ast(source: &str) -> Option<Vec<String>> {
 /// Process CSS through a PostCSS-like pipeline
 /// Supports Tailwind directives (@tailwind base/components/utilities)
 /// and basic PostCSS plugins (autoprefixer is handled by Lightning CSS)
-fn process_postcss(source: &str, file_path: &str) -> String {
+fn process_postcss(source: &str, _file_path: &str) -> String {
     let mut css = source.to_string();
     
     // Process @tailwind directives

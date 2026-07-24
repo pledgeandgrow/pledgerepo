@@ -9,13 +9,12 @@
 // The output can be viewed with `pledge analyze` which serves an interactive
 // treemap visualization in the browser.
 
-use crate::engine::{BuildEngine, CachedOutput};
+use crate::engine::BuildEngine;
 use crate::module::ModuleKind;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::path::PathBuf;
 use tracing::info;
 
 /// Analysis result for a single module

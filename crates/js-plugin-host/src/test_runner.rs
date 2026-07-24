@@ -755,7 +755,7 @@ fn setup_console(context: &mut Context) {
         .function(console_log, js_string!("log"), 0)
         .build();
 
-    context.register_global_property(
+    let _ = context.register_global_property(
         js_string!("console"),
         console,
         boa_engine::property::Attribute::all(),
@@ -945,7 +945,7 @@ fn setup_test_environment(context: &mut Context, environment: &str) {
 /// Set up snapshot testing API (toMatchSnapshot, toMatchInlineSnapshot)
 fn setup_snapshot_api(
     context: &mut Context,
-    store: &Arc<Mutex<SnapshotStore>>,
+    _store: &Arc<Mutex<SnapshotStore>>,
     update: bool,
 ) {
     // Inject __pledge_snapshot_data as a global object that expect() can access

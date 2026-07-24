@@ -31,6 +31,7 @@ fn read_file_mmap(path: &std::path::Path) -> Result<String> {
 }
 
 /// Read a file as bytes, using memory-mapped I/O for large files (>64KB).
+#[allow(dead_code)]
 fn read_file_bytes_mmap(path: &std::path::Path) -> Result<Vec<u8>> {
     let file = std::fs::File::open(path)?;
     let metadata = file.metadata()?;
@@ -546,7 +547,7 @@ document.addEventListener("click", function(e) {
     }
 
     /// Try to load a cached module output from persistent cache
-    fn load_cached_module(&self, id: ModuleId, content_hash: u64, path: &PathBuf) -> Option<CachedOutput> {
+    fn load_cached_module(&self, _id: ModuleId, content_hash: u64, path: &PathBuf) -> Option<CachedOutput> {
         if let Some(cached) = self.function_cache.get(&content_hash) {
             return Some(cached.clone());
         }
@@ -838,6 +839,7 @@ document.addEventListener("click", function(e) {
     }
 
     /// Transform a single module (parse + compile)
+    #[allow(dead_code)]
     async fn transform_module(&self, module: &ResolvedModule) -> Result<CachedOutput> {
         let source_str = String::from_utf8_lossy(&module.source).to_string();
 
@@ -1269,7 +1271,6 @@ document.addEventListener("click", function(e) {
             .join("\n");
 
         // Font subsetting — generate @font-face CSS and preload tags
-        let mut font_css = String::new();
         let mut font_preload_tags: Vec<String> = Vec::new();
         if self.config.build.font_subsetting {
             let fonts_dir = self.config.root.join("fonts");
@@ -1278,7 +1279,7 @@ document.addEventListener("click", function(e) {
                 match crate::fonts::optimize_fonts(&fonts_dir, &font_config) {
                     Ok(subsets) => {
                         if !subsets.is_empty() {
-                            font_css = crate::fonts::generate_subset_css(&subsets);
+                            let font_css = crate::fonts::generate_subset_css(&subsets);
                             font_preload_tags = crate::fonts::generate_subset_preload_tags(&subsets);
                             // Write font CSS to a file
                             let font_css_hash = blake3::hash(font_css.as_bytes());

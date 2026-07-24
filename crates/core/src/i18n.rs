@@ -4,7 +4,6 @@
 // Handles `import messages from './messages.${locale}.json'` pattern.
 
 use crate::config::I18nConfig;
-use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
 
@@ -30,7 +29,7 @@ pub fn transform_i18n_imports(code: &str, config: &I18nConfig) -> String {
     let pattern = &config.message_pattern;
 
     // Replace static imports of ${locale} pattern with runtime locale detection
-    let import_pattern = pattern.replace("${locale}", "\\$\\{locale\\}");
+    let _import_pattern = pattern.replace("${locale}", "\\$\\{locale\\}");
 
     // Transform: import messages from './messages.${locale}.json'
     // Into: const messages = await import(`./messages.${locale}.json`)

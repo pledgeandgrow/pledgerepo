@@ -4,6 +4,55 @@ Development history of the Pledge build system enhancements.
 
 ---
 
+## Release 0.2.6 (2026-07-24)
+
+### Summary
+Stability and code quality release. Fixed a deadlock bug in plugin lifecycle hook unregistration, resolved all 35 compiler warnings, and verified full Next.js and PledgeStack adapter support.
+
+### Bug Fixes
+- **Fixed deadlock in `unregister_plugin`** — `LifecycleHookRegistry::unregister_plugin` acquired a read lock via `DashMap::iter()` then attempted a write lock via `get_mut()` on the same shard, causing an infinite hang. Keys are now collected first, then write locks are acquired separately.
+- **Removed unused `Read` import** in `compression.rs`
+- **Fixed unused assignment of `font_css`** in `engine.rs` — moved declaration inside the block where it's used
+- **Fixed unused assignments in `router.rs`** — removed `None` initializers that were immediately overwritten
+- **Handled unused `Result` from `register_global_property`** in `js-plugin-host` (lib.rs and test_runner.rs)
+- **Added `#[allow(dead_code)]`** to `read_file_bytes_mmap` and `transform_module` in `engine.rs`, and `self_closing` field in `transform.rs`
+- **26 automatic fixes via `cargo fix`** — unused imports, unused variables, unnecessary `mut` across 5 crates
+
+### Verification
+- `cargo build --release` — clean, 0 warnings
+- `cargo test` — 191 tests pass, 0 failures
+- Next.js adapter: App Router + Pages Router, SSR manifest, API routes, layouts, loading/error boundaries
+- PledgeStack adapter: app/ directory routing, API routes, server/ Rust backend, middleware, .psx/.ps file support, route manifests
+
+### Files Changed
+- `crates/core/src/plugin_system.rs` — Deadlock fix in `unregister_plugin`
+- `crates/core/src/compression.rs` — Removed unused `Read` import
+- `crates/core/src/engine.rs` — Fixed `font_css` assignment, `#[allow(dead_code)]` annotations
+- `crates/core/src/router.rs` — Removed redundant `None` initializers
+- `crates/core/src/transform.rs` — `#[allow(dead_code)]` on `self_closing` field
+- `crates/core/src/analyzer.rs` — Unused imports removed (auto-fix)
+- `crates/core/src/asset_pipeline.rs` — Unused variable fixed (auto-fix)
+- `crates/core/src/migrate.rs` — Unnecessary `mut` removed (auto-fix)
+- `crates/core/src/advanced.rs` — Unused variable fixed (auto-fix)
+- `crates/core/src/budgets.rs` — Unused variable fixed (auto-fix)
+- `crates/core/src/dep_bundler.rs` — Unused variable fixed (auto-fix)
+- `crates/core/src/css_advanced.rs` — Unused imports/variables fixed (auto-fix)
+- `crates/core/src/css_frameworks.rs` — Unused import removed (auto-fix)
+- `crates/core/src/i18n.rs` — Unused import/variable fixed (auto-fix)
+- `crates/core/src/output_distribution.rs` — Unused import/`mut` fixed (auto-fix)
+- `crates/core/src/plugin_system.rs` — Unused variables fixed (auto-fix)
+- `crates/adapter-react/src/lib.rs` — Unused variable fixed (auto-fix)
+- `crates/optimizer/src/lib.rs` — Unused variable fixed (auto-fix)
+- `crates/js-plugin-host/src/lib.rs` — `let _ =` on `register_global_property` result
+- `crates/js-plugin-host/src/test_runner.rs` — `let _ =` on `register_global_property` result
+- `crates/dev-server/src/lib.rs` — Unused variables fixed (auto-fix)
+- `Cargo.toml` — Version bump 0.2.3 → 0.2.6
+- `package.json` — Version bump 0.2.3 → 0.2.6
+- `pledgepack/package.json` — Version bump 0.2.3 → 0.2.6
+- `docs/CHANGELOG.md` — This entry
+
+---
+
 ## Release 0.2.2 (2026-07-24)
 
 ### Summary

@@ -9,7 +9,6 @@
 //   48. Multi-format output — ESM/CJS/IIFE
 
 use std::collections::HashMap;
-use std::path::Path;
 
 /// Compile asset budget patterns into a GlobSet for efficient matching.
 /// Returns (globset, fallback_map) so callers can match asset paths against
@@ -104,7 +103,7 @@ pub fn check_budget(
     budget: &PerformanceBudget,
 ) -> BudgetCheckResult {
     let mut violations = Vec::new();
-    let mut warnings = Vec::new();
+    let warnings = Vec::new();
 
     // Check total size
     let total: usize = entries.iter().map(|(_, s)| s).sum::<usize>()

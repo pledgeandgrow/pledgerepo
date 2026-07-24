@@ -602,7 +602,7 @@ pub fn select_image_format(
 
 /// Generate a <picture> element with multiple format sources
 pub fn generate_picture_element(
-    src: &str,
+    _src: &str,
     formats: &[(&str, &str)],
     alt: &str,
     width: Option<u32>,

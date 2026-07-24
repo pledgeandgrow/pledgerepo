@@ -19,7 +19,7 @@ pub struct BudgetViolation {
 
 /// Check build output against configured budgets
 pub fn check_budgets(
-    out_dir: &PathBuf,
+    _out_dir: &PathBuf,
     config: &BudgetConfig,
     chunk_sizes: &[(String, usize)],
 ) -> Result<Vec<BudgetViolation>> {

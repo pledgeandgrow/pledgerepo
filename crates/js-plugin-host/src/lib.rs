@@ -110,7 +110,7 @@ impl JsPluginHost {
         let console = ObjectInitializer::new(&mut context)
             .function(console_log, js_string!("log"), 0)
             .build();
-        context.register_global_property(js_string!("console"), console, boa_engine::property::Attribute::all());
+        let _ = context.register_global_property(js_string!("console"), console, boa_engine::property::Attribute::all());
         
         Self {
             plugins: Vec::new(),

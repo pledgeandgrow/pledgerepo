@@ -53,7 +53,7 @@ pub fn migrate_config(root: &Path) -> Result<MigrationResult> {
 fn migrate_vite_config(content: &str) -> Result<MigrationResult> {
     let mut warnings = Vec::new();
     let mut migrated_fields = Vec::new();
-    let mut entry = "src/index.tsx".to_string();
+    let entry = "src/index.tsx".to_string();
     let mut port = 3000u16;
     let mut host = "localhost".to_string();
     let mut proxy_entries = Vec::new();
@@ -500,7 +500,7 @@ fn extract_array_field(obj: &str, field: &str) -> Option<String> {
 fn extract_key_value_pairs(obj: &str) -> Vec<(String, String)> {
     let mut pairs = Vec::new();
     // Simple extraction: look for key: value or "key": value patterns
-    let mut chars = obj.chars().peekable();
+    let chars = obj.chars().peekable();
     let mut _depth = 0;
 
     // This is a simplified parser — for production, use a proper JS parser

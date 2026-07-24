@@ -2,7 +2,7 @@
 // optimization, #69 scoped CSS for React, #70 nesting polyfill verification.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use regex::Regex;
 use std::sync::OnceLock;
 use tracing::{info, warn};
@@ -23,7 +23,7 @@ pub struct ComposesDirective {
 
 /// Parse `composes` directives from CSS source.
 /// Handles both local (`composes: button`) and cross-file (`composes: button from './btn.css'`).
-pub fn parse_composes(css: &str, file_path: &str) -> Vec<ComposesDirective> {
+pub fn parse_composes(css: &str, _file_path: &str) -> Vec<ComposesDirective> {
     static COMPOSES_RE: OnceLock<Regex> = OnceLock::new();
     let re = COMPOSES_RE.get_or_init(|| {
         Regex::new(
@@ -76,7 +76,7 @@ pub fn resolve_composes(
     css: &str,
     file_path: &str,
     css_module_map: &[(String, String)],
-    root: &Path,
+    _root: &Path,
 ) -> HashMap<String, Vec<String>> {
     let directives = parse_composes(css, file_path);
     let mut result = HashMap::new();

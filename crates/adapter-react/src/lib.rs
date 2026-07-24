@@ -106,7 +106,7 @@ impl ReactAdapter {
 
     /// Inject React Fast Refresh boundary code
     /// Uses AST-level analysis to detect React component declarations
-    fn inject_fast_refresh(&self, code: &mut String, file_path: &str) -> Vec<String> {
+    fn inject_fast_refresh(&self, code: &mut String, _file_path: &str) -> Vec<String> {
         let boundaries = detect_react_components(code);
 
         if !boundaries.is_empty() {
