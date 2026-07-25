@@ -169,7 +169,8 @@ pub fn freeArena() void {
 // over the thread pool approach for large file counts.
 
 test "readFile reads a file" {
-    const tmp = "C:\\Users\\pledg\\png\\pledge-dev\\test_read.txt";
+    // Use a temp file in the current directory (cross-platform)
+    const tmp = "pledge_test_read.txt";
     const content = "hello pledge";
 
     // Write test file using C stdlib

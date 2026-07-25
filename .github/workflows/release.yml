@@ -134,7 +134,7 @@ jobs:
 
   # Publish npm package (tiny — JS launcher + postinstall downloads binary from GitHub Releases)
   publish-npm:
-    needs: [plan, build]
+    needs: [plan, build, publish]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
