@@ -3740,6 +3740,7 @@ dependencies = [
  "grass",
  "humansize",
  "image",
+ "libc",
  "lightningcss",
  "memmap2",
  "miette",

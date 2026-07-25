@@ -80,3 +80,6 @@ toml = { workspace = true }
 
 # HTTP client for plugin registry
 ureq = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
