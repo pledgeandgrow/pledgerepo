@@ -150,11 +150,13 @@ impl Optimizer {
                 });
 
             if has_side_effects {
-                side_effects.lock().unwrap().insert(*id);
+                if let Ok(mut sx) = side_effects.lock() {
+                    sx.insert(*id);
+                }
             }
         });
 
-        self.side_effect_modules = side_effects.into_inner().unwrap();
+        self.side_effect_modules = side_effects.into_inner().unwrap_or_default();
     }
 
     /// Tree shake: find all reachable modules from entry points

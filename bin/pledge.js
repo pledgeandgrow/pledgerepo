@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 // Pledgepack CLI launcher — resolves the native binary for the current platform
 // and forwards all arguments to it.
+//
+// Resolution order:
+//   1. Local cargo build (target/release or target/debug — dev mode)
+//   2. Postinstall download location (bin/{platform}/{binary})
+//   3. Direct binary in bin/ (legacy)
 
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +20,7 @@ const ar = arch();
 const binaryName = plat === 'win32' ? 'pledge.exe' : 'pledge';
 const platformKey = `${plat}-${ar}`;
 
-// Resolve binary: local build → postinstall download → direct binary
+// Resolve binary: local build → postinstall download → direct
 let binaryPath = null;
 
 const candidates = [
@@ -37,15 +42,19 @@ if (!binaryPath) {
   console.error('');
   console.error('  \x1b[31mpledge\x1b[0m binary not found.');
   console.error('');
-  console.error('  This can happen if:');
-  console.error('    1. You installed the package but the postinstall script failed');
-  console.error('    2. Your platform is not yet supported: ' + platformKey);
+  console.error('  Platform: ' + platformKey);
   console.error('');
-  console.error('  To build from source:');
+  console.error('  This can happen if:');
+  console.error('    1. The postinstall script failed to download the binary');
+  console.error('    2. Your platform is not yet supported');
+  console.error('    3. You installed with --ignore-scripts');
+  console.error('');
+  console.error('  To fix:');
+  console.error('    npm rebuild pledgepack');
+  console.error('');
+  console.error('  Or build from source:');
   console.error('    git clone https://github.com/pledgeandgrow/pledgerepo');
   console.error('    cd pledgerepo && cargo build --release');
-  console.error('');
-  console.error('  Or re-run: npm rebuild pledgepack');
   console.error('');
   process.exit(1);
 }

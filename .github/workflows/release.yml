@@ -128,7 +128,7 @@ jobs:
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
 
-  # Publish npm package with binary launcher
+  # Publish npm package (tiny — JS launcher + postinstall downloads binary from GitHub Releases)
   publish-npm:
     needs: [plan, build]
     runs-on: ubuntu-latest
@@ -140,22 +140,6 @@ jobs:
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Stage binaries for npm package
-        run: |
-          mkdir -p bin/platform
-          for dir in artifacts/pledge-*; do
-            target=$(basename "$dir")
-            if [ -f "$dir/pledge-$target.tar.gz" ]; then
-              mkdir -p "bin/platform/$target"
-              tar xzf "$dir/pledge-$target.tar.gz" -C "bin/platform/$target"
-            fi
-          done
 
       - name: Publish to npm
         run: npm publish --access public

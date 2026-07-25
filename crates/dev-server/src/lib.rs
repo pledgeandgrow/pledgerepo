@@ -2027,11 +2027,10 @@ async fn entry_index_handler(
     let entries = state.entries.read().await;
     let entry = entries.iter().find(|e| e.name == entry_name);
 
-    if entry.is_none() {
-        return (StatusCode::NOT_FOUND, "Entry not found").into_response();
-    }
-
-    let entry = entry.unwrap();
+    let entry = match entry {
+        Some(e) => e,
+        None => return (StatusCode::NOT_FOUND, "Entry not found").into_response(),
+    };
     let html_path = state.config.root.join(&entry.html_file);
 
     let mut html = match std::fs::read_to_string(&html_path) {
@@ -2195,46 +2194,42 @@ async fn hmr_broadcast_loop(
         info!("HMR update: {} (type: {})", update.path, update.update_type);
 
         // Compute line-level diff for partial HMR updates (feature 10)
-        if update.update_type == "update" && update.full_code.is_some() {
-            let module_cache = state.module_cache.read().await;
-            if let Some(old_code) = module_cache.get(&update.path) {
-                let new_code = update.full_code.as_ref().unwrap();
-                let diff = hmr_diff::compute_diff(old_code, new_code);
-                if diff.is_small() {
-                    // Only send the diff if it's small enough to be efficient
-                    update.diff = Some(diff);
-                    // Keep full_code as fallback
-                } else {
-                    // Diff is too large, send full code instead
-                    update.diff = None;
+        if update.update_type == "update" {
+            if let Some(ref full_code) = update.full_code {
+                let module_cache = state.module_cache.read().await;
+                if let Some(old_code) = module_cache.get(&update.path) {
+                    let diff = hmr_diff::compute_diff(old_code, full_code);
+                    if diff.is_small() {
+                        update.diff = Some(diff);
+                    } else {
+                        update.diff = None;
+                    }
                 }
-            }
-            drop(module_cache);
+                drop(module_cache);
 
-            // Update the module cache with the new code
-            let mut module_cache = state.module_cache.write().await;
-            module_cache.insert(update.path.clone(), update.full_code.clone().unwrap_or_default());
+                let mut module_cache = state.module_cache.write().await;
+                module_cache.insert(update.path.clone(), full_code.clone());
+            }
         }
 
         // Track import pattern changes for on-demand optimization (feature 15)
-        if update.update_type == "update" && update.full_code.is_some() {
-            let new_code = update.full_code.as_ref().unwrap();
-            let new_imports = extract_imports(new_code);
-            let import_patterns = state.import_patterns.read().await;
-            let old_imports = import_patterns.get(&update.path);
-            let imports_changed = old_imports.map_or(true, |old| {
-                old.len() != new_imports.len() || old.iter().zip(new_imports.iter()).any(|(a, b)| a != b)
-            });
-            drop(import_patterns);
+        if update.update_type == "update" {
+            if let Some(ref new_code) = update.full_code {
+                let new_imports = extract_imports(new_code);
+                let import_patterns = state.import_patterns.read().await;
+                let old_imports = import_patterns.get(&update.path);
+                let imports_changed = old_imports.map_or(true, |old| {
+                    old.len() != new_imports.len() || old.iter().zip(new_imports.iter()).any(|(a, b)| a != b)
+                });
+                drop(import_patterns);
 
-            if imports_changed {
-                info!("Import patterns changed for {}, re-optimizing dependencies", update.path);
-                let mut import_patterns = state.import_patterns.write().await;
-                import_patterns.insert(update.path.clone(), new_imports);
-                // Trigger on-demand re-optimization
-                // The lazy pipeline will re-optimize only the affected dependencies
-                let mut lazy_pipeline = state.lazy_pipeline.write().await;
-                lazy_pipeline.mark_deps_dirty(&update.path);
+                if imports_changed {
+                    info!("Import patterns changed for {}, re-optimizing dependencies", update.path);
+                    let mut import_patterns = state.import_patterns.write().await;
+                    import_patterns.insert(update.path.clone(), new_imports);
+                    let mut lazy_pipeline = state.lazy_pipeline.write().await;
+                    lazy_pipeline.mark_deps_dirty(&update.path);
+                }
             }
         }
 

@@ -76,6 +76,12 @@ pub struct PledgeConfig {
     #[serde(default)]
     pub profile: bool,
 
+    /// Build target(s) for multi-platform output
+    /// Supports: "browser" (default), "node", "worker", "edge", or array for multiple targets
+    /// Example: target: ["browser", "node"] builds both browser and Node.js bundles
+    #[serde(default = "default_target")]
+    pub target: TargetConfig,
+
     /// Output format ("esm" or "cjs")
     #[serde(default)]
     pub output_format: OutputFormat,
@@ -148,6 +154,18 @@ pub struct PledgeConfig {
     /// Build configuration for chunk splitting, source maps, asset inlining
     #[serde(default)]
     pub build: BuildConfig,
+
+    /// CSS preprocessor configuration
+    #[serde(default)]
+    pub css_preprocessor: CssPreprocessorConfig,
+
+    /// Template language configuration (Pug, Handlebars, EJS)
+    #[serde(default)]
+    pub templates: TemplateConfig,
+
+    /// Compiled-to-JS language configuration (CoffeeScript, LiveScript)
+    #[serde(default)]
+    pub languages: LanguageConfig,
 
     /// Test configuration (Vitest-compatible)
     #[serde(default)]
@@ -439,6 +457,46 @@ pub struct BuildConfig {
     pub parallel: Option<usize>,
 }
 
+/// CSS preprocessor configuration for multi-preprocessor support
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct CssPreprocessorConfig {
+    /// Enable Less support (default: true if .less files detected)
+    pub less: bool,
+    /// Enable Stylus support (default: true if .styl files detected)
+    pub stylus: bool,
+    /// Enable Sass/SCSS support (default: true, built-in via grass crate)
+    pub sass: bool,
+    /// Additional CSS plugin paths
+    pub plugins: Vec<String>,
+}
+
+/// Template language configuration for server-side rendering
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct TemplateConfig {
+    /// Enable Pug template compilation (default: false)
+    pub pug: bool,
+    /// Enable Handlebars template compilation (default: false)
+    pub handlebars: bool,
+    /// Enable EJS template compilation (default: false)
+    pub ejs: bool,
+    /// Template file extensions to process (default: auto-detect)
+    pub extensions: Vec<String>,
+}
+
+/// Compiled-to-JS language configuration
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct LanguageConfig {
+    /// Enable CoffeeScript compilation (default: false)
+    pub coffeescript: bool,
+    /// Enable LiveScript compilation (default: false)
+    pub livescript: bool,
+    /// Additional language transformers (plugin paths)
+    pub transformers: Vec<String>,
+}
+
 fn default_source_map_mode() -> String {
     "external".to_string()
 }
@@ -505,6 +563,36 @@ pub enum Framework {
     TanStack,
     Astro,
     Auto,
+}
+
+/// Build target configuration for multi-platform output
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum TargetConfig {
+    /// Single target (default: browser)
+    Single(Target),
+    /// Multiple targets for multi-platform builds
+    Multiple(Vec<Target>),
+}
+
+impl Default for TargetConfig {
+    fn default() -> Self {
+        TargetConfig::Single(Target::Browser)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Target {
+    #[default]
+    Browser,
+    Node,
+    Worker,
+    Edge,
+}
+
+fn default_target() -> TargetConfig {
+    TargetConfig::default()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -981,6 +1069,10 @@ impl Default for PledgeConfig {
             define: std::collections::HashMap::new(),
             watch: WatchConfig::default(),
             build: BuildConfig::default(),
+            css_preprocessor: CssPreprocessorConfig::default(),
+            templates: TemplateConfig::default(),
+            languages: LanguageConfig::default(),
+            target: TargetConfig::default(),
             test: TestConfig::default(),
             app_dir: None,
             webhooks: WebhookConfig::default(),

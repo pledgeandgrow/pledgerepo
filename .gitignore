@@ -8,11 +8,13 @@ dist/
 # Native binaries (built artifacts, not source)
 *.exe
 *.zip
-pledgepack/bin/pledge.exe
-pledgepack/bin/pledge
+
+# npm pack artifacts
+*.tgz
 
 # Dependencies
 node_modules/
+package-lock.json
 
 # Cache
 node_modules/.pledge-cache
@@ -46,3 +48,6 @@ Thumbs.db
 
 # Generated type declarations
 pledge-env.d.ts
+
+# Tooling artifacts
+skills-lock.json

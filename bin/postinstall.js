@@ -1,13 +1,17 @@
 // Pledgepack postinstall script — downloads the native binary for the current platform.
 // In development, the binary is already built via cargo and this is a no-op.
 
-import { createWriteStream, existsSync, mkdirSync, renameSync, chmodSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, chmodSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { platform, arch } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Read the package version to download the matching binary release
+const pkgJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
+const PKG_VERSION = pkgJson.version;
 
 // Platform mapping — maps Node.js platform/arch to our release targets
 const PLATFORM_MAP = {
@@ -23,22 +27,21 @@ const platformKey = `${platform()}-${arch()}`;
 const mapped = PLATFORM_MAP[platformKey];
 const binaryName = platform() === 'win32' ? 'pledge.exe' : 'pledge';
 
-// Check if binary already exists in target/ (dev mode — already built)
+// 1. Check if binary already exists in target/ (dev mode — already built)
 const localRelease = join(__dirname, '..', 'target', 'release', binaryName);
 const localDebug = join(__dirname, '..', 'target', 'debug', binaryName);
 
 if (existsSync(localRelease) || existsSync(localDebug)) {
-  // Dev mode — binary already built, nothing to do
   process.exit(0);
 }
 
-// Check if binary already downloaded (e.g., npm package with staged binaries)
+// 2. Check if binary already downloaded by a previous run
 const stagedBinary = join(__dirname, platformKey, binaryName);
 if (existsSync(stagedBinary)) {
   process.exit(0);
 }
 
-// Check if binary is directly in bin/ (already installed)
+// 3. Check if binary is directly in bin/ (already installed)
 const directBinary = join(__dirname, binaryName);
 if (existsSync(directBinary)) {
   process.exit(0);
@@ -52,10 +55,11 @@ if (!mapped) {
   process.exit(0);
 }
 
-// Download the prebuilt binary from GitHub Releases
+// Download the prebuilt binary from GitHub Releases (version-specific)
 const GITHUB_REPO = 'pledgeandgrow/pledgerepo';
+const RELEASE_TAG = `v${PKG_VERSION}`;
 const packageName = `pledge-${mapped.target}${mapped.ext}`;
-const downloadUrl = `https://github.com/${GITHUB_REPO}/releases/latest/download/${packageName}`;
+const downloadUrl = `https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG}/${packageName}`;
 
 const destDir = join(__dirname, platformKey);
 const archivePath = join(destDir, packageName);

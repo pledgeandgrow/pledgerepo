@@ -1,5 +1,6 @@
 # Exclude everything not needed in the npm package
-# Only bin/, README.md, and LICENSE are published
+# Only bin/pledge.js, bin/postinstall.js, README.md, and LICENSE are published
+# Platform binaries are downloaded by postinstall.js from GitHub Releases
 
 src/
 crates/
@@ -13,6 +14,7 @@ zig-out/
 app/
 distribution/
 node_modules/
+bin/platform/
 Cargo.toml
 Cargo.lock
 build.zig

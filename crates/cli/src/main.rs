@@ -497,11 +497,10 @@ async fn main() -> Result<()> {
 
             use indicatif::{ProgressBar, ProgressStyle};
             let pb = ProgressBar::new(4);
-            pb.set_style(
-                ProgressStyle::with_template("  {spinner:.green} {msg} [{bar:30.cyan/blue}] {pos}/{len}")
-                    .unwrap()
-                    .progress_chars("█░"),
-            );
+            let style = ProgressStyle::with_template("  {spinner:.green} {msg} [{bar:30.cyan/blue}] {pos}/{len}")
+                .unwrap_or_else(|_| ProgressStyle::default_bar())
+                .progress_chars("█░");
+            pb.set_style(style);
 
             let profile_start = std::time::Instant::now();
 
@@ -1438,7 +1437,9 @@ export default App;
 }
 "#)?;
                     // Home page
-                    std::fs::write(project_dir.join("app/page.tsx"), page_content.unwrap().replace("__PLEDGE_PROJECT_NAME__", &project_name))?;
+                    if let Some(page) = page_content {
+                        std::fs::write(project_dir.join("app/page.tsx"), page.replace("__PLEDGE_PROJECT_NAME__", &project_name))?;
+                    }
                     // API route example
                     std::fs::create_dir_all(project_dir.join("app/api/hello"))?;
                     std::fs::write(project_dir.join("app/api/hello/route.ts"), r#"export async function GET() {

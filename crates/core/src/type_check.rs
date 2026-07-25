@@ -46,8 +46,10 @@ pub fn run_type_check(root: &Path) -> Result<TypeCheckResult> {
 
     // Check if tsc is available
     let tsc = find_tsc(root);
-    if tsc.is_none() {
-        return Ok(TypeCheckResult {
+
+    let tsc_path = match tsc {
+        Some(path) => path,
+        None => return Ok(TypeCheckResult {
             success: true,
             errors: vec![TypeError {
                 file: "tsconfig.json".to_string(),
@@ -59,10 +61,8 @@ pub fn run_type_check(root: &Path) -> Result<TypeCheckResult> {
             }],
             warnings: Vec::new(),
             duration_ms: start.elapsed().as_millis(),
-        });
-    }
-
-    let tsc_path = tsc.unwrap();
+        }),
+    };
 
     // Run tsc --noEmit --pretty false for parseable output
     let mut cmd = Command::new(&tsc_path);
