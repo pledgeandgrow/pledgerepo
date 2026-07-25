@@ -322,7 +322,6 @@ fn winapi_timeout_ms(debounce_ms: u64) -> u32 {
 
 #[cfg(target_os = "linux")]
 fn watch_linux(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>) -> Result<(), String> {
-    use std::os::unix::io::AsRawFd;
     use std::os::unix::io::RawFd;
 
     const IN_MODIFY: u32 = 0x2;
@@ -453,7 +452,7 @@ fn watch_linux(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>
                             });
                         }
                     }
-                    debounce_path = Some(full_path);
+                    debounce_path = Some(full_path.clone());
                     debounce_time = Some(now);
                 }
 
@@ -539,7 +538,7 @@ fn watch_macos(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>
     let (notify_tx, notify_rx) = mpsc::channel::<notify::Result<notify::Event>>();
 
     // Use FsEventWatcher directly (macOS native)
-    let mut watcher = notify::FsEventWatcher::new(notify_tx)
+    let mut watcher = notify::FsEventWatcher::new(notify_tx, notify::Config::default())
         .map_err(|e| format!("FsEventWatcher creation failed: {}", e))?;
 
     watcher.watch(root, RecursiveMode::Recursive)
