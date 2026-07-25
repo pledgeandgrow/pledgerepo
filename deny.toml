@@ -9,12 +9,7 @@ no-default-features = false
 [advisories]
 # Check for security advisories from RustSec
 db-urls = ["https://github.com/rustsec/advisory-db"]
-vulnerability = "deny"
-unmaintained = "warn"
-yanked = "deny"
-notice = "warn"
-
-# Ignore specific advisories (add as needed)
+version = 2
 ignore = []
 
 [licenses]
