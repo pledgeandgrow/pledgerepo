@@ -41,15 +41,20 @@ jobs:
         include:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            zig_target: x86_64-linux
           - os: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
             cross: true
+            zig_target: aarch64-linux
           - os: macos-14
             target: x86_64-apple-darwin
+            zig_target: x86_64-macos
           - os: macos-14
             target: aarch64-apple-darwin
+            zig_target: aarch64-macos
           - os: windows-2022
             target: x86_64-pc-windows-msvc
+            zig_target: x86_64-windows
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -82,7 +87,7 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build Zig native library
-        run: zig build -Doptimize=ReleaseFast
+        run: zig build -Doptimize=ReleaseFast -Dtarget=${{ matrix.zig_target }}
 
       - name: Build pledge binary
         run: cargo build --release --target ${{ matrix.target }} --bin pledge
