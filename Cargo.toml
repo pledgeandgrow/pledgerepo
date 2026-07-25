@@ -77,6 +77,9 @@ notify-debouncer-full = "0.7"
 # C library bindings (native file watcher on Linux)
 libc = "0.2"
 
+# Windows API bindings (native file watcher on Windows)
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Win32_Security"] }
+
 # Parallelism
 rayon = "1"
 dashmap = "6"
