@@ -204,7 +204,7 @@ impl SerializableModuleGraph {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let data = bincode::serialize(self)?;
+        let data = bincode::serde::encode_to_vec(self, bincode::config::standard())?;
         std::fs::write(path, data)?;
         info!("Module graph saved: {} modules", self.modules.len());
         Ok(())
@@ -223,7 +223,7 @@ impl SerializableModuleGraph {
             std::fs::read(path)?
         };
 
-        let graph: SerializableModuleGraph = bincode::deserialize(&data)?;
+        let (graph, _) = bincode::serde::decode_from_slice::<SerializableModuleGraph, _>(&data, bincode::config::standard())?;
         info!("Module graph loaded: {} modules", graph.modules.len());
         Ok(graph)
     }

@@ -285,7 +285,7 @@ function simulateTransform(code, type) {
         'export default { package: { name: "my-app", version: "1.0.0" }, dependencies: { react: "18.0.0" } };';
       break;
     case 'yaml':
-      result = '// YAML → ES Module (via serde_yaml)\n' +
+      result = '// YAML → ES Module (via serde_yml)\n' +
         'export const name = "my-app";\n' +
         'export const version = "1.0.0";\n' +
         'export const dependencies = { react: "^18.0.0", "react-dom": "^18.0.0" };\n' +

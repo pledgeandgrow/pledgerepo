@@ -61,7 +61,7 @@ notify-debouncer-full = { workspace = true }
 notify = { workspace = true }
 
 # YAML parsing
-serde_yaml = { workspace = true }
+serde_yml = { workspace = true }
 
 # Source-context error diagnostics
 miette = { workspace = true }

@@ -24,7 +24,7 @@ pub fn inject_sri_into_html(html: &str, out_dir: &Path) -> String {
 
     static SCRIPT_RE: OnceLock<Regex> = OnceLock::new();
     let re = SCRIPT_RE.get_or_init(|| {
-        Regex::new(r#"<script\s+src="([^"]+)")"#).unwrap()
+        Regex::new(r#"<script\s+src="([^"]+)""#).unwrap()
     });
 
     for cap in re.captures_iter(html) {
@@ -42,7 +42,7 @@ pub fn inject_sri_into_html(html: &str, out_dir: &Path) -> String {
 
     static LINK_RE: OnceLock<Regex> = OnceLock::new();
     let re = LINK_RE.get_or_init(|| {
-        Regex::new(r#"<link\s+[^>]*rel="stylesheet"[^>]*href="([^"]+)")"#).unwrap()
+        Regex::new(r#"<link\s+[^>]*rel="stylesheet"[^>]*href="([^"]+)""#).unwrap()
     });
 
     for cap in re.captures_iter(html) {

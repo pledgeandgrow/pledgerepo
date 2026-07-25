@@ -33,7 +33,6 @@ notify = { workspace = true }
 rayon = { workspace = true }
 dialoguer = "0.11"
 console = "0.15"
-atty = "0.2"
 mimalloc = { workspace = true }
 camino = { workspace = true }
 clap_complete = { workspace = true }
@@ -44,13 +43,13 @@ comfy-table = { workspace = true }
 miette = { workspace = true, features = ["fancy"] }
 clap_mangen = { workspace = true }
 schemars = { workspace = true }
-dirs = "5"
+dirs = "6"
 
 [features]
 default = []
 # Enable jemalloc with heap profiling support instead of mimalloc
+# Note: jemalloc is not supported on Windows MSVC
 jemalloc = ["dep:tikv-jemallocator"]
 
-[dependencies.tikv-jemallocator]
-workspace = true
-optional = true
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+tikv-jemallocator = { workspace = true, optional = true }

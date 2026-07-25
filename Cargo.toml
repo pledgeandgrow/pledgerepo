@@ -13,6 +13,7 @@ members = [
     "crates/adapter-next",
     "crates/adapter-tanstack",
     "crates/adapter-pledgestack",
+    "native-sys",
 ]
 
 [workspace.package]
@@ -25,7 +26,7 @@ authors = ["Pledge and Grow"]
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-bincode = "1"
+bincode = { version = "2", features = ["serde"] }
 
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net", "sync", "signal"] }
@@ -66,7 +67,7 @@ clap = { version = "4", features = ["derive"] }
 
 # CLI UX
 clap_complete = "4"
-indicatif = "0.17"
+indicatif = "0.18"
 inquire = "0.7"
 
 # File watching
@@ -100,7 +101,7 @@ memmap2 = "0.9"
 comfy-table = "7"
 
 # YAML parsing
-serde_yaml = "0.9"
+serde_yml = "0.0.12"
 
 # Source-context error diagnostics
 miette = { version = "7", features = ["fancy"] }

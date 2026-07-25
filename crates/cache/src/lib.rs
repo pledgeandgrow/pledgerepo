@@ -128,7 +128,7 @@ impl FunctionCache {
     }
 
     fn cache_path(&self, key: &CacheKey) -> PathBuf {
-        let hash = blake3::hash(bincode::serialize(key).unwrap_or_default().as_slice());
+        let hash = blake3::hash(bincode::serde::encode_to_vec(key, bincode::config::standard()).unwrap_or_default().as_slice());
         self.cache_dir.join(hash.to_hex().as_str().to_string())
     }
 
@@ -146,13 +146,13 @@ impl FunctionCache {
             std::fs::read(&path)?
         };
 
-        let entry: CacheEntry = bincode::deserialize(&data)?;
+        let (entry, _) = bincode::serde::decode_from_slice::<CacheEntry, _>(&data, bincode::config::standard())?;
         Ok(entry)
     }
 
     fn write_to_disk(&self, key: &CacheKey, entry: &CacheEntry) -> Result<()> {
         let path = self.cache_path(key);
-        let data = bincode::serialize(entry)?;
+        let data = bincode::serde::encode_to_vec(entry, bincode::config::standard())?;
         // Atomic write: write to temp file, then rename to final path
         let tmp_path = path.with_extension("tmp");
         std::fs::write(&tmp_path, &data)?;
@@ -168,7 +168,7 @@ pub struct CacheStats {
 
 /// Helper to compute a cache key
 pub fn make_key(content_hash: u64, function_id: &str, params: &impl serde::Serialize) -> CacheKey {
-    let params_bytes = bincode::serialize(params).unwrap_or_default();
+    let params_bytes = bincode::serde::encode_to_vec(params, bincode::config::standard()).unwrap_or_default();
     let params_hash = u64::from_be_bytes(blake3::hash(&params_bytes).as_bytes()[0..8].try_into().unwrap());
 
     CacheKey {

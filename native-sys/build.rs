@@ -22,5 +22,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", zig_src.join("io.zig").display());
     println!("cargo:rerun-if-changed={}", zig_src.join("graph.zig").display());
     println!("cargo:rerun-if-changed={}", zig_src.join("simd.zig").display());
+    println!("cargo:rerun-if-changed={}", zig_src.join("bench.zig").display());
     println!("cargo:rerun-if-changed={}", root.join("build.zig").display());
+    println!("cargo:rerun-if-changed={}", root.join("build.zig.zon").display());
 }

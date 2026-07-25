@@ -9,11 +9,12 @@
 
 // Global allocator — mimalloc by default for better multi-threaded performance.
 // Use `--features jemalloc` for heap profiling and leak detection.
-#[cfg(not(feature = "jemalloc"))]
+// Note: jemalloc is only available on non-Windows platforms.
+#[cfg(not(all(feature = "jemalloc", not(target_os = "windows"))))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-#[cfg(feature = "jemalloc")]
+#[cfg(all(feature = "jemalloc", not(target_os = "windows")))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
@@ -1038,7 +1039,7 @@ async fn main() -> Result<()> {
                 let project_name = name.unwrap_or_else(|| "my-app".to_string());
                 let template = template.unwrap_or_else(|| "pledgestack".to_string());
                 (template, project_name)
-            } else if template.is_none() && atty::is(atty::Stream::Stdin) {
+            } else if template.is_none() && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
                 use dialoguer::{Select, Input, Confirm};
 
                 println!("\n  {} Pledgepack Create Wizard\n", style("pledge create").cyan().bold());
@@ -1585,7 +1586,7 @@ export default defineConfig({
             println!();
 
             // Interactive confirm if in a TTY
-            if atty::is(atty::Stream::Stdin) && !force {
+            if std::io::IsTerminal::is_terminal(&std::io::stdin()) && !force {
                 let proceed = inquire::Confirm::new("Proceed with these settings?")
                     .with_default(true)
                     .prompt();
