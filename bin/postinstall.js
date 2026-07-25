@@ -20,7 +20,6 @@ const PLATFORM_MAP = {
   'darwin-x64':   { target: 'x86_64-apple-darwin',        ext: '.tar.gz' },
   'darwin-arm64': { target: 'aarch64-apple-darwin',       ext: '.tar.gz' },
   'win32-x64':    { target: 'x86_64-pc-windows-msvc',     ext: '.zip' },
-  'win32-arm64':  { target: 'aarch64-pc-windows-msvc',    ext: '.zip' },
 };
 
 const platformKey = `${platform()}-${arch()}`;
