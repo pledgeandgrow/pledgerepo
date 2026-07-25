@@ -138,7 +138,7 @@ pub const ModuleGraph = struct {
     /// BFS through the reverse dependency graph.
     pub fn getInvalidationSet(self: *const ModuleGraph, module_id: u32, allocator: Allocator) ![]u32 {
         var visited = std.AutoHashMap(u32, void).init(allocator);
-        defer visited.deinit(allocator);
+        defer visited.deinit();
 
         var queue = std.ArrayList(u32).empty;
         defer queue.deinit(allocator);
