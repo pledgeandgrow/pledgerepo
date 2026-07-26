@@ -20,7 +20,7 @@ pub enum EdgeTarget {
 }
 
 impl EdgeTarget {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_target(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "cloudflare" | "cf" | "workers" => Some(Self::Cloudflare),
             "vercel" | "edge" => Some(Self::Vercel),
@@ -63,7 +63,11 @@ pub fn generate_edge_bundle(
     let output_path = out_dir.join(filename);
     std::fs::write(&output_path, &output)?;
 
-    info!("Generated {} edge bundle: {}", target_name(target), output_path.display());
+    info!(
+        "Generated {} edge bundle: {}",
+        target_name(target),
+        output_path.display()
+    );
 
     // Generate deployment config files
     match target {
@@ -103,12 +107,14 @@ compatibility_date = "2024-01-01"
 /// Generate Cloudflare Workers format
 fn generate_cloudflare_worker(bundle_code: &str, css_code: Option<&str>) -> String {
     let css_injection = css_code
-        .map(|css| format!(
-            r#"
+        .map(|css| {
+            format!(
+                r#"
 const PLEDGE_CSS = `{}`;
 "#,
-            css.replace('`', "\\`")
-        ))
+                css.replace('`', "\\`")
+            )
+        })
         .unwrap_or_default();
 
     format!(
@@ -134,21 +140,31 @@ export default {{
 }};
 "#,
         css_injection,
-        if css_code.is_some() { r#"<style id="__pledge_css"></style>"# } else { "" },
+        if css_code.is_some() {
+            r#"<style id="__pledge_css"></style>"#
+        } else {
+            ""
+        },
         bundle_code,
-        if css_code.is_some() { "<script>if(typeof PLEDGE_CSS!=='undefined'){var s=document.getElementById('__pledge_css');if(s)s.textContent=PLEDGE_CSS;}</script>" } else { "" },
+        if css_code.is_some() {
+            "<script>if(typeof PLEDGE_CSS!=='undefined'){var s=document.getElementById('__pledge_css');if(s)s.textContent=PLEDGE_CSS;}</script>"
+        } else {
+            ""
+        },
     )
 }
 
 /// Generate Vercel Edge Function format
 fn generate_vercel_edge(bundle_code: &str, css_code: Option<&str>) -> String {
     let css_injection = css_code
-        .map(|css| format!(
-            r#"
+        .map(|css| {
+            format!(
+                r#"
 const PLEDGE_CSS = `{}`;
 "#,
-            css.replace('`', "\\`")
-        ))
+                css.replace('`', "\\`")
+            )
+        })
         .unwrap_or_default();
 
     format!(
@@ -173,21 +189,31 @@ export default async function handler(request) {{
 }}
 "#,
         css_injection,
-        if css_code.is_some() { r#"<style id="__pledge_css"></style>"# } else { "" },
+        if css_code.is_some() {
+            r#"<style id="__pledge_css"></style>"#
+        } else {
+            ""
+        },
         bundle_code,
-        if css_code.is_some() { "<script>if(typeof PLEDGE_CSS!=='undefined'){var s=document.getElementById('__pledge_css');if(s)s.textContent=PLEDGE_CSS;}</script>" } else { "" },
+        if css_code.is_some() {
+            "<script>if(typeof PLEDGE_CSS!=='undefined'){var s=document.getElementById('__pledge_css');if(s)s.textContent=PLEDGE_CSS;}</script>"
+        } else {
+            ""
+        },
     )
 }
 
 /// Generate Deno Deploy format
 fn generate_deno_deploy(bundle_code: &str, css_code: Option<&str>) -> String {
     let css_injection = css_code
-        .map(|css| format!(
-            r#"
+        .map(|css| {
+            format!(
+                r#"
 const PLEDGE_CSS = `{}`;
 "#,
-            css.replace('`', "\\`")
-        ))
+                css.replace('`', "\\`")
+            )
+        })
         .unwrap_or_default();
 
     format!(
@@ -208,9 +234,17 @@ Deno.serve(async (request) => {{
 }});
 "#,
         css_injection,
-        if css_code.is_some() { r#"<style id="__pledge_css"></style>"# } else { "" },
+        if css_code.is_some() {
+            r#"<style id="__pledge_css"></style>"#
+        } else {
+            ""
+        },
         bundle_code,
-        if css_code.is_some() { "<script>if(typeof PLEDGE_CSS!=='undefined'){var s=document.getElementById('__pledge_css');if(s)s.textContent=PLEDGE_CSS;}</script>" } else { "" },
+        if css_code.is_some() {
+            "<script>if(typeof PLEDGE_CSS!=='undefined'){var s=document.getElementById('__pledge_css');if(s)s.textContent=PLEDGE_CSS;}</script>"
+        } else {
+            ""
+        },
     )
 }
 

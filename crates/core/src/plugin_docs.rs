@@ -73,14 +73,20 @@ pub fn render_markdown(docs: &PluginDocs) -> String {
                 md.push_str(&format!("{}\n\n", hook.description));
             }
 
-            md.push_str(&format!("**Signature:**\n```ts\n{}\n```\n\n", hook.signature));
+            md.push_str(&format!(
+                "**Signature:**\n```ts\n{}\n```\n\n",
+                hook.signature
+            ));
 
             if !hook.params.is_empty() {
                 md.push_str("**Parameters:**\n\n");
                 md.push_str("| Name | Type | Description |\n");
                 md.push_str("|------|------|-------------|\n");
                 for p in &hook.params {
-                    md.push_str(&format!("| `{}` | `{}` | {} |\n", p.name, p.type_annotation, p.description));
+                    md.push_str(&format!(
+                        "| `{}` | `{}` | {} |\n",
+                        p.name, p.type_annotation, p.description
+                    ));
                 }
                 md.push('\n');
             }
@@ -225,51 +231,51 @@ fn parse_jsdoc(before: &str) -> (String, Vec<ParamDoc>, String, Option<String>) 
     let mut returns = String::new();
     let mut example: Option<String> = None;
 
-    if let Some(doc_start) = before.rfind("/**") {
-        if let Some(doc_end) = before[doc_start..].find("*/") {
-            let doc = &before[doc_start + 3..doc_start + doc_end];
+    if let Some(doc_start) = before.rfind("/**")
+        && let Some(doc_end) = before[doc_start..].find("*/")
+    {
+        let doc = &before[doc_start + 3..doc_start + doc_end];
 
-            let mut in_example = false;
-            for line in doc.lines() {
-                let trimmed = line.trim().trim_start_matches('*').trim();
+        let mut in_example = false;
+        for line in doc.lines() {
+            let trimmed = line.trim().trim_start_matches('*').trim();
 
-                if in_example {
-                    if trimmed.is_empty() {
-                        in_example = false;
-                    } else {
-                        example = Some(match &example {
-                            Some(e) => format!("{}\n{}", e, trimmed),
-                            None => trimmed.to_string(),
-                        });
-                    }
-                    continue;
+            if in_example {
+                if trimmed.is_empty() {
+                    in_example = false;
+                } else {
+                    example = Some(match &example {
+                        Some(e) => format!("{}\n{}", e, trimmed),
+                        None => trimmed.to_string(),
+                    });
                 }
+                continue;
+            }
 
-                if trimmed.starts_with("@param") {
-                    // @param {Type} name description
-                    let rest = trimmed.strip_prefix("@param").unwrap_or("").trim();
-                    let param = parse_jsdoc_param(rest);
-                    params.push(param);
-                } else if trimmed.starts_with("@returns") || trimmed.starts_with("@return") {
-                    let rest = trimmed
-                        .strip_prefix("@returns")
-                        .or_else(|| trimmed.strip_prefix("@return"))
-                        .unwrap_or("")
-                        .trim();
-                    if let Some(start) = rest.find('{') {
-                        if let Some(end) = rest[start..].find('}') {
-                            returns = rest[start + 1..start + end].to_string();
-                        }
-                    }
-                } else if trimmed.starts_with("@example") {
-                    in_example = true;
-                } else if !trimmed.is_empty() && !trimmed.starts_with('@') {
-                    if description.is_empty() {
-                        description = trimmed.to_string();
-                    } else {
-                        description.push(' ');
-                        description.push_str(trimmed);
-                    }
+            if trimmed.starts_with("@param") {
+                // @param {Type} name description
+                let rest = trimmed.strip_prefix("@param").unwrap_or("").trim();
+                let param = parse_jsdoc_param(rest);
+                params.push(param);
+            } else if trimmed.starts_with("@returns") || trimmed.starts_with("@return") {
+                let rest = trimmed
+                    .strip_prefix("@returns")
+                    .or_else(|| trimmed.strip_prefix("@return"))
+                    .unwrap_or("")
+                    .trim();
+                if let Some(start) = rest.find('{')
+                    && let Some(end) = rest[start..].find('}')
+                {
+                    returns = rest[start + 1..start + end].to_string();
+                }
+            } else if trimmed.starts_with("@example") {
+                in_example = true;
+            } else if !trimmed.is_empty() && !trimmed.starts_with('@') {
+                if description.is_empty() {
+                    description = trimmed.to_string();
+                } else {
+                    description.push(' ');
+                    description.push_str(trimmed);
                 }
             }
         }
@@ -287,16 +293,18 @@ fn parse_jsdoc_param(rest: &str) -> ParamDoc {
     let mut rest = rest.trim();
 
     // Extract {Type}
-    if rest.starts_with('{') {
-        if let Some(end) = rest.find('}') {
-            type_annotation = rest[1..end].to_string();
-            rest = rest[end + 1..].trim();
-        }
+    if rest.starts_with('{')
+        && let Some(end) = rest.find('}')
+    {
+        type_annotation = rest[1..end].to_string();
+        rest = rest[end + 1..].trim();
     }
 
     // Extract name (first word, may be prefixed with [ ] for optional)
     if let Some(space) = rest.find(char::is_whitespace) {
-        name = rest[..space].trim_matches(|c| c == '[' || c == ']').to_string();
+        name = rest[..space]
+            .trim_matches(|c| c == '[' || c == ']')
+            .to_string();
         description = rest[space..].trim().to_string();
     } else {
         name = rest.trim_matches(|c| c == '[' || c == ']').to_string();
@@ -366,7 +374,10 @@ fn extract_params_from_signature(signature: &str) -> Vec<ParamDoc> {
             let p = p.trim();
             let parts: Vec<&str> = p.splitn(2, ':').collect();
             let name = parts[0].trim().to_string();
-            let type_annotation = parts.get(1).map(|t| t.trim().to_string()).unwrap_or_default();
+            let type_annotation = parts
+                .get(1)
+                .map(|t| t.trim().to_string())
+                .unwrap_or_default();
             ParamDoc {
                 name,
                 type_annotation,

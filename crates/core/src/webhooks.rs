@@ -23,10 +23,7 @@ pub struct BuildEvent {
 }
 
 /// Send build event webhook
-pub async fn send_webhook(
-    config: &WebhookConfig,
-    event: BuildEvent,
-) -> Result<()> {
+pub async fn send_webhook(config: &WebhookConfig, event: BuildEvent) -> Result<()> {
     if !config.enabled {
         return Ok(());
     }
@@ -57,19 +54,19 @@ pub async fn send_webhook(
     let headers = config.headers.clone();
 
     tokio::task::spawn_blocking(move || {
-        let mut req = ureq::post(&url)
-            .set("Content-Type", "application/json");
+        let mut req = ureq::post(&url).header("Content-Type", "application/json");
 
         for (key, value) in &headers {
-            req = req.set(key, value);
+            req = req.header(key, value);
         }
 
-        match req.send_string(&body) {
+        match req.send(&body) {
             Ok(resp) => {
-                if resp.status() >= 200 && resp.status() < 300 {
+                let status = resp.status().as_u16();
+                if (200..300).contains(&status) {
                     info!("Webhook sent to {}", url);
                 } else {
-                    warn!("Webhook returned status {} from {}", resp.status(), url);
+                    warn!("Webhook returned status {} from {}", status, url);
                 }
             }
             Err(e) => {
@@ -85,17 +82,32 @@ pub async fn send_webhook(
 
 /// Format event as Slack message
 fn format_slack_payload(event: &BuildEvent) -> String {
-    let status_emoji = if event.success { "white_check_mark" } else { "x" };
+    let status_emoji = if event.success {
+        "white_check_mark"
+    } else {
+        "x"
+    };
     let color = if event.success { "good" } else { "danger" };
 
-    let error_field = event.error.as_ref()
+    let error_field = event
+        .error
+        .as_ref()
         .map(|e| format!(r#",{{"title":"Error","value":"{}","short":false}}"#, e))
         .unwrap_or_default();
 
     format!(
         r#"{{"attachments":[{{"color":"{}","fields":[{{"title":"Status","value":":{}: {}","short":true}},{{"title":"Duration","value":"{}ms","short":true}},{{"title":"Modules","value":"{} built, {} cached","short":true}},{{"title":"Bundle Size","value":"{} bytes","short":true}}{}]}}]}}"#,
-        color, status_emoji, if event.success { "Build succeeded" } else { "Build failed" },
-        event.duration_ms, event.modules_built, event.modules_cached, event.bundle_size,
+        color,
+        status_emoji,
+        if event.success {
+            "Build succeeded"
+        } else {
+            "Build failed"
+        },
+        event.duration_ms,
+        event.modules_built,
+        event.modules_cached,
+        event.bundle_size,
         error_field,
     )
 }
@@ -103,15 +115,26 @@ fn format_slack_payload(event: &BuildEvent) -> String {
 /// Format event as Discord message
 fn format_discord_payload(event: &BuildEvent) -> String {
     let color = if event.success { 3066993 } else { 15158332 };
-    let title = if event.success { "Build Succeeded" } else { "Build Failed" };
+    let title = if event.success {
+        "Build Succeeded"
+    } else {
+        "Build Failed"
+    };
 
-    let error_field = event.error.as_ref()
+    let error_field = event
+        .error
+        .as_ref()
         .map(|e| format!(r#","description":"{}""#, e))
         .unwrap_or_default();
 
     format!(
         r#"{{"embeds":[{{"title":"{}","color":{}{},"fields":[{{"name":"Duration","value":"{}ms","inline":true}},{{"name":"Modules","value":"{} built, {} cached","inline":true}},{{"name":"Bundle Size","value":"{} bytes","inline":true}}]}}]}}"#,
-        title, color, error_field,
-        event.duration_ms, event.modules_built, event.modules_cached, event.bundle_size,
+        title,
+        color,
+        error_field,
+        event.duration_ms,
+        event.modules_built,
+        event.modules_cached,
+        event.bundle_size,
     )
 }

@@ -18,11 +18,32 @@ fn main() {
 
     // Tell cargo to rerun if Zig source changes
     let zig_src = root.join("native-sys").join("zig");
-    println!("cargo:rerun-if-changed={}", zig_src.join("lib.zig").display());
-    println!("cargo:rerun-if-changed={}", zig_src.join("io.zig").display());
-    println!("cargo:rerun-if-changed={}", zig_src.join("graph.zig").display());
-    println!("cargo:rerun-if-changed={}", zig_src.join("simd.zig").display());
-    println!("cargo:rerun-if-changed={}", zig_src.join("bench.zig").display());
-    println!("cargo:rerun-if-changed={}", root.join("build.zig").display());
-    println!("cargo:rerun-if-changed={}", root.join("build.zig.zon").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        zig_src.join("lib.zig").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        zig_src.join("io.zig").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        zig_src.join("graph.zig").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        zig_src.join("simd.zig").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        zig_src.join("bench.zig").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("build.zig").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("build.zig.zon").display()
+    );
 }

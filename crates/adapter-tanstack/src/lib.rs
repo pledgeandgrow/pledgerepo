@@ -82,15 +82,23 @@ impl TanStackAdapter {
                 let stem = name.split('.').next().unwrap_or(&name);
                 let (route_path, is_layout, params) = match stem {
                     "__root" | "root" => ("/".to_string(), true, Vec::new()),
-                    "index" => (if prefix.is_empty() { "/".to_string() } else { prefix.to_string() }, false, Vec::new()),
+                    "index" => (
+                        if prefix.is_empty() {
+                            "/".to_string()
+                        } else {
+                            prefix.to_string()
+                        },
+                        false,
+                        Vec::new(),
+                    ),
                     _ => {
                         // Check for layout
                         let is_layout = stem == "layout" || stem.ends_with(".layout");
                         // Dynamic param
                         let mut params: Vec<String> = Vec::new();
-                        let seg = if stem.starts_with('$') {
+                        let seg = if let Some(rest) = stem.strip_prefix('$') {
                             params.push(stem.to_string());
-                            format!(":{}", &stem[1..])
+                            format!(":{}", rest)
                         } else {
                             stem.to_string()
                         };
@@ -103,14 +111,22 @@ impl TanStackAdapter {
                     }
                 };
 
-                let file_rel = path.strip_prefix(&self.root).unwrap_or(&path).to_string_lossy().to_string();
+                let file_rel = path
+                    .strip_prefix(&self.root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .to_string();
                 let route_name = stem.replace('$', "").replace('-', "_");
 
                 self.routes.push(TanStackRoute {
                     path: route_path,
                     file: file_rel,
                     name: route_name,
-                    parent: if prefix.is_empty() { None } else { Some(prefix.to_string()) },
+                    parent: if prefix.is_empty() {
+                        None
+                    } else {
+                        Some(prefix.to_string())
+                    },
                     params,
                     is_layout,
                 });
@@ -135,7 +151,7 @@ impl TanStackAdapter {
             ));
         }
 
-        code.push_str("\n");
+        code.push('\n');
 
         // Build route tree
         code.push_str("export const routeTree = {\n");
@@ -148,7 +164,8 @@ impl TanStackAdapter {
         code.push_str("};\n\n");
 
         // Generate router setup
-        code.push_str(r#"export function createRouter() {
+        code.push_str(
+            r#"export function createRouter() {
   return {
     routes: routeTree,
     navigate(path) {
@@ -165,23 +182,28 @@ impl TanStackAdapter {
     }
   };
 }
-"#);
+"#,
+        );
 
         code
     }
 
     /// Generate type-safe route links manifest
     pub fn generate_route_manifest(&self) -> String {
-        let manifest: Vec<serde_json::Value> = self.routes.iter().map(|r| {
-            serde_json::json!({
-                "path": r.path,
-                "file": r.file,
-                "name": r.name,
-                "parent": r.parent,
-                "params": r.params,
-                "isLayout": r.is_layout,
+        let manifest: Vec<serde_json::Value> = self
+            .routes
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "path": r.path,
+                    "file": r.file,
+                    "name": r.name,
+                    "parent": r.parent,
+                    "params": r.params,
+                    "isLayout": r.is_layout,
+                })
             })
-        }).collect();
+            .collect();
 
         serde_json::to_string_pretty(&manifest).unwrap_or("[]".to_string())
     }

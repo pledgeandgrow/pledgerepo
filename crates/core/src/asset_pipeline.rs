@@ -33,10 +33,7 @@ pub fn read_asset_text_mmap(path: &Path) -> std::io::Result<String> {
 
 /// Discover asset files in a directory tree matching the given glob patterns.
 /// Uses globset for efficient pattern matching.
-pub fn discover_assets(
-    root: &Path,
-    patterns: &[String],
-) -> Vec<std::path::PathBuf> {
+pub fn discover_assets(root: &Path, patterns: &[String]) -> Vec<std::path::PathBuf> {
     let mut builder = globset::GlobSetBuilder::new();
     for pattern in patterns {
         if let Ok(glob) = globset::Glob::new(pattern) {
@@ -90,24 +87,24 @@ pub fn compile_mdx(source: &str, file_path: &str) -> MdxResult {
     let mut content = source.to_string();
 
     // Extract frontmatter (--- at the start of the file)
-    if content.starts_with("---") {
-        if let Some(end) = content[3..].find("---") {
-            let frontmatter_str = &content[3..3 + end];
-            for line in frontmatter_str.lines() {
-                let trimmed = line.trim();
-                if let Some(colon) = trimmed.find(':') {
-                    let key = trimmed[..colon].trim().to_string();
-                    let value = trimmed[colon + 1..]
-                        .trim()
-                        .trim_matches(|c| c == '"' || c == '\'')
-                        .to_string();
-                    if !key.is_empty() {
-                        result.frontmatter.insert(key, value);
-                    }
+    if content.starts_with("---")
+        && let Some(end) = content[3..].find("---")
+    {
+        let frontmatter_str = &content[3..3 + end];
+        for line in frontmatter_str.lines() {
+            let trimmed = line.trim();
+            if let Some(colon) = trimmed.find(':') {
+                let key = trimmed[..colon].trim().to_string();
+                let value = trimmed[colon + 1..]
+                    .trim()
+                    .trim_matches(|c| c == '"' || c == '\'')
+                    .to_string();
+                if !key.is_empty() {
+                    result.frontmatter.insert(key, value);
                 }
             }
-            content = content[3 + end + 3..].trim_start().to_string();
         }
+        content = content[3 + end + 3..].trim_start().to_string();
     }
 
     // Convert markdown to JSX
@@ -185,7 +182,10 @@ fn markdown_to_jsx(md: &str, _file_path: &str) -> String {
 
         // Blockquotes
         if let Some(rest) = line.trim_start().strip_prefix("> ") {
-            jsx.push_str(&format!("<blockquote>{}</blockquote>\n", inline_markdown(rest)));
+            jsx.push_str(&format!(
+                "<blockquote>{}</blockquote>\n",
+                inline_markdown(rest)
+            ));
             continue;
         }
 
@@ -289,7 +289,11 @@ fn generate_mdx_module(jsx: &str, frontmatter: &HashMap<String, String>) -> Stri
 
     // Export frontmatter as named exports
     for (key, value) in frontmatter {
-        code.push_str(&format!("export const {} = \"{}\";\n", key, value.replace('"', "\\\"")));
+        code.push_str(&format!(
+            "export const {} = \"{}\";\n",
+            key,
+            value.replace('"', "\\\"")
+        ));
     }
 
     // Export frontmatter object
@@ -353,7 +357,12 @@ pub fn parse_graphql(source: &str) -> GraphQLDocument {
         operations: Vec::new(),
     };
 
-    for kind in [GraphQLOperation::Query, GraphQLOperation::Mutation, GraphQLOperation::Subscription, GraphQLOperation::Fragment] {
+    for kind in [
+        GraphQLOperation::Query,
+        GraphQLOperation::Mutation,
+        GraphQLOperation::Subscription,
+        GraphQLOperation::Fragment,
+    ] {
         let keyword = kind.as_str();
         let mut search_pos = 0;
         while let Some(pos) = source[search_pos..].find(keyword) {
@@ -361,7 +370,9 @@ pub fn parse_graphql(source: &str) -> GraphQLDocument {
             let after = &source[abs_pos + keyword.len()..];
 
             // Extract operation name
-            let name_start = after.find(|c: char| c.is_alphabetic() || c == '_').unwrap_or(0);
+            let name_start = after
+                .find(|c: char| c.is_alphabetic() || c == '_')
+                .unwrap_or(0);
             let rest = &after[name_start..];
             let name_end = rest
                 .find(|c: char| !c.is_alphanumeric() && c != '_')
@@ -479,7 +490,9 @@ pub fn transform_yaml(source: &str) -> String {
     // Generate named exports for top-level object keys with valid JS identifiers
     if let serde_json::Value::Object(ref map) = parsed {
         for (key, val) in map {
-            if key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+            if key
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
                 && !key.chars().next().map(|c| c.is_numeric()).unwrap_or(true)
             {
                 code.push_str(&format!(
@@ -522,7 +535,10 @@ pub fn transform_csv(source: &str) -> String {
     let mut code = String::new();
 
     // Export headers as array
-    code.push_str(&format!("export const columns = {};\n", serde_json::to_string(headers).unwrap_or("[]".to_string())));
+    code.push_str(&format!(
+        "export const columns = {};\n",
+        serde_json::to_string(headers).unwrap_or("[]".to_string())
+    ));
 
     // Export row count
     code.push_str(&format!("export const rowCount = {};\n", data_rows.len()));
@@ -578,7 +594,11 @@ pub fn select_image_format(
     if supports_avif && file_size > 50_000 {
         return ImageFormatDecision {
             primary: "avif".to_string(),
-            fallback: if supports_webp { "webp".to_string() } else { "jpg".to_string() },
+            fallback: if supports_webp {
+                "webp".to_string()
+            } else {
+                "jpg".to_string()
+            },
             generate_multiple: true,
         };
     }
@@ -688,7 +708,9 @@ pub fn transform_video_asset(file_path: &str, is_inline: bool, source: &[u8]) ->
         // Poster is extracted as first frame and saved as .jpg next to video
         let poster_url = format!(
             "/{}.poster.jpg",
-            file_path.replace('\\', "/").trim_end_matches(".mp4")
+            file_path
+                .replace('\\', "/")
+                .trim_end_matches(".mp4")
                 .trim_end_matches(".webm")
                 .trim_end_matches(".mov")
                 .trim_end_matches(".avi")
@@ -854,7 +876,10 @@ mod tests {
     fn test_mdx_with_frontmatter() {
         let mdx = "---\ntitle: My Post\nauthor: John\n---\n# Hello";
         let result = compile_mdx(mdx, "test.mdx");
-        assert_eq!(result.frontmatter.get("title"), Some(&"My Post".to_string()));
+        assert_eq!(
+            result.frontmatter.get("title"),
+            Some(&"My Post".to_string())
+        );
         assert!(result.code.contains("export const title"));
     }
 
@@ -934,7 +959,13 @@ mod tests {
     #[test]
     fn test_asset_manifest() {
         let mut manifest = AssetManifest::new();
-        manifest.add("images/logo.png", "assets/logo-a1b2c3.png", "a1b2c3", 5000, "image/png");
+        manifest.add(
+            "images/logo.png",
+            "assets/logo-a1b2c3.png",
+            "a1b2c3",
+            5000,
+            "image/png",
+        );
         let json = manifest.to_json();
         assert!(json.contains("images/logo.png"));
         assert!(json.contains("assets/logo-a1b2c3.png"));

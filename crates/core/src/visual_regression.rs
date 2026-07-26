@@ -90,7 +90,10 @@ impl Default for VisualRegressionConfig {
 }
 
 /// Run visual regression tests
-pub fn run_visual_tests(config: &VisualRegressionConfig, server_port: u16) -> Result<VisualTestReport> {
+pub fn run_visual_tests(
+    config: &VisualRegressionConfig,
+    server_port: u16,
+) -> Result<VisualTestReport> {
     let start = std::time::Instant::now();
 
     // Create directories
@@ -118,7 +121,11 @@ pub fn run_visual_tests(config: &VisualRegressionConfig, server_port: u16) -> Re
 }
 
 /// Test a single page
-fn test_page(page: &VisualPage, config: &VisualRegressionConfig, port: u16) -> Result<VisualTestResult> {
+fn test_page(
+    page: &VisualPage,
+    config: &VisualRegressionConfig,
+    port: u16,
+) -> Result<VisualTestResult> {
     let url = format!("http://localhost:{}{}", port, page.path);
     let screenshot_name = format!("{}.png", page.name);
     let current_path = config.current_dir.join(&screenshot_name);
@@ -178,7 +185,11 @@ fn test_page(page: &VisualPage, config: &VisualRegressionConfig, port: u16) -> R
         message: if passed {
             "No visual regression detected".to_string()
         } else {
-            format!("Visual regression detected: {:.2}% diff (threshold: {:.2}%)", diff_percentage * 100.0, config.threshold * 100.0)
+            format!(
+                "Visual regression detected: {:.2}% diff (threshold: {:.2}%)",
+                diff_percentage * 100.0,
+                config.threshold * 100.0
+            )
         },
     })
 }
@@ -210,7 +221,8 @@ fn capture_screenshot(url: &str, width: u32, height: u32) -> Result<Vec<u8>> {
         0x90, 0x77, 0x53, 0xDE, // CRC
         0x00, 0x00, 0x00, 0x0C, // IDAT length
         0x49, 0x44, 0x41, 0x54, // "IDAT"
-        0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, // compressed data
+        0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00,
+        0x01, // compressed data
         0x5B, 0x42, 0x8C, 0x30, // CRC
         0x00, 0x00, 0x00, 0x00, // IEND length
         0x49, 0x45, 0x4E, 0x44, // "IEND"
@@ -285,19 +297,23 @@ pub fn format_visual_report(report: &VisualTestReport) -> String {
     }
 
     for result in &report.results {
-        let icon = if result.passed { "\x1b[32m✓\x1b[0m" } else { "\x1b[31m✗\x1b[0m" };
+        let icon = if result.passed {
+            "\x1b[32m✓\x1b[0m"
+        } else {
+            "\x1b[31m✗\x1b[0m"
+        };
         out.push_str(&format!(
             "  {} {} — {:.2}% diff — {}\n",
-            icon, result.page, result.diff_percentage * 100.0, result.message
+            icon,
+            result.page,
+            result.diff_percentage * 100.0,
+            result.message
         ));
 
-        if !result.passed {
-            if let Some(ref diff) = result.diff_path {
-                out.push_str(&format!(
-                    "    \x1b[90mDiff: {}\x1b[0m\n",
-                    diff.display()
-                ));
-            }
+        if !result.passed
+            && let Some(ref diff) = result.diff_path
+        {
+            out.push_str(&format!("    \x1b[90mDiff: {}\x1b[0m\n", diff.display()));
         }
     }
 
@@ -338,15 +354,21 @@ h1 { color: #6ad6ff; }
 <div class="card passed"><div class="num">"#);
 
     html.push_str(&format!("{}", report.passed));
-    html.push_str(r#"</div><div class="label">Passed</div></div>
-<div class="card failed"><div class="num">"#);
+    html.push_str(
+        r#"</div><div class="label">Passed</div></div>
+<div class="card failed"><div class="num">"#,
+    );
     html.push_str(&format!("{}", report.failed));
-    html.push_str(r#"</div><div class="label">Failed</div></div>
-<div class="card"><div class="num">"#);
+    html.push_str(
+        r#"</div><div class="label">Failed</div></div>
+<div class="card"><div class="num">"#,
+    );
     html.push_str(&format!("{}ms", report.duration_ms));
-    html.push_str(r#"</div><div class="label">Duration</div></div>
+    html.push_str(
+        r#"</div><div class="label">Duration</div></div>
 </div>
-"#);
+"#,
+    );
 
     for result in &report.results {
         let status_class = if result.passed { "pass" } else { "fail" };
@@ -360,7 +382,11 @@ h1 { color: #6ad6ff; }
 </div>
 </div>
 "#,
-            status_class, icon, result.page, result.diff_percentage * 100.0, result.message
+            status_class,
+            icon,
+            result.page,
+            result.diff_percentage * 100.0,
+            result.message
         ));
     }
 

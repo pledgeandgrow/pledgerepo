@@ -21,7 +21,7 @@ use oxc::allocator::Allocator;
 use oxc::codegen::{Codegen, CodegenOptions};
 use oxc::parser::{Parser, ParserReturn};
 use oxc::span::SourceType;
-use oxc::transformer::{Transformer, TransformOptions, JsxRuntime};
+use oxc::transformer::{JsxRuntime, TransformOptions, Transformer};
 use std::path::Path;
 use tracing::warn;
 
@@ -85,7 +85,7 @@ pub fn transform(
                 extracted_css: None,
                 is_worker: false,
                 dynamic_imports: Vec::new(),
-        content_hash: None,
+                content_hash: None,
             })
         }
         ModuleKind::Mdx => transform_mdx(source, file_path),
@@ -104,7 +104,7 @@ pub fn transform(
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
-        content_hash: None,
+            content_hash: None,
         }),
     }
 }
@@ -121,25 +121,34 @@ fn transform_js(
     let path = Path::new(file_path);
 
     // Determine source type from file path
-    let source_type = SourceType::from_path(path).unwrap_or_else(|_| {
-        match kind {
-            ModuleKind::Tsx => SourceType::tsx(),
-            ModuleKind::TypeScript => SourceType::ts(),
-            ModuleKind::Jsx => SourceType::jsx(),
-            _ => SourceType::mjs(),
-        }
+    let source_type = SourceType::from_path(path).unwrap_or_else(|_| match kind {
+        ModuleKind::Tsx => SourceType::tsx(),
+        ModuleKind::TypeScript => SourceType::ts(),
+        ModuleKind::Jsx => SourceType::jsx(),
+        _ => SourceType::mjs(),
     });
 
     // Step 1: Parse
-    let ParserReturn { mut program, errors: parser_errors, panicked, .. } =
-        Parser::new(&allocator, source, source_type).parse();
+    let ParserReturn {
+        mut program,
+        diagnostics: parser_errors,
+        panicked,
+        ..
+    } = Parser::new(&allocator, source, source_type).parse();
 
     if panicked || !parser_errors.is_empty() {
         for err in &parser_errors {
             warn!("Parse error in {}: {:?}", file_path, err);
         }
         if panicked {
-            bail!("Failed to parse {}: {}", file_path, parser_errors.first().map(|e| e.to_string()).unwrap_or("unknown".into()));
+            bail!(
+                "Failed to parse {}: {}",
+                file_path,
+                parser_errors
+                    .first()
+                    .map(|e| e.to_string())
+                    .unwrap_or("unknown".into())
+            );
         }
     }
 
@@ -181,12 +190,12 @@ fn transform_js(
         .build(&program);
 
     // Step 4: Transform (TS type stripping + JSX → JS)
+    let scoping = semantic_result.semantic.into_scoping();
     let transformer = Transformer::new(&allocator, path, &options);
-    let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
-    let transform_result = transformer.build_with_symbols_and_scopes(symbols, scopes, &mut program);
+    let transform_result = transformer.build_with_scoping(scoping, &mut program);
 
-    if !transform_result.errors.is_empty() {
-        for err in &transform_result.errors {
+    if !transform_result.diagnostics.is_empty() {
+        for err in &transform_result.diagnostics {
             warn!("Transform error in {}: {:?}", file_path, err);
         }
     }
@@ -194,10 +203,10 @@ fn transform_js(
     // Step 4b: Minify in production (dead code elimination, variable mangling, constant folding)
     if is_production {
         let minifier = oxc::minifier::Minifier::new(oxc::minifier::MinifierOptions {
-            mangle: true,
+            mangle: Some(Default::default()),
             ..Default::default()
         });
-        minifier.build(&allocator, &mut program);
+        minifier.minify(&allocator, &mut program);
     }
 
     // Step 5: Generate code with source map
@@ -233,8 +242,14 @@ fn transform_js(
     if !config.define.is_empty() {
         code = apply_define(&code, &config.define);
     }
-    
-    if !is_production && matches!(config.framework, Framework::React | Framework::Next | Framework::TanStack | Framework::PledgeStack) && is_react_component(source, file_path) {
+
+    if !is_production
+        && matches!(
+            config.framework,
+            Framework::React | Framework::Next | Framework::TanStack | Framework::PledgeStack
+        )
+        && is_react_component(source, file_path)
+    {
         code = inject_fast_refresh(&code, file_path);
     }
 
@@ -248,12 +263,17 @@ fn transform_js(
     }
 
     // Step 9b: CSS-in-JS compile-time extraction (styled-components, emotion, vanilla-extract)
-    let extracted_css = if let Some(extraction) = crate::css_in_js::extract_css_in_js(source, file_path) {
-        code = extraction.code;
-        if extraction.css.is_empty() { None } else { Some(extraction.css) }
-    } else {
-        None
-    };
+    let extracted_css =
+        if let Some(extraction) = crate::css_in_js::extract_css_in_js(source, file_path) {
+            code = extraction.code;
+            if extraction.css.is_empty() {
+                None
+            } else {
+                Some(extraction.css)
+            }
+        } else {
+            None
+        };
 
     // Generate source map if enabled, respecting source_map_mode config
     let source_map = if config.source_maps {
@@ -263,13 +283,21 @@ fn transform_js(
             "hidden" | "nosources" => {
                 // hidden: generate map but don't add sourceMappingURL comment
                 // nosources: generate map without source content
-                Some(generate_source_map_mode(file_path, source, &codegen_result.code, mode))
+                Some(generate_source_map_mode(
+                    file_path,
+                    source,
+                    &codegen_result.code,
+                    mode,
+                ))
             }
             "inline" => {
                 // inline: embed source map as base64 data URI in the code
                 let map = generate_source_map(file_path, source, &codegen_result.code);
                 let b64 = base64::engine::general_purpose::STANDARD.encode(map.as_bytes());
-                code.push_str(&format!("\n//# sourceMappingURL=data:application/json;base64,{}", b64));
+                code.push_str(&format!(
+                    "\n//# sourceMappingURL=data:application/json;base64,{}",
+                    b64
+                ));
                 None
             }
             _ => {
@@ -318,7 +346,11 @@ fn inline_process_env(code: &str, is_production: bool) -> String {
     let mut result = code.to_string();
 
     // Replace process.env.NODE_ENV first — most common case
-    let node_env = if is_production { "\"production\"" } else { "\"development\"" };
+    let node_env = if is_production {
+        "\"production\""
+    } else {
+        "\"development\""
+    };
     result = result.replace("process.env.NODE_ENV", node_env);
 
     // Replace other process.env.* variables — only scan for patterns that appear in the code
@@ -329,25 +361,24 @@ fn inline_process_env(code: &str, is_production: bool) -> String {
         let abs_pos = search_pos + pos;
         let after = &result[abs_pos + "process.env.".len()..];
         // Extract the variable name (alphanumeric + underscore)
-        let var_name: String = after.chars()
+        let var_name: String = after
+            .chars()
             .take_while(|c| c.is_alphanumeric() || *c == '_')
             .collect();
         if !var_name.is_empty() && var_name != "NODE_ENV" {
             let pattern = format!("process.env.{}", var_name);
             // Only replace if we haven't already processed this variable
-            if !env_vars_to_replace.iter().any(|(p, _)| p == &pattern) {
-                if let Ok(value) = std::env::var(&var_name) {
-                    env_vars_to_replace.push((pattern, value));
-                }
+            if !env_vars_to_replace.iter().any(|(p, _)| p == &pattern)
+                && let Ok(value) = std::env::var(&var_name)
+            {
+                env_vars_to_replace.push((pattern, value));
             }
         }
         search_pos = abs_pos + "process.env.".len();
     }
 
     for (pattern, value) in env_vars_to_replace {
-        let replacement = if value == "true" || value == "false" {
-            value.clone()
-        } else if value.parse::<f64>().is_ok() {
+        let replacement = if value == "true" || value == "false" || value.parse::<f64>().is_ok() {
             value.clone()
         } else {
             format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
@@ -398,7 +429,8 @@ fn eliminate_dead_branches(code: &str) -> String {
                         }
                     } else {
                         // Remove if-block, keep else content
-                        if let Some((else_bs, else_be)) = find_block_after(&result, else_start + 4) {
+                        if let Some((else_bs, else_be)) = find_block_after(&result, else_start + 4)
+                        {
                             let else_content = result[else_bs + 1..else_be].to_string();
                             result.replace_range(pos..else_be + 1, else_content.trim());
                             continue;
@@ -422,7 +454,8 @@ fn eliminate_dead_branches(code: &str) -> String {
     // Pattern: if (false) { ... } — remove the entire if block
     // We need to find matching braces, handling nesting
     while let Some(pos) = result.find("if (false)") {
-        if let Some((_block_start, block_end)) = find_block_after(&result, pos + "if (false)".len()) {
+        if let Some((_block_start, block_end)) = find_block_after(&result, pos + "if (false)".len())
+        {
             // Also check for trailing else and remove it too if it's an if-false
             let after = &result[block_end..];
             if after.trim_start().starts_with("else") {
@@ -489,14 +522,18 @@ fn find_block_after(code: &str, start: usize) -> Option<(usize, usize)> {
                 // Skip string literals
                 pos += 1;
                 while pos < code.len() && code.as_bytes()[pos] != b'"' {
-                    if code.as_bytes()[pos] == b'\\' { pos += 1; }
+                    if code.as_bytes()[pos] == b'\\' {
+                        pos += 1;
+                    }
                     pos += 1;
                 }
             }
             b'\'' => {
                 pos += 1;
                 while pos < code.len() && code.as_bytes()[pos] != b'\'' {
-                    if code.as_bytes()[pos] == b'\\' { pos += 1; }
+                    if code.as_bytes()[pos] == b'\\' {
+                        pos += 1;
+                    }
                     pos += 1;
                 }
             }
@@ -504,7 +541,9 @@ fn find_block_after(code: &str, start: usize) -> Option<(usize, usize)> {
                 // Skip template literals — may contain ${...} expressions
                 pos += 1;
                 while pos < code.len() && code.as_bytes()[pos] != b'`' {
-                    if code.as_bytes()[pos] == b'\\' { pos += 1; }
+                    if code.as_bytes()[pos] == b'\\' {
+                        pos += 1;
+                    }
                     pos += 1;
                 }
             }
@@ -517,7 +556,9 @@ fn find_block_after(code: &str, start: usize) -> Option<(usize, usize)> {
             b'/' if pos + 1 < code.len() && code.as_bytes()[pos + 1] == b'*' => {
                 // Skip block comments
                 pos += 2;
-                while pos + 1 < code.len() && !(code.as_bytes()[pos] == b'*' && code.as_bytes()[pos + 1] == b'/') {
+                while pos + 1 < code.len()
+                    && !(code.as_bytes()[pos] == b'*' && code.as_bytes()[pos + 1] == b'/')
+                {
                     pos += 1;
                 }
                 pos += 1;
@@ -540,9 +581,7 @@ fn apply_define(code: &str, define: &std::collections::HashMap<String, String>) 
     let mut result = code.to_string();
     for (key, value) in define {
         // Try to parse the value as JSON to determine the replacement
-        let replacement = if value == "true" || value == "false" {
-            value.clone()
-        } else if value.parse::<f64>().is_ok() {
+        let replacement = if value == "true" || value == "false" || value.parse::<f64>().is_ok() {
             value.clone()
         } else if value.starts_with('"') || value.starts_with('\'') {
             // Already a string literal
@@ -648,10 +687,8 @@ fn expand_import_meta_glob(code: &str, file_path: &str, config: &PledgeConfig) -
                         serde_json::to_string(&content).unwrap_or_else(|_| "\"\"".to_string())
                     ));
                 } else {
-                    imports_prefix.push_str(&format!(
-                        "import * as {} from '{}';\n",
-                        var_name, rel_path
-                    ));
+                    imports_prefix
+                        .push_str(&format!("import * as {} from '{}';\n", var_name, rel_path));
                 }
                 let export_value = if import_filter == "default" {
                     format!("{}.default", var_name)
@@ -671,8 +708,10 @@ fn expand_import_meta_glob(code: &str, file_path: &str, config: &PledgeConfig) -
                     map_entries.push(format!(
                         "{}: () => Promise.resolve({})",
                         serde_json::to_string(rel_path).unwrap_or_else(|_| "\"\"".to_string()),
-                        serde_json::to_string(&std::fs::read_to_string(abs_path).unwrap_or_default())
-                            .unwrap_or_else(|_| "\"\"".to_string())
+                        serde_json::to_string(
+                            &std::fs::read_to_string(abs_path).unwrap_or_default()
+                        )
+                        .unwrap_or_else(|_| "\"\"".to_string())
                     ));
                 } else {
                     map_entries.push(format!(
@@ -699,10 +738,10 @@ fn expand_import_meta_glob(code: &str, file_path: &str, config: &PledgeConfig) -
 fn extract_glob_pattern(args: &str) -> Option<String> {
     let trimmed = args.trim();
     for quote in ['"', '\''] {
-        if trimmed.starts_with(quote) {
-            if let Some(end) = trimmed[1..].find(quote) {
-                return Some(trimmed[1..1 + end].to_string());
-            }
+        if trimmed.starts_with(quote)
+            && let Some(end) = trimmed[1..].find(quote)
+        {
+            return Some(trimmed[1..1 + end].to_string());
         }
     }
     None
@@ -714,17 +753,17 @@ fn extract_import_filter(args: &str) -> &str {
         let rest = &args[pos + 7..];
         let trimmed = rest.trim();
         for quote in ['"', '\''] {
-            if trimmed.starts_with(quote) {
-                if let Some(end) = trimmed[1..].find(quote) {
-                    // Return a static slice — we'll match against known values
-                    let val = &trimmed[1..1 + end];
-                    return match val {
-                        "default" => "default",
-                        "*" => "*",
-                        "named" => "named",
-                        _ => "default",
-                    };
-                }
+            if trimmed.starts_with(quote)
+                && let Some(end) = trimmed[1..].find(quote)
+            {
+                // Return a static slice — we'll match against known values
+                let val = &trimmed[1..1 + end];
+                return match val {
+                    "default" => "default",
+                    "*" => "*",
+                    "named" => "named",
+                    _ => "default",
+                };
             }
         }
     }
@@ -788,11 +827,11 @@ fn glob_walk(
             } else if path.is_file() {
                 // Match the filename against the glob pattern
                 let name = entry.file_name().to_string_lossy().to_string();
-                if matcher.is_match(&name) {
-                    if let Ok(rel) = path.strip_prefix(root) {
-                        let rel_str = rel.to_string_lossy().replace('\\', "/");
-                        results.push((rel_str, path));
-                    }
+                if matcher.is_match(&name)
+                    && let Ok(rel) = path.strip_prefix(root)
+                {
+                    let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    results.push((rel_str, path));
                 }
             }
         }
@@ -823,7 +862,12 @@ fn generate_source_map(file_path: &str, original_source: &str, _generated_code: 
 }
 
 /// Generate a source map with configurable nosources mode
-fn generate_source_map_mode(file_path: &str, original_source: &str, _generated_code: &str, mode: &str) -> String {
+fn generate_source_map_mode(
+    file_path: &str,
+    original_source: &str,
+    _generated_code: &str,
+    mode: &str,
+) -> String {
     let file_name = Path::new(file_path)
         .file_name()
         .and_then(|n| n.to_str())
@@ -851,10 +895,13 @@ fn generate_source_map_mode(file_path: &str, original_source: &str, _generated_c
 /// - Nesting transpilation
 /// - Autoprefixing (browser targets)
 /// - CSS Modules (if file is *.module.css)
-fn transform_css(source: &str, file_path: &str, is_production: bool, config: &PledgeConfig) -> Result<TransformOutput> {
-    use lightningcss::stylesheet::{
-        StyleSheet, ParserOptions, PrinterOptions
-    };
+fn transform_css(
+    source: &str,
+    file_path: &str,
+    is_production: bool,
+    config: &PledgeConfig,
+) -> Result<TransformOutput> {
+    use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 
     let is_css_module = file_path.ends_with(".module.css");
 
@@ -875,19 +922,19 @@ fn transform_css(source: &str, file_path: &str, is_production: bool, config: &Pl
     };
 
     // Parse the CSS
-    let mut stylesheet = StyleSheet::parse(
-        &processed_source,
-        ParserOptions::default(),
-    ).map_err(|e| anyhow::anyhow!("CSS parse error in {}: {}", file_path, e))?;
+    let mut stylesheet = StyleSheet::parse(&processed_source, ParserOptions::default())
+        .map_err(|e| anyhow::anyhow!("CSS parse error in {}: {}", file_path, e))?;
 
     // Minify (also resolves nesting) — always run to transpile CSS nesting
     // In production, full minify; in dev, just resolve nesting
     if is_production {
-        stylesheet.minify(lightningcss::stylesheet::MinifyOptions::default())
+        stylesheet
+            .minify(lightningcss::stylesheet::MinifyOptions::default())
             .map_err(|e| anyhow::anyhow!("CSS minify error in {}: {}", file_path, e))?;
     } else {
         // In dev mode, still transpile nesting so browsers don't choke on it
-        stylesheet.minify(lightningcss::stylesheet::MinifyOptions::default())
+        stylesheet
+            .minify(lightningcss::stylesheet::MinifyOptions::default())
             .map_err(|e| anyhow::anyhow!("CSS nesting transpile error in {}: {}", file_path, e))?;
     }
 
@@ -897,7 +944,8 @@ fn transform_css(source: &str, file_path: &str, is_production: bool, config: &Pl
         ..Default::default()
     };
 
-    let result = stylesheet.to_css(printer_options)
+    let result = stylesheet
+        .to_css(printer_options)
         .map_err(|e| anyhow::anyhow!("CSS serialize error in {}: {}", file_path, e))?;
 
     // Apply container query polyfill for older browser targets
@@ -924,7 +972,10 @@ fn transform_css(source: &str, file_path: &str, is_production: bool, config: &Pl
 
     // #68: CSS custom properties optimization (production only)
     let css_code = if is_production && config.css.optimize_custom_properties {
-        crate::css_advanced::optimize_custom_properties(&css_code, config.css.minify_custom_property_names)
+        crate::css_advanced::optimize_custom_properties(
+            &css_code,
+            config.css.minify_custom_property_names,
+        )
     } else {
         css_code
     };
@@ -946,7 +997,9 @@ fn transform_css(source: &str, file_path: &str, is_production: bool, config: &Pl
 
     // Generate CSS source map in dev mode
     let source_map = if !is_production && config.source_maps {
-        Some(crate::css_features::generate_css_source_map(file_path, source, &css_code))
+        Some(crate::css_features::generate_css_source_map(
+            file_path, source, &css_code,
+        ))
     } else {
         None
     };
@@ -967,34 +1020,35 @@ fn transform_css(source: &str, file_path: &str, is_production: bool, config: &Pl
 /// Each class name gets a scoped name: `original` → `_original_hash6`.
 fn generate_css_module_map(css: &str, file_path: &str) -> Vec<(String, String)> {
     let mut mappings = Vec::new();
-    
+
     // Extract class names from CSS selectors (.classname)
     let mut seen = std::collections::HashSet::new();
     let mut search_pos = 0;
     while let Some(pos) = css[search_pos..].find('.') {
         let abs_pos = search_pos + pos + 1;
         let rest = &css[abs_pos..];
-        
+
         // Extract the class name (alphanumeric, hyphens, underscores)
-        let end = rest.find(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
+        let end = rest
+            .find(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
             .unwrap_or(rest.len());
         let class_name = &rest[..end];
-        
+
         if !class_name.is_empty() && !seen.contains(class_name) {
             seen.insert(class_name.to_string());
-            
+
             // Generate scoped name using blake3 hash of file_path + class_name
             let hash_input = format!("{}:{}", file_path, class_name);
             let hash = blake3::hash(hash_input.as_bytes());
             let hash_hex = &hash.to_hex()[..6];
             let scoped = format!("_{}_{}", class_name, hash_hex);
-            
+
             mappings.push((class_name.to_string(), scoped));
         }
-        
+
         search_pos = abs_pos;
     }
-    
+
     mappings
 }
 
@@ -1002,8 +1056,8 @@ fn generate_css_module_map(css: &str, file_path: &str) -> Vec<(String, String)> 
 /// Supports both default export and named exports for top-level keys
 /// In production mode, JSON is minified (compact serialization)
 fn transform_json(source: &str) -> Result<TransformOutput> {
-    let value: serde_json::Value = serde_json::from_str(source)
-        .map_err(|e| anyhow::anyhow!("JSON parse error: {}", e))?;
+    let value: serde_json::Value =
+        serde_json::from_str(source).map_err(|e| anyhow::anyhow!("JSON parse error: {}", e))?;
 
     let mut code = String::new();
 
@@ -1011,7 +1065,11 @@ fn transform_json(source: &str) -> Result<TransformOutput> {
     if let serde_json::Value::Object(map) = &value {
         for (key, val) in map {
             // Only export valid JS identifier keys
-            if key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') && !key.chars().next().map(|c| c.is_numeric()).unwrap_or(true) {
+            if key
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+                && !key.chars().next().map(|c| c.is_numeric()).unwrap_or(true)
+            {
                 // Use compact serialization for each value
                 let val_str = serde_json::to_string(val).unwrap_or_else(|_| "null".to_string());
                 code.push_str(&format!("export const {} = {};\n", key, val_str));
@@ -1020,7 +1078,8 @@ fn transform_json(source: &str) -> Result<TransformOutput> {
     }
 
     // Default export — use compact (minified) serialization
-    let default_export = serde_json::to_string(&value).unwrap_or_else(|_| source.trim().to_string());
+    let default_export =
+        serde_json::to_string(&value).unwrap_or_else(|_| source.trim().to_string());
     code.push_str(&format!("export default {};", default_export));
 
     Ok(TransformOutput {
@@ -1040,7 +1099,12 @@ fn transform_json(source: &str) -> Result<TransformOutput> {
 /// With ?inline query → base64 data URI
 /// In production, assets smaller than assets_inline_limit are automatically inlined as base64
 /// When image optimization is enabled, raster images are processed: resized, converted to WebP/JPEG, with srcset and blur placeholder
-fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: &PledgeConfig) -> Result<TransformOutput> {
+fn transform_asset(
+    file_path: &str,
+    source: &[u8],
+    is_production: bool,
+    config: &PledgeConfig,
+) -> Result<TransformOutput> {
     let is_inline = file_path.contains("?inline")
         || (is_production && source.len() < config.build.assets_inline_limit);
     let clean_path = file_path.split('?').next().unwrap_or(file_path);
@@ -1049,7 +1113,9 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
     if is_production && config.image.enabled && !is_inline {
         // Check if this is a raster image (not SVG)
         if crate::image_pipeline::is_raster_image(source) {
-            use crate::image_pipeline::{ImageOptions, ImageFormat, process_image, generate_image_module};
+            use crate::image_pipeline::{
+                ImageFormat, ImageOptions, generate_image_module, process_image,
+            };
 
             // Build ImageOptions from config
             let mut formats = Vec::new();
@@ -1087,7 +1153,7 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
                         extracted_css: None,
                         is_worker: false,
                         dynamic_imports: Vec::new(),
-        content_hash: None,
+                        content_hash: None,
                     });
                 }
                 Err(e) => {
@@ -1100,7 +1166,8 @@ fn transform_asset(file_path: &str, source: &[u8], is_production: bool, config: 
         // Check if this is an SVG — optimize it
         if crate::svg::is_svg(std::path::Path::new(clean_path)) {
             let svg_source = std::str::from_utf8(source).unwrap_or("");
-            let optimized = crate::svg::optimize_svg(svg_source, &crate::svg::SvgOptions::default());
+            let optimized =
+                crate::svg::optimize_svg(svg_source, &crate::svg::SvgOptions::default());
 
             // #77: ?sprite suffix — generate SVG sprite symbol
             if file_path.contains("?sprite") {
@@ -1127,7 +1194,7 @@ export const sprite = `{}`;"#,
                     extracted_css: Some(sprite),
                     is_worker: false,
                     dynamic_imports: Vec::new(),
-        content_hash: None,
+                    content_hash: None,
                 });
             }
 
@@ -1142,7 +1209,7 @@ export const sprite = `{}`;"#,
                 extracted_css: Some(optimized),
                 is_worker: false,
                 dynamic_imports: Vec::new(),
-        content_hash: None,
+                content_hash: None,
             });
         }
     }
@@ -1158,7 +1225,7 @@ export const sprite = `{}`;"#,
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
-        content_hash: None,
+            content_hash: None,
         });
     }
     if crate::asset_pipeline::is_video_file(clean_path) {
@@ -1171,7 +1238,7 @@ export const sprite = `{}`;"#,
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
-        content_hash: None,
+            content_hash: None,
         });
     }
     if clean_path.ends_with(".pdf") {
@@ -1184,7 +1251,7 @@ export const sprite = `{}`;"#,
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
-        content_hash: None,
+            content_hash: None,
         });
     }
 
@@ -1203,7 +1270,7 @@ export const sprite = `{}`;"#,
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
-        content_hash: None,
+            content_hash: None,
         })
     } else {
         // URL string — relative to project root
@@ -1217,7 +1284,7 @@ export const sprite = `{}`;"#,
             extracted_css: None,
             is_worker: false,
             dynamic_imports: Vec::new(),
-        content_hash: None,
+            content_hash: None,
         })
     }
 }
@@ -1235,13 +1302,16 @@ fn transform_wasm(file_path: &str, config: &PledgeConfig) -> Result<TransformOut
     let code = match simd_mode.as_str() {
         "always" => {
             // Always use SIMD-optimized streaming instantiation
-            format!(r#"export default async function() {{
+            format!(
+                r#"export default async function() {{
   const {{ instance }} = await WebAssembly.instantiateStreaming(
     fetch("{}", {{ headers: {{ "Content-Type": "application/wasm" }} }}),
     {{}}
   );
   return instance.exports;
-}}"#, url)
+}}"#,
+                url
+            )
         }
         "never" => {
             // Non-SIMD with streaming + fallback
@@ -1250,7 +1320,8 @@ fn transform_wasm(file_path: &str, config: &PledgeConfig) -> Result<TransformOut
         _ => {
             // "auto" — runtime SIMD detection via WebAssembly.validate()
             let simd_url = format!("{}.simd.wasm", url.trim_end_matches(".wasm"));
-            format!(r#"// WASM SIMD auto-detection (#55) + streaming compilation (#74)
+            format!(
+                r#"// WASM SIMD auto-detection (#55) + streaming compilation (#74)
 const _simdTest = new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,12,1,10,0,65,0,253,15,253,15,11]);
 const _hasSimd = (() => {{
   try {{ return WebAssembly.validate(_simdTest); }} catch {{ return false; }}
@@ -1268,7 +1339,9 @@ export default async function() {{
   const bytes = new Uint8Array(await response.arrayBuffer());
   const {{ instance }} = await WebAssembly.instantiate(bytes, {{}});
   return instance.exports;
-}}"#, simd_url, url)
+}}"#,
+                simd_url, url
+            )
         }
     };
 
@@ -1330,14 +1403,18 @@ fn transform_vue(source: &str, file_path: &str, is_production: bool) -> Result<T
     // Process <script> block — transform with Oxc if it contains TS/JSX
     if let Some(script_content) = &script {
         let is_setup = source.contains("<script setup");
-        let is_ts = source.contains("<script setup lang=\"ts\"") || source.contains("<script lang=\"ts\"");
+        let is_ts =
+            source.contains("<script setup lang=\"ts\"") || source.contains("<script lang=\"ts\"");
 
         // Transform script content with Oxc if TypeScript
         let transformed_script = if is_ts {
             let allocator = Allocator::default();
             let source_type = SourceType::tsx();
-            let ParserReturn { mut program, panicked, .. } =
-                Parser::new(&allocator, script_content, source_type).parse();
+            let ParserReturn {
+                mut program,
+                panicked,
+                ..
+            } = Parser::new(&allocator, script_content, source_type).parse();
             if !panicked {
                 let mut options = TransformOptions::default();
                 options.typescript.only_remove_type_imports = false;
@@ -1345,8 +1422,8 @@ fn transform_vue(source: &str, file_path: &str, is_production: bool) -> Result<T
                     .with_check_syntax_error(false)
                     .build(&program);
                 let transformer = Transformer::new(&allocator, Path::new(file_path), &options);
-                let (symbols, scopes) = semantic.semantic.into_symbol_table_and_scope_tree();
-                let _ = transformer.build_with_symbols_and_scopes(symbols, scopes, &mut program);
+                let scoping = semantic.semantic.into_scoping();
+                let _ = transformer.build_with_scoping(scoping, &mut program);
                 let result = Codegen::new().build(&program);
                 result.code
             } else {
@@ -1362,7 +1439,10 @@ fn transform_vue(source: &str, file_path: &str, is_production: bool) -> Result<T
             code.push('\n');
             if let Some(template_content) = &template {
                 let render_fn = compile_vue_template(template_content);
-                code.push_str(&format!("\nexport default {{\n  render: {}\n}};\n", render_fn));
+                code.push_str(&format!(
+                    "\nexport default {{\n  render: {}\n}};\n",
+                    render_fn
+                ));
             } else {
                 code.push_str("\nexport default {};\n");
             }
@@ -1390,12 +1470,15 @@ fn transform_vue(source: &str, file_path: &str, is_production: bool) -> Result<T
 
     // Inject Vue HMR boundary with component-level hot replacement
     if !is_production {
-        code.push_str(r#"
+        code.push_str(
+            r#"
 // Vue HMR — component-level hot replacement
 if (import.meta.hot) {
-  const __vue_component = __pledge_vue_components && __pledge_vue_components['"#);
+  const __vue_component = __pledge_vue_components && __pledge_vue_components['"#,
+        );
         code.push_str(file_path);
-        code.push_str(r#"'];
+        code.push_str(
+            r#"'];
   if (__vue_component && __vue_component.__hmr_id) {
     import.meta.hot.accept((newModule) => {
       if (newModule && newModule.default) {
@@ -1417,7 +1500,8 @@ if (import.meta.hot) {
   }
   import.meta.hot.accept();
 }
-"#);
+"#,
+        );
     }
 
     Ok(TransformOutput {
@@ -1533,7 +1617,10 @@ impl<'a> HtmlParser<'a> {
                 break;
             }
             if self.starts_with("<!--") {
-                let end = self.remaining().find("-->").unwrap_or(self.remaining().len());
+                let end = self
+                    .remaining()
+                    .find("-->")
+                    .unwrap_or(self.remaining().len());
                 self.advance(end + 3);
                 continue;
             }
@@ -1559,9 +1646,7 @@ impl<'a> HtmlParser<'a> {
 
         loop {
             self.skip_whitespace();
-            if self.peek().is_none() {
-                return None;
-            }
+            self.peek()?;
             if self.starts_with("/>") {
                 self.advance(2);
                 self_closing = true;
@@ -1686,7 +1771,8 @@ fn nodes_to_render_calls(nodes: &[HtmlNode], depth: usize) -> String {
     if nodes.len() == 1 {
         return node_to_render_call(&nodes[0], depth);
     }
-    let items: Vec<String> = nodes.iter()
+    let items: Vec<String> = nodes
+        .iter()
         .map(|n| node_to_render_call(n, depth + 1))
         .collect();
     format!("[{}]", items.join(", "))
@@ -1703,8 +1789,18 @@ fn node_to_render_call(node: &HtmlNode, depth: usize) -> String {
                 format!("'{}'", escape_js_string(text))
             }
         }
-        HtmlNode::Element { tag, attrs, children, .. } => {
-            let tag_expr = if tag.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+        HtmlNode::Element {
+            tag,
+            attrs,
+            children,
+            ..
+        } => {
+            let tag_expr = if tag
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+            {
                 tag.clone()
             } else {
                 format!("'{}'", tag)
@@ -1714,7 +1810,8 @@ fn node_to_render_call(node: &HtmlNode, depth: usize) -> String {
             let children_expr = if children.is_empty() {
                 String::new()
             } else {
-                let child_calls: Vec<String> = children.iter()
+                let child_calls: Vec<String> = children
+                    .iter()
                     .map(|c| node_to_render_call(c, depth + 1))
                     .collect();
                 format!(", {}", child_calls.join(", "))
@@ -1854,7 +1951,7 @@ fn css_string_to_object(css: &str) -> String {
 
 /// Add scoped attribute to CSS selectors (for Vue scoped styles)
 fn add_scope_to_css(css: &str, attr: &str) -> String {
-    // Add [data-v-xxx] to each selector before the { 
+    // Add [data-v-xxx] to each selector before the {
     let mut result = String::new();
     for line in css.lines() {
         if line.contains('{') && !line.starts_with('@') && !line.starts_with('}') {
@@ -1900,8 +1997,11 @@ fn transform_svelte(source: &str, file_path: &str, is_production: bool) -> Resul
         let is_ts = source.contains("<script lang=\"ts\"");
         let transformed_script = if is_ts {
             let allocator = Allocator::default();
-            let ParserReturn { mut program, panicked, .. } =
-                Parser::new(&allocator, script_content, SourceType::ts()).parse();
+            let ParserReturn {
+                mut program,
+                panicked,
+                ..
+            } = Parser::new(&allocator, script_content, SourceType::ts()).parse();
             if !panicked {
                 let mut options = TransformOptions::default();
                 options.typescript.only_remove_type_imports = false;
@@ -1909,8 +2009,8 @@ fn transform_svelte(source: &str, file_path: &str, is_production: bool) -> Resul
                     .with_check_syntax_error(false)
                     .build(&program);
                 let transformer = Transformer::new(&allocator, Path::new(file_path), &options);
-                let (symbols, scopes) = semantic.semantic.into_symbol_table_and_scope_tree();
-                let _ = transformer.build_with_symbols_and_scopes(symbols, scopes, &mut program);
+                let scoping = semantic.semantic.into_scoping();
+                let _ = transformer.build_with_scoping(scoping, &mut program);
                 Codegen::new().build(&program).code
             } else {
                 script_content.clone()
@@ -1958,7 +2058,8 @@ export default {{
 
     // Inject Svelte HMR boundary with component-level hot replacement
     if !is_production {
-        code.push_str(r#"
+        code.push_str(
+            r#"
 // Svelte HMR — component-level hot replacement
 if (import.meta.hot) {
   import.meta.hot.accept((newModule) => {
@@ -1986,7 +2087,8 @@ if (import.meta.hot) {
     }
   });
 }
-"#);
+"#,
+        );
     }
 
     Ok(TransformOutput {
@@ -2007,14 +2109,20 @@ fn nodes_to_svelte_render(nodes: &[HtmlNode], depth: usize) -> String {
     let mut code = String::new();
 
     if nodes.is_empty() {
-        code.push_str(&format!("{}root = document.createElement('div');\n", indent));
+        code.push_str(&format!(
+            "{}root = document.createElement('div');\n",
+            indent
+        ));
         return code;
     }
 
     if nodes.len() == 1 {
         code.push_str(&node_to_svelte_dom(&nodes[0], "root", depth));
     } else {
-        code.push_str(&format!("{}root = document.createDocumentFragment();\n", indent));
+        code.push_str(&format!(
+            "{}root = document.createDocumentFragment();\n",
+            indent
+        ));
         for (i, node) in nodes.iter().enumerate() {
             let var = format!("child_{}", i);
             code.push_str(&node_to_svelte_dom(node, &var, depth));
@@ -2034,25 +2142,39 @@ fn node_to_svelte_dom(node: &HtmlNode, var: &str, depth: usize) -> String {
                 // Svelte-style reactive text: {expression}
                 let cleaned = text.replace("{{", "").replace("}}", "");
                 let expr = cleaned.trim();
-                format!("{}const {} = document.createTextNode(String({}));\n", indent, var, expr)
+                format!(
+                    "{}const {} = document.createTextNode(String({}));\n",
+                    indent, var, expr
+                )
             } else {
-                format!("{}const {} = document.createTextNode('{}');\n", indent, var, escape_js_string(text))
+                format!(
+                    "{}const {} = document.createTextNode('{}');\n",
+                    indent,
+                    var,
+                    escape_js_string(text)
+                )
             }
         }
-        HtmlNode::Element { tag, attrs, children, .. } => {
+        HtmlNode::Element {
+            tag,
+            attrs,
+            children,
+            ..
+        } => {
             let mut code = String::new();
-            code.push_str(&format!("{}const {} = document.createElement('{}');\n", indent, var, tag));
+            code.push_str(&format!(
+                "{}const {} = document.createElement('{}');\n",
+                indent, var, tag
+            ));
 
             // Apply attributes
             for (name, value) in attrs {
-                if name.starts_with("on:") {
-                    let event = &name[3..];
+                if let Some(event) = name.strip_prefix("on:") {
                     code.push_str(&format!(
                         "{}{}.addEventListener('{}', (e) => {{ {} }});\n",
                         indent, var, event, value
                     ));
-                } else if name.starts_with("bind:") {
-                    let prop = &name[5..];
+                } else if let Some(prop) = name.strip_prefix("bind:") {
                     code.push_str(&format!(
                         "{}{}.{} = {};\n{}{}.addEventListener('input', (e) => {{ {} = e.target.{} }});\n",
                         indent, var, prop, value, indent, var, value, prop
@@ -2062,16 +2184,31 @@ fn node_to_svelte_dom(node: &HtmlNode, var: &str, depth: usize) -> String {
                     let expr = name.trim_start_matches('{').trim_end_matches('}').trim();
                     code.push_str(&format!(
                         "{}{}.setAttribute('data-svelte-expr', '{}');\n",
-                        indent, var, escape_js_string(expr)
+                        indent,
+                        var,
+                        escape_js_string(expr)
                     ));
                 } else if name == "class" {
-                    code.push_str(&format!("{}{}.className = '{}';\n", indent, var, escape_js_string(value)));
+                    code.push_str(&format!(
+                        "{}{}.className = '{}';\n",
+                        indent,
+                        var,
+                        escape_js_string(value)
+                    ));
                 } else if name == "style" {
-                    code.push_str(&format!("{}{}.setAttribute('style', '{}');\n", indent, var, escape_js_string(value)));
+                    code.push_str(&format!(
+                        "{}{}.setAttribute('style', '{}');\n",
+                        indent,
+                        var,
+                        escape_js_string(value)
+                    ));
                 } else {
                     code.push_str(&format!(
                         "{}{}.setAttribute('{}', '{}');\n",
-                        indent, var, name, escape_js_string(value)
+                        indent,
+                        var,
+                        name,
+                        escape_js_string(value)
                     ));
                 }
             }
@@ -2093,23 +2230,23 @@ fn extract_svelte_markup(source: &str) -> String {
     let mut markup = source.to_string();
 
     // Remove <script> blocks
-    if let Some(start) = markup.find("<script") {
-        if let Some(end) = markup.find("</script>") {
-            let end_full = end + "</script>".len();
-            let before = &markup[..start];
-            let after = &markup[end_full..];
-            markup = format!("{}{}", before, after);
-        }
+    if let Some(start) = markup.find("<script")
+        && let Some(end) = markup.find("</script>")
+    {
+        let end_full = end + "</script>".len();
+        let before = &markup[..start];
+        let after = &markup[end_full..];
+        markup = format!("{}{}", before, after);
     }
 
     // Remove <style> blocks
-    if let Some(start) = markup.find("<style") {
-        if let Some(end) = markup.find("</style>") {
-            let end_full = end + "</style>".len();
-            let before = &markup[..start];
-            let after = &markup[end_full..];
-            markup = format!("{}{}", before, after);
-        }
+    if let Some(start) = markup.find("<style")
+        && let Some(end) = markup.find("</style>")
+    {
+        let end_full = end + "</style>".len();
+        let before = &markup[..start];
+        let after = &markup[end_full..];
+        markup = format!("{}{}", before, after);
     }
 
     markup.trim().to_string()
@@ -2136,8 +2273,11 @@ fn transform_astro(source: &str, file_path: &str, is_production: bool) -> Result
     // Transform frontmatter with Oxc if it contains TypeScript
     if let Some(fm) = &frontmatter {
         let allocator = Allocator::default();
-        let ParserReturn { mut program, panicked, .. } =
-            Parser::new(&allocator, fm, SourceType::ts()).parse();
+        let ParserReturn {
+            mut program,
+            panicked,
+            ..
+        } = Parser::new(&allocator, fm, SourceType::ts()).parse();
         if !panicked {
             let mut options = TransformOptions::default();
             options.typescript.only_remove_type_imports = false;
@@ -2145,8 +2285,8 @@ fn transform_astro(source: &str, file_path: &str, is_production: bool) -> Result
                 .with_check_syntax_error(false)
                 .build(&program);
             let transformer = Transformer::new(&allocator, Path::new(file_path), &options);
-            let (symbols, scopes) = semantic.semantic.into_symbol_table_and_scope_tree();
-            let _ = transformer.build_with_symbols_and_scopes(symbols, scopes, &mut program);
+            let scoping = semantic.semantic.into_scoping();
+            let _ = transformer.build_with_scoping(scoping, &mut program);
             let result = Codegen::new().build(&program);
             code.push_str(&result.code);
         } else {
@@ -2204,11 +2344,11 @@ fn extract_astro_template(source: &str) -> String {
             let after = &rest[second + 3..];
             // Remove <style> blocks from template
             let mut template = after.to_string();
-            if let Some(s_start) = template.find("<style") {
-                if let Some(s_end) = template.find("</style>") {
-                    let end_full = s_end + "</style>".len();
-                    template = format!("{}{}", &template[..s_start], &template[end_full..]);
-                }
+            if let Some(s_start) = template.find("<style")
+                && let Some(s_end) = template.find("</style>")
+            {
+                let end_full = s_end + "</style>".len();
+                template = format!("{}{}", &template[..s_start], &template[end_full..]);
             }
             return template.trim().to_string();
         }
@@ -2226,12 +2366,11 @@ fn is_react_component(source: &str, _file_path: &str) -> bool {
     }
     // Check for function declarations that look like components
     // (capitalized function name or arrow function returning JSX)
-    let looks_like_component = source.contains("function App")
+
+    source.contains("function App")
         || source.contains("function Component")
         || source.contains("export default function")
-        || (source.contains("=>") && source.contains("return") && source.contains("<"));
-    
-    looks_like_component
+        || (source.contains("=>") && source.contains("return") && source.contains("<"))
 }
 
 /// Inject React Fast Refresh runtime code for HMR state preservation
@@ -2272,13 +2411,18 @@ fn extract_component_name(code: &str) -> Option<String> {
     // Look for "function ComponentName" pattern
     for line in code.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("function ") {
-            let after_fn = &trimmed[9..];
-            if let Some(paren) = after_fn.find('(') {
-                let name = after_fn[..paren].trim();
-                if !name.is_empty() && name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
-                    return Some(name.to_string());
-                }
+        if let Some(after_fn) = trimmed.strip_prefix("function ")
+            && let Some(paren) = after_fn.find('(')
+        {
+            let name = after_fn[..paren].trim();
+            if !name.is_empty()
+                && name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
+            {
+                return Some(name.to_string());
             }
         }
         // Also check for "const ComponentName = "
@@ -2286,7 +2430,12 @@ fn extract_component_name(code: &str) -> Option<String> {
             let parts: Vec<&str> = trimmed.splitn(3, ' ').collect();
             if parts.len() >= 2 {
                 let name = parts[1].trim();
-                if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                if name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
+                {
                     return Some(name.to_string());
                 }
             }
@@ -2306,14 +2455,14 @@ fn extract_component_name(code: &str) -> Option<String> {
 ///   → const MyWorker = () => new Worker('/src/worker.js')
 fn transform_worker_imports(code: &str, file_path: &str) -> String {
     let mut result = code.to_string();
-    
+
     // Pattern: new Worker(new URL('./path', import.meta.url))
     let worker_patterns = ["new Worker(new URL(", "new SharedWorker(new URL("];
-    
+
     for worker_pattern in &worker_patterns {
         while let Some(start) = result.find(worker_pattern) {
             let after = &result[start + worker_pattern.len()..];
-            if let Some(_end_quote) = after.find(|c: char| c == '"' || c == '\'') {
+            if let Some(_end_quote) = after.find(['"', '\'']) {
                 let quote_char = after.as_bytes()[0] as char;
                 let spec_start = 1;
                 let spec_rest = &after[spec_start..];
@@ -2334,7 +2483,10 @@ fn transform_worker_imports(code: &str, file_path: &str) -> String {
                         } else {
                             "new Worker"
                         };
-                        result.replace_range(start..abs_end, &format!("{}(\"{}\")", worker_type, url));
+                        result.replace_range(
+                            start..abs_end,
+                            &format!("{}(\"{}\")", worker_type, url),
+                        );
                     } else {
                         break;
                     }
@@ -2352,8 +2504,11 @@ fn transform_worker_imports(code: &str, file_path: &str) -> String {
     //   → const MyWorker = function() { return new Worker('/src/worker.js'); }
     //   import MyWorker from './worker.ts?sharedworker'
     //   → const MyWorker = function() { return new SharedWorker('/src/worker.js'); }
-    for (suffix, constructor) in &[("?worker", "new Worker"), ("?sharedworker", "new SharedWorker")] {
-        let import_pattern = format!("from \"");
+    for (suffix, constructor) in &[
+        ("?worker", "new Worker"),
+        ("?sharedworker", "new SharedWorker"),
+    ] {
+        let import_pattern = "from \"".to_string();
         let mut search_pos = 0;
         while let Some(pos) = result[search_pos..].find(&import_pattern) {
             let abs_pos = search_pos + pos;
@@ -2384,11 +2539,11 @@ fn transform_worker_imports(code: &str, file_path: &str) -> String {
             search_pos = abs_pos + 1;
         }
     }
-    
+
     // Also handle: import('./worker.ts') used in worker context
     // Mark this module as a worker if the filename contains "worker"
     let _ = file_path;
-    
+
     result
 }
 
@@ -2402,16 +2557,16 @@ fn detect_dynamic_imports(source: &str) -> Vec<String> {
     if let Some(imports) = detect_dynamic_imports_ast(source) {
         return imports;
     }
-    
+
     // Fallback: string-based detection
     let mut imports = Vec::new();
     let mut search_pos = 0;
-    
+
     while let Some(pos) = source[search_pos..].find("import(") {
         let abs_pos = search_pos + pos;
         let after = &source[abs_pos + 7..];
-        
-        if let Some(quote_pos) = after.find(|c: char| c == '"' || c == '\'') {
+
+        if let Some(quote_pos) = after.find(['"', '\'']) {
             let quote_char = after.as_bytes()[quote_pos] as char;
             let spec_start = quote_pos + 1;
             let spec_rest = &after[spec_start..];
@@ -2422,29 +2577,30 @@ fn detect_dynamic_imports(source: &str) -> Vec<String> {
                 }
             }
         }
-        
+
         search_pos = abs_pos + 7;
     }
-    
+
     imports
 }
 
 /// AST-based dynamic import detection using Oxc
 fn detect_dynamic_imports_ast(source: &str) -> Option<Vec<String>> {
-    use oxc::ast::Visit;
-    
+    use oxc::ast_visit::Visit;
+
     let allocator = Allocator::default();
-    let ParserReturn { program, panicked, .. } =
-        Parser::new(&allocator, source, SourceType::mjs()).parse();
-    
+    let ParserReturn {
+        program, panicked, ..
+    } = Parser::new(&allocator, source, SourceType::mjs()).parse();
+
     if panicked {
         return None;
     }
-    
+
     struct ImportCollector {
         imports: Vec<String>,
     }
-    
+
     impl Visit<'_> for ImportCollector {
         fn visit_import_expression(&mut self, expr: &oxc::ast::ast::ImportExpression) {
             if let oxc::ast::ast::Expression::StringLiteral(lit) = &expr.source {
@@ -2455,8 +2611,10 @@ fn detect_dynamic_imports_ast(source: &str) -> Option<Vec<String>> {
             }
         }
     }
-    
-    let mut collector = ImportCollector { imports: Vec::new() };
+
+    let mut collector = ImportCollector {
+        imports: Vec::new(),
+    };
     collector.visit_program(&program);
     Some(collector.imports)
 }
@@ -2468,36 +2626,36 @@ fn detect_dynamic_imports_ast(source: &str) -> Option<Vec<String>> {
 /// and basic PostCSS plugins (autoprefixer is handled by Lightning CSS)
 fn process_postcss(source: &str, _file_path: &str) -> String {
     let mut css = source.to_string();
-    
+
     // Process @tailwind directives
     if css.contains("@tailwind") {
         css = process_tailwind_directives(&css);
     }
-    
+
     // Process @apply directives (Tailwind)
     if css.contains("@apply") {
         css = process_tailwind_apply(&css);
     }
-    
+
     css
 }
 
 /// Replace @tailwind directives with generated utility CSS
 fn process_tailwind_directives(css: &str) -> String {
     let mut result = css.to_string();
-    
+
     // @tailwind base — reset/normalize
     result = result.replace("@tailwind base;", TAILWIND_BASE);
     result = result.replace("@tailwind base", TAILWIND_BASE);
-    
+
     // @tailwind components — component classes
     result = result.replace("@tailwind components;", TAILWIND_COMPONENTS);
     result = result.replace("@tailwind components", TAILWIND_COMPONENTS);
-    
+
     // @tailwind utilities — utility classes
     result = result.replace("@tailwind utilities;", TAILWIND_UTILITIES);
     result = result.replace("@tailwind utilities", TAILWIND_UTILITIES);
-    
+
     result
 }
 
@@ -2507,7 +2665,7 @@ fn process_tailwind_apply(css: &str) -> String {
     // This is a simplified version — a full implementation would parse
     // the Tailwind config and generate all utility classes
     let mut result = css.to_string();
-    
+
     // Common Tailwind utilities mapped to CSS
     let utilities = [
         ("flex", "display: flex;"),
@@ -2592,14 +2750,14 @@ fn process_tailwind_apply(css: &str) -> String {
         ("duration-200", "transition-duration: 200ms;"),
         ("duration-300", "transition-duration: 300ms;"),
     ];
-    
+
     // Replace @apply utility-name; with the CSS properties
     for (name, props) in &utilities {
         let pattern = format!("@apply {};", name);
         let replacement = format!("/* @apply {} */ {}", name, props);
         result = result.replace(&pattern, &replacement);
     }
-    
+
     // Handle multiple utilities: @apply flex items-center justify-center;
     // Simple approach: replace each known utility in @apply blocks
     while let Some(start) = result.find("@apply ") {
@@ -2615,7 +2773,7 @@ fn process_tailwind_apply(css: &str) -> String {
                 }
             }
             if !expanded.is_empty() {
-                result.replace_range(start..start + 7 + semi + 1, &expanded.trim());
+                result.replace_range(start..start + 7 + semi + 1, expanded.trim());
             } else {
                 // No known utilities found, just remove the @apply
                 result.replace_range(start..start + 7 + semi + 1, "");
@@ -2624,7 +2782,7 @@ fn process_tailwind_apply(css: &str) -> String {
             break;
         }
     }
-    
+
     result
 }
 
@@ -2729,8 +2887,13 @@ const TAILWIND_UTILITIES: &str = r#"
 
 // ─── MDX / GraphQL / YAML / CSV / TSV / SASS transforms ──────────────
 
-fn transform_sass(source: &str, file_path: &str, is_production: bool, config: &PledgeConfig) -> Result<TransformOutput> {
-    use grass::{OutputStyle, Options};
+fn transform_sass(
+    source: &str,
+    file_path: &str,
+    is_production: bool,
+    config: &PledgeConfig,
+) -> Result<TransformOutput> {
+    use grass::{Options, OutputStyle};
 
     let is_indented = file_path.ends_with(".sass");
     let style = if is_indented {
@@ -2745,9 +2908,7 @@ fn transform_sass(source: &str, file_path: &str, is_production: bool, config: &P
         OutputStyle::Expanded
     };
 
-    let options = Options::default()
-        .style(output_style)
-        .input_syntax(style);
+    let options = Options::default().style(output_style).input_syntax(style);
 
     let css = grass::from_string(source, &options)
         .map_err(|e| anyhow::anyhow!("Sass compilation error in {}: {}", file_path, e))?;
@@ -2761,7 +2922,9 @@ fn transform_sass(source: &str, file_path: &str, is_production: bool, config: &P
     };
 
     let source_map = if !is_production && config.source_maps {
-        Some(crate::css_features::generate_css_source_map(file_path, source, &css))
+        Some(crate::css_features::generate_css_source_map(
+            file_path, source, &css,
+        ))
     } else {
         None
     };
@@ -2850,8 +3013,8 @@ fn transform_tsv(source: &str) -> Result<TransformOutput> {
 
 /// #61: Transform TOML into an ES module with named exports + default export
 fn transform_toml(source: &str) -> Result<TransformOutput> {
-    let value: toml::Value = toml::from_str(source)
-        .map_err(|e| anyhow::anyhow!("TOML parse error: {}", e))?;
+    let value: toml::Value =
+        toml::from_str(source).map_err(|e| anyhow::anyhow!("TOML parse error: {}", e))?;
 
     // Convert toml::Value to serde_json::Value for consistent serialization
     let json_value: serde_json::Value = serde_json::to_value(&value)
@@ -2862,14 +3025,19 @@ fn transform_toml(source: &str) -> Result<TransformOutput> {
     // Generate named exports for top-level table keys
     if let serde_json::Value::Object(map) = &json_value {
         for (key, val) in map {
-            if key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') && !key.chars().next().map(|c| c.is_numeric()).unwrap_or(true) {
+            if key
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+                && !key.chars().next().map(|c| c.is_numeric()).unwrap_or(true)
+            {
                 let val_str = serde_json::to_string(val).unwrap_or_else(|_| "null".to_string());
                 code.push_str(&format!("export const {} = {};\n", key, val_str));
             }
         }
     }
 
-    let default_export = serde_json::to_string(&json_value).unwrap_or_else(|_| source.trim().to_string());
+    let default_export =
+        serde_json::to_string(&json_value).unwrap_or_else(|_| source.trim().to_string());
     code.push_str(&format!("export default {};", default_export));
 
     Ok(TransformOutput {

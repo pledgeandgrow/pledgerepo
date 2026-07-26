@@ -81,7 +81,8 @@ pub fn check_budgets(
 
     // Check per-entry budgets
     for (entry_name, max_size) in &config.entry_budgets {
-        let entry_size: usize = chunk_sizes.iter()
+        let entry_size: usize = chunk_sizes
+            .iter()
             .filter(|(name, _)| name.starts_with(entry_name.as_str()))
             .map(|(_, s)| s)
             .sum();
@@ -101,7 +102,11 @@ pub fn check_budgets(
     }
 
     if violations.is_empty() {
-        info!("Budget check passed: {} chunks, {} total", chunk_sizes.len(), format_bytes(total_size));
+        info!(
+            "Budget check passed: {} chunks, {} total",
+            chunk_sizes.len(),
+            format_bytes(total_size)
+        );
     } else {
         warn!("Budget check failed with {} violation(s)", violations.len());
     }
@@ -124,7 +129,10 @@ pub fn format_github_annotations(violations: &[BudgetViolation]) -> String {
 }
 
 /// Format violations as a PR comment markdown
-pub fn format_pr_comment(violations: &[BudgetViolation], chunk_sizes: &[(String, usize)]) -> String {
+pub fn format_pr_comment(
+    violations: &[BudgetViolation],
+    chunk_sizes: &[(String, usize)],
+) -> String {
     let mut md = String::from("## Bundle Size Budget Report\n\n");
 
     if violations.is_empty() {
@@ -134,7 +142,9 @@ pub fn format_pr_comment(violations: &[BudgetViolation], chunk_sizes: &[(String,
         for v in violations {
             md.push_str(&format!(
                 "- **{}**: {} (limit: {})\n",
-                v.field, format_bytes(v.actual), format_bytes(v.limit),
+                v.field,
+                format_bytes(v.actual),
+                format_bytes(v.limit),
             ));
         }
         md.push('\n');
@@ -150,7 +160,10 @@ pub fn format_pr_comment(violations: &[BudgetViolation], chunk_sizes: &[(String,
 }
 
 /// Format budget violations and chunk sizes as a comfy-table for CLI output
-pub fn format_budget_table(violations: &[BudgetViolation], chunk_sizes: &[(String, usize)]) -> String {
+pub fn format_budget_table(
+    violations: &[BudgetViolation],
+    chunk_sizes: &[(String, usize)],
+) -> String {
     let mut table = comfy_table::Table::new();
     table
         .load_preset(comfy_table::presets::UTF8_FULL)
@@ -164,16 +177,14 @@ pub fn format_budget_table(violations: &[BudgetViolation], chunk_sizes: &[(Strin
     } else {
         table
             .set_header(vec!["Field", "Actual", "Limit", "Message"])
-            .add_rows(
-                violations.iter().map(|v| {
-                    vec![
-                        v.field.clone(),
-                        format_bytes(v.actual),
-                        format_bytes(v.limit),
-                        v.message.clone(),
-                    ]
-                }),
-            );
+            .add_rows(violations.iter().map(|v| {
+                vec![
+                    v.field.clone(),
+                    format_bytes(v.actual),
+                    format_bytes(v.limit),
+                    v.message.clone(),
+                ]
+            }));
     }
 
     // Add chunk sizes section
@@ -184,9 +195,9 @@ pub fn format_budget_table(violations: &[BudgetViolation], chunk_sizes: &[(Strin
         .set_content_arrangement(comfy_table::ContentArrangement::Dynamic)
         .set_header(vec!["Chunk", "Size"])
         .add_rows(
-            chunk_sizes.iter().map(|(name, size)| {
-                vec![name.clone(), format_bytes(*size)]
-            }),
+            chunk_sizes
+                .iter()
+                .map(|(name, size)| vec![name.clone(), format_bytes(*size)]),
         );
 
     format!("{}\n\n{}", table, chunk_table)

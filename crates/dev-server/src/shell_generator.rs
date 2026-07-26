@@ -67,7 +67,9 @@ fn parse_jsx_attributes(attrs: &str) -> String {
     while let Some(c) = chars.next() {
         if in_string {
             current.push(c);
-            if c == string_char && current.chars().nth(current.len().saturating_sub(2)) != Some('\\') {
+            if c == string_char
+                && current.chars().nth(current.len().saturating_sub(2)) != Some('\\')
+            {
                 in_string = false;
             }
         } else if c == '"' || c == '\'' {
@@ -88,9 +90,15 @@ fn parse_jsx_attributes(attrs: &str) -> String {
             while depth > 0 {
                 if let Some(nc) = chars.next() {
                     current.push(nc);
-                    if nc == '{' { depth += 1; }
-                    if nc == '}' { depth -= 1; }
-                } else { break; }
+                    if nc == '{' {
+                        depth += 1;
+                    }
+                    if nc == '}' {
+                        depth -= 1;
+                    }
+                } else {
+                    break;
+                }
             }
         } else {
             current.push(c);
@@ -101,7 +109,12 @@ fn parse_jsx_attributes(attrs: &str) -> String {
         result.push(converted);
     }
 
-    result.iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join(" ")
+    result
+        .iter()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Convert a JSX attribute to HTML (e.g., className → class, htmlFor → for)
@@ -185,9 +198,15 @@ fn jsx_head_to_html(head_jsx: &str) -> String {
             let mut depth = 1;
             while depth > 0 {
                 if let Some(nc) = chars.next() {
-                    if nc == '{' { depth += 1; }
-                    if nc == '}' { depth -= 1; }
-                } else { break; }
+                    if nc == '{' {
+                        depth += 1;
+                    }
+                    if nc == '}' {
+                        depth -= 1;
+                    }
+                } else {
+                    break;
+                }
             }
         } else {
             // Text content between tags
@@ -206,18 +225,17 @@ fn jsx_head_to_html(head_jsx: &str) -> String {
 /// Convert a single JSX tag to HTML
 fn convert_jsx_tag_to_html(tag: &str) -> String {
     // Self-closing tags
-    if tag.ends_with("/>") {
-        let inner = &tag[..tag.len() - 2];
+    if let Some(inner) = tag.strip_suffix("/>") {
         let attrs = parse_jsx_attributes(&inner[1..]);
         let tag_name = inner[1..].split_whitespace().next().unwrap_or("");
         format!("<{} {} />", tag_name, attrs)
     } else if tag.starts_with("</") {
         // Closing tag
-        let name = tag[2..tag.len()-1].trim();
+        let name = tag[2..tag.len() - 1].trim();
         format!("</{}>", name)
     } else {
         // Opening tag
-        let inner = &tag[1..tag.len()-1];
+        let inner = &tag[1..tag.len() - 1];
         let attrs = parse_jsx_attributes(inner);
         let tag_name = inner.split_whitespace().next().unwrap_or("");
         if attrs.is_empty() {
@@ -258,7 +276,10 @@ pub fn generate_html_shell_with_base(
     let import_map_tag = if import_map.is_empty() {
         String::new()
     } else {
-        format!("<script type=\"importmap\">\n{}\n</script>\n    ", import_map)
+        format!(
+            "<script type=\"importmap\">\n{}\n</script>\n    ",
+            import_map
+        )
     };
 
     format!(
@@ -328,7 +349,8 @@ document.addEventListener("click", function(e) {
 
 window.__pledge_fast_refresh = window.__pledge_fast_refresh || {};
 window.__pledge_fast_refresh.render = renderApp;
-"#.to_string()
+"#
+    .to_string()
 }
 
 /// Try to read and parse layout.tsx from the app directory.

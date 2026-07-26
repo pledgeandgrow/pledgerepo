@@ -1,7 +1,7 @@
 // Config migration — converts Vite, webpack, CRA, and Next.js configs to pledge.config.ts
 
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 
 /// Migration result containing the new config content and a summary of what was migrated.
 pub struct MigrationResult {
@@ -47,7 +47,9 @@ pub fn migrate_config(root: &Path) -> Result<MigrationResult> {
         }
     }
 
-    anyhow::bail!("No recognized config file found. Looking for: vite.config.{{ts,js,mjs}}, webpack.config.{{ts,js,cjs,mjs}}, config-overrides.js, next.config.{{ts,js,mjs}}")
+    anyhow::bail!(
+        "No recognized config file found. Looking for: vite.config.{{ts,js,mjs}}, webpack.config.{{ts,js,cjs,mjs}}, config-overrides.js, next.config.{{ts,js,mjs}}"
+    )
 }
 
 fn migrate_vite_config(content: &str) -> Result<MigrationResult> {
@@ -67,12 +69,18 @@ fn migrate_vite_config(content: &str) -> Result<MigrationResult> {
     if let Some(ref obj) = config_obj {
         // Extract root
         if let Some(root_val) = extract_string_field(obj, "root") {
-            warnings.push(format!("Vite `root` option '{}' — Pledgepack uses `root` from CLI flag instead", root_val));
+            warnings.push(format!(
+                "Vite `root` option '{}' — Pledgepack uses `root` from CLI flag instead",
+                root_val
+            ));
         }
 
         // Extract base
         if let Some(base_val) = extract_string_field(obj, "base") {
-            warnings.push(format!("Vite `base` option '{}' — configure in your HTML or server instead", base_val));
+            warnings.push(format!(
+                "Vite `base` option '{}' — configure in your HTML or server instead",
+                base_val
+            ));
         }
 
         // Extract server config
@@ -91,7 +99,8 @@ fn migrate_vite_config(content: &str) -> Result<MigrationResult> {
                     if let Some(target) = extract_string_field(&value, "target") {
                         proxy_entries.push(format!(
                             "    {{ path: '/{}', target: '{}', rewrite: {} }}",
-                            key, target,
+                            key,
+                            target,
                             extract_bool_field(&value, "rewrite").unwrap_or(true)
                         ));
                     }
@@ -101,23 +110,26 @@ fn migrate_vite_config(content: &str) -> Result<MigrationResult> {
         }
 
         // Extract resolve.alias
-        if let Some(resolve_obj) = extract_nested_object(obj, "resolve") {
-            if let Some(alias_obj) = extract_nested_object(&resolve_obj, "alias") {
-                for (key, value) in extract_key_value_pairs(&alias_obj) {
-                    if !value.is_empty() {
-                        alias_entries.push(format!("    {{ from: '{}', to: '{}' }}", key, value));
-                        migrated_fields.push("resolve.alias".to_string());
-                    }
+        if let Some(resolve_obj) = extract_nested_object(obj, "resolve")
+            && let Some(alias_obj) = extract_nested_object(&resolve_obj, "alias")
+        {
+            for (key, value) in extract_key_value_pairs(&alias_obj) {
+                if !value.is_empty() {
+                    alias_entries.push(format!("    {{ from: '{}', to: '{}' }}", key, value));
+                    migrated_fields.push("resolve.alias".to_string());
                 }
             }
         }
 
         // Extract build.outDir
-        if let Some(build_obj) = extract_nested_object(obj, "build") {
-            if let Some(out_dir) = extract_string_field(&build_obj, "outDir") {
-                warnings.push(format!("Vite `build.outDir` '{}' — Pledgepack uses `outDir` in config", out_dir));
-                migrated_fields.push("build.outDir".to_string());
-            }
+        if let Some(build_obj) = extract_nested_object(obj, "build")
+            && let Some(out_dir) = extract_string_field(&build_obj, "outDir")
+        {
+            warnings.push(format!(
+                "Vite `build.outDir` '{}' — Pledgepack uses `outDir` in config",
+                out_dir
+            ));
+            migrated_fields.push("build.outDir".to_string());
         }
 
         // Extract plugins
@@ -130,10 +142,15 @@ fn migrate_vite_config(content: &str) -> Result<MigrationResult> {
     }
 
     // Build pledge.config.ts
-    let mut config = String::from("import { defineConfig } from 'pledgepack';\n\nexport default defineConfig({\n");
+    let mut config = String::from(
+        "import { defineConfig } from 'pledgepack';\n\nexport default defineConfig({\n",
+    );
     config.push_str(&format!("  entry: ['{}'],\n", entry));
     config.push_str("  framework: 'auto',\n");
-    config.push_str(&format!("  devServer: {{\n    port: {},\n    host: '{}',\n    hmr: true,\n  }},\n", port, host));
+    config.push_str(&format!(
+        "  devServer: {{\n    port: {},\n    host: '{}',\n    hmr: true,\n  }},\n",
+        port, host
+    ));
 
     if !alias_entries.is_empty() {
         config.push_str("  resolveAlias: [\n");
@@ -174,25 +191,28 @@ fn migrate_webpack_config(content: &str) -> Result<MigrationResult> {
     let mut migrated_fields = Vec::new();
 
     // Extract entry
-    let entry = extract_string_field(content, "entry")
-        .unwrap_or_else(|| "./src/index.tsx".to_string());
+    let entry =
+        extract_string_field(content, "entry").unwrap_or_else(|| "./src/index.tsx".to_string());
     migrated_fields.push("entry".to_string());
 
     // Extract output path
     let out_dir = if let Some(output_obj) = extract_nested_object(content, "output") {
-        extract_string_field(&output_obj, "path")
-            .unwrap_or_else(|| ".pledge".to_string())
+        extract_string_field(&output_obj, "path").unwrap_or_else(|| ".pledge".to_string())
     } else {
         ".pledge".to_string()
     };
     if out_dir != ".pledge" {
-        warnings.push(format!("Webpack `output.path` '{}' mapped to Pledgepack `outDir`", out_dir));
+        warnings.push(format!(
+            "Webpack `output.path` '{}' mapped to Pledgepack `outDir`",
+            out_dir
+        ));
     }
 
     // Extract devServer
     let (port, host) = if let Some(dev_server) = extract_nested_object(content, "devServer") {
         let port = extract_number_field(&dev_server, "port").unwrap_or(3000.0) as u16;
-        let host = extract_string_field(&dev_server, "host").unwrap_or_else(|| "localhost".to_string());
+        let host =
+            extract_string_field(&dev_server, "host").unwrap_or_else(|| "localhost".to_string());
         migrated_fields.push("devServer.port".to_string());
         migrated_fields.push("devServer.host".to_string());
         (port, host)
@@ -202,41 +222,57 @@ fn migrate_webpack_config(content: &str) -> Result<MigrationResult> {
 
     // Extract resolve.alias
     let mut alias_entries = Vec::new();
-    if let Some(resolve_obj) = extract_nested_object(content, "resolve") {
-        if let Some(alias_obj) = extract_nested_object(&resolve_obj, "alias") {
-            for (key, value) in extract_key_value_pairs(&alias_obj) {
-                if !value.is_empty() {
-                    alias_entries.push(format!("    {{ from: '{}', to: '{}' }}", key, value));
-                }
+    if let Some(resolve_obj) = extract_nested_object(content, "resolve")
+        && let Some(alias_obj) = extract_nested_object(&resolve_obj, "alias")
+    {
+        for (key, value) in extract_key_value_pairs(&alias_obj) {
+            if !value.is_empty() {
+                alias_entries.push(format!("    {{ from: '{}', to: '{}' }}", key, value));
             }
-            migrated_fields.push("resolve.alias".to_string());
         }
+        migrated_fields.push("resolve.alias".to_string());
     }
 
     // Extract module.rules for CSS preprocessors
     if content.contains("sass-loader") || content.contains("scss") {
-        warnings.push("Sass/SCSS detected in webpack config — Pledgepack handles .scss/.sass natively".to_string());
+        warnings.push(
+            "Sass/SCSS detected in webpack config — Pledgepack handles .scss/.sass natively"
+                .to_string(),
+        );
     }
     if content.contains("postcss-loader") {
-        warnings.push("PostCSS detected in webpack config — Pledgepack has built-in PostCSS support".to_string());
+        warnings.push(
+            "PostCSS detected in webpack config — Pledgepack has built-in PostCSS support"
+                .to_string(),
+        );
     }
 
     // Extract plugins
     if content.contains("HtmlWebpackPlugin") {
-        migrated_fields.push("html plugin (HtmlWebpackPlugin → built-in HTML processing)".to_string());
+        migrated_fields
+            .push("html plugin (HtmlWebpackPlugin → built-in HTML processing)".to_string());
     }
     if content.contains("MiniCssExtractPlugin") {
-        migrated_fields.push("css extract (MiniCssExtractPlugin → built-in CSS extraction)".to_string());
+        migrated_fields
+            .push("css extract (MiniCssExtractPlugin → built-in CSS extraction)".to_string());
     }
     if content.contains("DefinePlugin") {
         warnings.push("webpack DefinePlugin detected — use Pledgepack's env injection (import.meta.env.*) instead".to_string());
     }
 
-    let mut config = String::from("import { defineConfig } from 'pledgepack';\n\nexport default defineConfig({\n");
-    config.push_str(&format!("  entry: ['{}'],\n", entry.trim_start_matches("./")));
+    let mut config = String::from(
+        "import { defineConfig } from 'pledgepack';\n\nexport default defineConfig({\n",
+    );
+    config.push_str(&format!(
+        "  entry: ['{}'],\n",
+        entry.trim_start_matches("./")
+    ));
     config.push_str("  framework: 'auto',\n");
     config.push_str(&format!("  outDir: '{}',\n", out_dir));
-    config.push_str(&format!("  devServer: {{\n    port: {},\n    host: '{}',\n    hmr: true,\n  }},\n", port, host));
+    config.push_str(&format!(
+        "  devServer: {{\n    port: {},\n    host: '{}',\n    hmr: true,\n  }},\n",
+        port, host
+    ));
 
     if !alias_entries.is_empty() {
         config.push_str("  resolveAlias: [\n");
@@ -256,16 +292,17 @@ fn migrate_webpack_config(content: &str) -> Result<MigrationResult> {
 
 fn migrate_cra_config(content: &str) -> Result<MigrationResult> {
     let mut warnings = Vec::new();
-    let mut migrated_fields = Vec::new();
-
-    migrated_fields.push("entry (CRA uses src/index.tsx)".to_string());
+    let migrated_fields = vec!["entry (CRA uses src/index.tsx)".to_string()];
 
     if content.contains("rewireCss") || content.contains("sass") {
         warnings.push("CSS overrides detected — Pledgepack handles Sass/SCSS natively".to_string());
     }
 
     if content.contains("rewireWebpack") || content.contains("webpack") {
-        warnings.push("Webpack overrides detected — review if equivalent Pledgepack config is needed".to_string());
+        warnings.push(
+            "Webpack overrides detected — review if equivalent Pledgepack config is needed"
+                .to_string(),
+        );
     }
 
     let config = r#"import { defineConfig } from 'pledgepack';
@@ -278,7 +315,8 @@ export default defineConfig({
     hmr: true,
   },
 });
-"#.to_string();
+"#
+    .to_string();
 
     Ok(MigrationResult {
         config_content: config,
@@ -290,16 +328,18 @@ export default defineConfig({
 
 fn migrate_next_config(content: &str) -> Result<MigrationResult> {
     let mut warnings = Vec::new();
-    let mut migrated_fields = Vec::new();
-
-    migrated_fields.push("framework (Next.js → React adapter)".to_string());
+    let migrated_fields = vec!["framework (Next.js → React adapter)".to_string()];
 
     // Check for common Next.js config options
     if content.contains("images") {
-        warnings.push("Next.js `images` config — use Pledgepack's `image` config field instead".to_string());
+        warnings.push(
+            "Next.js `images` config — use Pledgepack's `image` config field instead".to_string(),
+        );
     }
     if content.contains("rewrites") {
-        warnings.push("Next.js `rewrites` — configure as proxy rules in Pledgepack's devServer".to_string());
+        warnings.push(
+            "Next.js `rewrites` — configure as proxy rules in Pledgepack's devServer".to_string(),
+        );
     }
     if content.contains("redirects") {
         warnings.push("Next.js `redirects` — handle at your server/edge level".to_string());
@@ -320,7 +360,8 @@ export default defineConfig({
   // Next.js adapter handles SSR, API routes, and App/Pages router
   plugins: ['@pledge/adapter-next'],
 });
-"#.to_string();
+"#
+    .to_string();
 
     Ok(MigrationResult {
         config_content: config,
@@ -417,7 +458,10 @@ fn extract_number_field(obj: &str, field: &str) -> Option<f64> {
         if let Some(pos) = obj.find(pattern) {
             let after = pos + pattern.len();
             let rest = obj[after..].trim_start();
-            let num_str: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+            let num_str: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
             if let Ok(n) = num_str.parse::<f64>() {
                 return Some(n);
             }
@@ -529,7 +573,13 @@ fn extract_key_value_pairs(obj: &str) -> Vec<(String, String)> {
                 i += 1; // skip closing quote
             }
         } else {
-            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'-' || bytes[i] == b'@' || bytes[i] == b'/') {
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric()
+                    || bytes[i] == b'_'
+                    || bytes[i] == b'-'
+                    || bytes[i] == b'@'
+                    || bytes[i] == b'/')
+            {
                 i += 1;
             }
         }
@@ -624,7 +674,9 @@ fn parse_plugin_names(plugins_str: &str) -> Vec<String> {
         }
 
         let start = i;
-        while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'-') {
+        while i < bytes.len()
+            && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'-')
+        {
             i += 1;
         }
         let name = &plugins_str[start..i];

@@ -3,9 +3,9 @@
 //
 // Features 26-30 from the roadmap.
 
+use regex::Regex;
 use std::collections::HashMap;
 use std::path::Path;
-use regex::Regex;
 use std::sync::OnceLock;
 
 // ─── Feature 26: CSS @layer cascade layer management ──────────────────
@@ -28,9 +28,7 @@ pub fn parse_layers(css: &str) -> CascadeLayers {
     let mut seen = std::collections::HashSet::new();
 
     // Match @layer order statements: @layer name1, name2, name3;
-    let order_re = LAYER_ORDER_RE.get_or_init(|| {
-        Regex::new(r"@layer\s+([^;{}]+);").unwrap()
-    });
+    let order_re = LAYER_ORDER_RE.get_or_init(|| Regex::new(r"@layer\s+([^;{}]+);").unwrap());
     for caps in order_re.captures_iter(css) {
         let names_str = caps.get(1).map(|m| m.as_str()).unwrap_or("");
         let names: Vec<String> = names_str
@@ -48,9 +46,7 @@ pub fn parse_layers(css: &str) -> CascadeLayers {
     }
 
     // Match @layer name { ... } blocks
-    let block_re = LAYER_BLOCK_RE.get_or_init(|| {
-        Regex::new(r"@layer\s+([\w-]+)\s*\{").unwrap()
-    });
+    let block_re = LAYER_BLOCK_RE.get_or_init(|| Regex::new(r"@layer\s+([\w-]+)\s*\{").unwrap());
     for caps in block_re.captures_iter(css) {
         if let Some(m) = caps.get(1) {
             let name = m.as_str();
@@ -192,8 +188,13 @@ pub fn polyfill_container_queries(css: &str) -> String {
             // Also keep the original @container for browsers that support it
             let polyfill = format!(
                 "@container {} {} {{\n  .{} {{\n{}\n  }}\n}}\n/* @container polyfill: .{} */\n.{} {{\n{}\n}}",
-                container_name, condition, polyfill_class, body,
-                polyfill_class, polyfill_class, body
+                container_name,
+                condition,
+                polyfill_class,
+                body,
+                polyfill_class,
+                polyfill_class,
+                body
             );
 
             let full_end = abs_pos + 11 + condition_end + end;
@@ -298,7 +299,10 @@ pub fn extract_critical_css(html: &str, css: &str, config: &CriticalCssConfig) -
         let tag = html[abs..abs + tag_end].to_string();
         if !tag.is_empty()
             && tag.chars().all(|c| c.is_alphabetic())
-            && !matches!(tag.as_str(), "html" | "head" | "body" | "meta" | "link" | "script" | "style" | "title" | "!--")
+            && !matches!(
+                tag.as_str(),
+                "html" | "head" | "body" | "meta" | "link" | "script" | "style" | "title" | "!--"
+            )
         {
             used_selectors.insert(tag);
         }
@@ -450,7 +454,11 @@ fn generate_css_mappings(original: &str, generated: &str) -> String {
 fn vlq_encode(value: i32) -> String {
     let base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::new();
-    let mut val = if value < 0 { (-value << 1) | 1 } else { value << 1 };
+    let mut val = if value < 0 {
+        (-value << 1) | 1
+    } else {
+        value << 1
+    };
 
     loop {
         let mut digit = (val & 0x1f) as usize;
@@ -546,7 +554,14 @@ mod tests {
         let css = "@layer base, components, utilities;\n@layer base { * { box-sizing: border-box; } }\n@layer utilities { .flex { display: flex; } }";
         let layers = parse_layers(css);
         assert_eq!(layers.layers, vec!["base", "components", "utilities"]);
-        assert_eq!(layers.order_statement, Some(vec!["base".to_string(), "components".to_string(), "utilities".to_string()]));
+        assert_eq!(
+            layers.order_statement,
+            Some(vec![
+                "base".to_string(),
+                "components".to_string(),
+                "utilities".to_string()
+            ])
+        );
     }
 
     #[test]
@@ -581,19 +596,26 @@ mod tests {
     #[test]
     fn test_postcss_cache() {
         let mut cache = PostCssCache::new();
-        let result1 = cache.process("body { color: red; }", "test.css", &["autoprefixer"], |src, _| {
-            format!("/* processed */\n{}", src)
-        });
-        let result2 = cache.process("body { color: red; }", "test.css", &["autoprefixer"], |src, _| {
-            format!("/* should not run */\n{}", src)
-        });
+        let result1 = cache.process(
+            "body { color: red; }",
+            "test.css",
+            &["autoprefixer"],
+            |src, _| format!("/* processed */\n{}", src),
+        );
+        let result2 = cache.process(
+            "body { color: red; }",
+            "test.css",
+            &["autoprefixer"],
+            |src, _| format!("/* should not run */\n{}", src),
+        );
         assert_eq!(result1, result2);
         assert_eq!(cache.len(), 1);
     }
 
     #[test]
     fn test_css_source_map() {
-        let map = generate_css_source_map("src/style.css", ".test { color: red; }", ".test{color:red}");
+        let map =
+            generate_css_source_map("src/style.css", ".test { color: red; }", ".test{color:red}");
         assert!(map.contains("\"version\":3"));
         assert!(map.contains("src/style.css"));
     }

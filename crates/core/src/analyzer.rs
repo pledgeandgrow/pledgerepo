@@ -67,7 +67,10 @@ pub fn format_analysis_table(analysis: &BundleAnalysis) -> String {
         .apply_modifier(comfy_table::modifiers::UTF8_ROUND_CORNERS)
         .set_content_arrangement(comfy_table::ContentArrangement::Dynamic)
         .set_header(vec!["Metric", "Value"])
-        .add_row(vec!["Total Size", &format_bytes(analysis.total_transformed_size)])
+        .add_row(vec![
+            "Total Size",
+            &format_bytes(analysis.total_transformed_size),
+        ])
         .add_row(vec!["Total Modules", &analysis.total_modules.to_string()])
         .add_row(vec!["Chunks", &analysis.chunks.len().to_string()])
         .add_row(vec!["Duplicates", &analysis.duplicates.len().to_string()]);
@@ -130,9 +133,7 @@ pub fn analyze_build(engine: &BuildEngine) -> Result<BundleAnalysis> {
             _ => "unknown",
         };
 
-        let deps = cached
-            .map(|c| c.deps.clone())
-            .unwrap_or_default();
+        let deps = cached.map(|c| c.deps.clone()).unwrap_or_default();
 
         let is_css = cached.map(|c| c.is_css).unwrap_or(false);
         let is_worker = cached.map(|c| c.is_worker).unwrap_or(false);
@@ -146,9 +147,7 @@ pub fn analyze_build(engine: &BuildEngine) -> Result<BundleAnalysis> {
             original_size,
             transformed_size,
             dependencies: deps,
-            is_entry: engine.modules().values()
-                .take(1)
-                .any(|m| m.id == *id),
+            is_entry: engine.modules().values().take(1).any(|m| m.id == *id),
             is_css,
             is_worker,
         });
@@ -156,7 +155,7 @@ pub fn analyze_build(engine: &BuildEngine) -> Result<BundleAnalysis> {
 
     // Sort by size (largest first)
     let mut largest = module_analyses.clone();
-    largest.sort_by(|a, b| b.transformed_size.cmp(&a.transformed_size));
+    largest.sort_by_key(|a| std::cmp::Reverse(a.transformed_size));
     largest.truncate(20);
 
     // Detect duplicates (same specifier resolved from different paths)
@@ -205,7 +204,7 @@ fn detect_duplicates(modules: &[ModuleAnalysis]) -> Vec<DuplicateModule> {
         }
     }
 
-    duplicates.sort_by(|a, b| b.total_size.cmp(&a.total_size));
+    duplicates.sort_by_key(|a| std::cmp::Reverse(a.total_size));
     duplicates
 }
 
@@ -214,7 +213,12 @@ fn generate_chunk_analysis(modules: &[ModuleAnalysis]) -> Vec<ChunkAnalysis> {
     let mut by_dir: HashMap<String, Vec<&ModuleAnalysis>> = HashMap::new();
 
     for m in modules {
-        let dir = m.path.rsplitn(2, '/').nth(1).unwrap_or("").to_string();
+        let dir = m
+            .path
+            .rsplit_once('/')
+            .map(|x| x.0)
+            .unwrap_or("")
+            .to_string();
         by_dir.entry(dir).or_default().push(m);
     }
 
@@ -231,7 +235,7 @@ fn generate_chunk_analysis(modules: &[ModuleAnalysis]) -> Vec<ChunkAnalysis> {
         })
         .collect();
 
-    chunks.sort_by(|a, b| b.size.cmp(&a.size));
+    chunks.sort_by_key(|a| std::cmp::Reverse(a.size));
     chunks
 }
 
@@ -240,7 +244,8 @@ pub fn generate_analysis_html(analysis: &BundleAnalysis) -> String {
     let total_kb = analysis.total_transformed_size as f64 / 1024.0;
     let original_kb = analysis.total_original_size as f64 / 1024.0;
 
-    let module_rows: String = analysis.largest_modules
+    let module_rows: String = analysis
+        .largest_modules
         .iter()
         .map(|m| {
             let size_kb = m.transformed_size as f64 / 1024.0;
@@ -340,7 +345,14 @@ pub fn detect_circular_deps(analysis: &BundleAnalysis) -> Vec<Vec<String>> {
 
     for m in &analysis.modules {
         if !visited.contains(&m.path) {
-            dfs_cycle(&m.path, &adj, &mut visited, &mut path, &mut path_set, &mut cycles);
+            dfs_cycle(
+                &m.path,
+                &adj,
+                &mut visited,
+                &mut path,
+                &mut path_set,
+                &mut cycles,
+            );
         }
     }
 
@@ -386,20 +398,32 @@ fn dfs_cycle(
 /// Generate interactive force-directed dependency graph HTML (#104)
 pub fn generate_dependency_graph_html(analysis: &BundleAnalysis) -> String {
     let cycles = detect_circular_deps(analysis);
-    let cycle_nodes: HashSet<String> = cycles.iter()
-        .flat_map(|c| c.iter().cloned())
-        .collect();
+    let cycle_nodes: HashSet<String> = cycles.iter().flat_map(|c| c.iter().cloned()).collect();
 
     // Build nodes JSON
-    let nodes: String = analysis.modules.iter()
+    let nodes: String = analysis
+        .modules
+        .iter()
         .map(|m| {
             let is_circular = cycle_nodes.contains(&m.path);
-            let size = (m.transformed_size as f64 / 1024.0).max(5.0).min(50.0);
-            let color = if is_circular { "#ef4444" } else if m.is_entry { "#6366f1" } else if m.is_css { "#22c55e" } else { "#888" };
+            let size = (m.transformed_size as f64 / 1024.0).clamp(5.0, 50.0);
+            let color = if is_circular {
+                "#ef4444"
+            } else if m.is_entry {
+                "#6366f1"
+            } else if m.is_css {
+                "#22c55e"
+            } else {
+                "#888"
+            };
             format!(
                 r#"{{"id":"{}","label":"{}","size":{},"color":"{}","circular":{}}}"#,
                 m.path.replace('"', "\\\""),
-                m.path.rsplit('/').next().unwrap_or(&m.path).replace('"', "\\\""),
+                m.path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&m.path)
+                    .replace('"', "\\\""),
                 size,
                 color,
                 is_circular,
@@ -409,9 +433,12 @@ pub fn generate_dependency_graph_html(analysis: &BundleAnalysis) -> String {
         .join(",");
 
     // Build edges JSON
-    let edges: String = analysis.modules.iter()
+    let edges: String = analysis
+        .modules
+        .iter()
         .flat_map(|m| {
-            m.dependencies.iter()
+            m.dependencies
+                .iter()
                 .filter_map(|dep| {
                     // Only include edges where both endpoints exist
                     if analysis.modules.iter().any(|n| n.path == *dep) {
@@ -430,7 +457,8 @@ pub fn generate_dependency_graph_html(analysis: &BundleAnalysis) -> String {
         .join(",");
 
     let cycle_count = cycles.len();
-    let cycle_list: String = cycles.iter()
+    let cycle_list: String = cycles
+        .iter()
         .map(|c| format!("  - {}", c.join(" → ")))
         .collect::<Vec<_>>()
         .join("\n");
@@ -522,7 +550,14 @@ pub fn generate_dependency_graph_html(analysis: &BundleAnalysis) -> String {
         analysis.total_modules,
         edges.matches(',').count() + if edges.is_empty() { 0 } else { 1 },
         cycle_count,
-        if cycle_count > 0 { format!("<div class=\"cycles\"><h2>Circular Dependencies</h2><pre>{}</pre></div>", cycle_list) } else { String::new() },
+        if cycle_count > 0 {
+            format!(
+                "<div class=\"cycles\"><h2>Circular Dependencies</h2><pre>{}</pre></div>",
+                cycle_list
+            )
+        } else {
+            String::new()
+        },
         nodes,
         edges,
     )
@@ -561,7 +596,7 @@ pub fn generate_flamegraph_html(analysis: &BundleAnalysis) -> String {
     }
 
     // Sort chunks by size descending
-    chunk_data.sort_by(|a, b| b.1.cmp(&a.1));
+    chunk_data.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     let max_size = chunk_data.iter().map(|(_, s, _)| *s).max().unwrap_or(1);
 
@@ -709,7 +744,8 @@ pub fn find_import_chains(analysis: &BundleAnalysis, target: &str) -> Vec<Vec<St
     }
 
     // Find modules matching the target
-    let matches: Vec<&str> = analysis.modules
+    let matches: Vec<&str> = analysis
+        .modules
         .iter()
         .filter(|m| {
             let p = m.path.to_lowercase();
@@ -747,7 +783,8 @@ fn bfs_path(adj: &HashMap<String, Vec<String>>, source: &str, target: &str) -> O
     }
 
     let mut visited = HashSet::new();
-    let mut queue: Vec<(String, Vec<String>)> = vec![(source.to_string(), vec![source.to_string()])];
+    let mut queue: Vec<(String, Vec<String>)> =
+        vec![(source.to_string(), vec![source.to_string()])];
 
     while let Some((node, path)) = queue.pop() {
         if visited.contains(&node) {

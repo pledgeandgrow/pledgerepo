@@ -1,9 +1,9 @@
 // Advanced CSS features: #66 composes, #67 dark mode, #68 custom property
 // optimization, #69 scoped CSS for React, #70 nesting polyfill verification.
 
+use regex::Regex;
 use std::collections::HashMap;
 use std::path::Path;
-use regex::Regex;
 use std::sync::OnceLock;
 use tracing::{info, warn};
 
@@ -25,11 +25,8 @@ pub struct ComposesDirective {
 /// Handles both local (`composes: button`) and cross-file (`composes: button from './btn.css'`).
 pub fn parse_composes(css: &str, _file_path: &str) -> Vec<ComposesDirective> {
     static COMPOSES_RE: OnceLock<Regex> = OnceLock::new();
-    let re = COMPOSES_RE.get_or_init(|| {
-        Regex::new(
-            r"\.([a-zA-Z_][\w-]*)\s*\{[^}]*composes:\s*([^;]+);",
-        ).unwrap()
-    });
+    let re = COMPOSES_RE
+        .get_or_init(|| Regex::new(r"\.([a-zA-Z_][\w-]*)\s*\{[^}]*composes:\s*([^;]+);").unwrap());
 
     let mut directives = Vec::new();
 
@@ -40,7 +37,9 @@ pub fn parse_composes(css: &str, _file_path: &str) -> Vec<ComposesDirective> {
         // Check for "from" keyword: `button from './buttons.css'`
         if let Some(from_pos) = raw.find(" from ") {
             let classes_str = &raw[..from_pos].trim();
-            let from_file = raw[from_pos + 6..].trim().trim_matches(|c| c == '"' || c == '\'');
+            let from_file = raw[from_pos + 6..]
+                .trim()
+                .trim_matches(|c| c == '"' || c == '\'');
 
             let source_classes: Vec<String> = classes_str
                 .split_whitespace()
@@ -54,10 +53,8 @@ pub fn parse_composes(css: &str, _file_path: &str) -> Vec<ComposesDirective> {
             });
         } else {
             // Local composition
-            let source_classes: Vec<String> = raw
-                .split_whitespace()
-                .map(|s| s.to_string())
-                .collect();
+            let source_classes: Vec<String> =
+                raw.split_whitespace().map(|s| s.to_string()).collect();
 
             directives.push(ComposesDirective {
                 local_class,
@@ -104,13 +101,14 @@ pub fn resolve_composes(
                     .unwrap_or(Path::new("."))
                     .join(from_file);
 
-                if source_path.is_file() {
-                    if let Ok(source_css) = std::fs::read_to_string(&source_path) {
-                        let source_map = generate_css_module_map(&source_css, &source_path.to_string_lossy());
-                        for (orig, scoped) in &source_map {
-                            if orig == src_class {
-                                composed_classes.push(scoped.clone());
-                            }
+                if source_path.is_file()
+                    && let Ok(source_css) = std::fs::read_to_string(&source_path)
+                {
+                    let source_map =
+                        generate_css_module_map(&source_css, &source_path.to_string_lossy());
+                    for (orig, scoped) in &source_map {
+                        if orig == src_class {
+                            composed_classes.push(scoped.clone());
                         }
                     }
                 }
@@ -131,9 +129,7 @@ pub fn resolve_composes(
 /// Remove `composes:` directives from CSS after resolution.
 pub fn strip_composes(css: &str) -> String {
     static COMPOSES_LINE_RE: OnceLock<Regex> = OnceLock::new();
-    let re = COMPOSES_LINE_RE.get_or_init(|| {
-        Regex::new(r"^\s*composes:\s*[^;]+;\s*$").unwrap()
-    });
+    let re = COMPOSES_LINE_RE.get_or_init(|| Regex::new(r"^\s*composes:\s*[^;]+;\s*$").unwrap());
 
     css.lines()
         .filter(|line| !re.is_match(line))
@@ -163,9 +159,7 @@ fn auto_dark_mode(css: &str) -> String {
 
     // Extract :root custom properties and generate dark variants
     static ROOT_VAR_RE: OnceLock<Regex> = OnceLock::new();
-    let re = ROOT_VAR_RE.get_or_init(|| {
-        Regex::new(r":root\s*\{([^}]+)\}").unwrap()
-    });
+    let re = ROOT_VAR_RE.get_or_init(|| Regex::new(r":root\s*\{([^}]+)\}").unwrap());
 
     if let Some(cap) = re.captures(css) {
         let root_vars = &cap[1];
@@ -174,16 +168,16 @@ fn auto_dark_mode(css: &str) -> String {
         // Parse custom properties
         for line in root_vars.lines() {
             let trimmed = line.trim();
-            if trimmed.starts_with("--") {
-                if let Some(colon_pos) = trimmed.find(':') {
-                    let name = trimmed[..colon_pos].trim();
-                    let value = trimmed[colon_pos + 1..].trim().trim_end_matches(';');
+            if trimmed.starts_with("--")
+                && let Some(colon_pos) = trimmed.find(':')
+            {
+                let name = trimmed[..colon_pos].trim();
+                let value = trimmed[colon_pos + 1..].trim().trim_end_matches(';');
 
-                    // Generate dark variant by checking for color-like values
-                    if is_color_value(value) {
-                        let dark_value = invert_color_lightness(value);
-                        dark_vars.push(format!("    {}: {};", name, dark_value));
-                    }
+                // Generate dark variant by checking for color-like values
+                if is_color_value(value) {
+                    let dark_value = invert_color_lightness(value);
+                    dark_vars.push(format!("    {}: {};", name, dark_value));
                 }
             }
         }
@@ -206,7 +200,8 @@ fn auto_dark_mode(css: &str) -> String {
 fn extract_dark_media(css: &str) -> String {
     static MEDIA_RE: OnceLock<Regex> = OnceLock::new();
     let re = MEDIA_RE.get_or_init(|| {
-        Regex::new(r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}").unwrap()
+        Regex::new(r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}")
+            .unwrap()
     });
 
     let mut dark_css = String::new();
@@ -256,7 +251,13 @@ fn invert_color_lightness(value: &str) -> String {
             let g: u8 = cap[2].parse().unwrap_or(0);
             let b: u8 = cap[3].parse().unwrap_or(0);
             if let Some(alpha) = cap.get(4) {
-                return format!("rgba({}, {}, {}, {})", 255 - r, 255 - g, 255 - b, alpha.as_str());
+                return format!(
+                    "rgba({}, {}, {}, {})",
+                    255 - r,
+                    255 - g,
+                    255 - b,
+                    alpha.as_str()
+                );
             }
             return format!("rgb({}, {}, {})", 255 - r, 255 - g, 255 - b);
         }
@@ -337,9 +338,8 @@ pub fn optimize_custom_properties(css: &str, minify_names: bool) -> String {
 
 fn extract_custom_properties(css: &str) -> Vec<(String, String)> {
     static PROP_RE: OnceLock<Regex> = OnceLock::new();
-    let re = PROP_RE.get_or_init(|| {
-        Regex::new(r"(?:^|\s)(--[a-zA-Z_][\w-]*)\s*:\s*([^;]+);").unwrap()
-    });
+    let re =
+        PROP_RE.get_or_init(|| Regex::new(r"(?:^|\s)(--[a-zA-Z_][\w-]*)\s*:\s*([^;]+);").unwrap());
 
     re.captures_iter(css)
         .map(|cap| (cap[1].to_string(), cap[2].trim().to_string()))
@@ -395,9 +395,7 @@ pub fn scope_css_with_attribute(css: &str, scope_hash: &str) -> String {
 
     // Scope all class selectors: .classname followed by delimiter or end
     static SELECTOR_RE: OnceLock<Regex> = OnceLock::new();
-    let re = SELECTOR_RE.get_or_init(|| {
-        Regex::new(r"(\.[a-zA-Z_][\w-]*)").unwrap()
-    });
+    let re = SELECTOR_RE.get_or_init(|| Regex::new(r"(\.[a-zA-Z_][\w-]*)").unwrap());
 
     let result = re.replace_all(css, |caps: &regex::Captures| {
         format!("{}{}", &caps[1], attr)
@@ -413,11 +411,9 @@ pub fn inject_scope_attribute(code: &str, scope_hash: &str) -> String {
 
     // Find the first JSX opening tag and inject the attribute
     static JSX_TAG_RE: OnceLock<Regex> = OnceLock::new();
-    let re = JSX_TAG_RE.get_or_init(|| {
-        Regex::new(r"(<[a-zA-Z][\w.-]*(?:\s[^>]*)?)(>)").unwrap()
-    });
+    let re = JSX_TAG_RE.get_or_init(|| Regex::new(r"(<[a-zA-Z][\w.-]*(?:\s[^>]*)?)(>)").unwrap());
 
-    if let Some(m) = re.captures(&code) {
+    if let Some(m) = re.captures(code) {
         let before = &code[..m[1].len()];
         let after = &code[m[1].len()..];
         // Check if attribute already exists
@@ -436,9 +432,7 @@ pub fn has_native_nesting(css: &str) -> bool {
     // Detect & selector (nesting parent reference)
     // Matches & anywhere in the CSS (not just at line start)
     static NESTING_RE: OnceLock<Regex> = OnceLock::new();
-    let re = NESTING_RE.get_or_init(|| {
-        Regex::new(r"&[\s.{:>+~(]").unwrap()
-    });
+    let re = NESTING_RE.get_or_init(|| Regex::new(r"&[\s.{:>+~(]").unwrap());
 
     re.is_match(css)
 }
@@ -466,9 +460,7 @@ fn generate_css_module_map(css: &str, file_path: &str) -> Vec<(String, String)> 
     let short_hash = &file_hash[..6];
 
     static CLASS_RE: OnceLock<Regex> = OnceLock::new();
-    let re = CLASS_RE.get_or_init(|| {
-        Regex::new(r"\.([a-zA-Z_][\w-]*)").unwrap()
-    });
+    let re = CLASS_RE.get_or_init(|| Regex::new(r"\.([a-zA-Z_][\w-]*)").unwrap());
 
     let mut mappings = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -545,7 +537,10 @@ mod tests {
     #[test]
     fn test_invert_rgb() {
         assert_eq!(invert_color_lightness("rgb(255, 255, 255)"), "rgb(0, 0, 0)");
-        assert_eq!(invert_color_lightness("rgba(0, 0, 0, 0.5)"), "rgba(255, 255, 255, 0.5)");
+        assert_eq!(
+            invert_color_lightness("rgba(0, 0, 0, 0.5)"),
+            "rgba(255, 255, 255, 0.5)"
+        );
     }
 
     #[test]
@@ -589,7 +584,9 @@ mod tests {
 
     #[test]
     fn test_has_native_nesting() {
-        assert!(has_native_nesting(".btn { color: red; &:hover { color: blue; } }"));
+        assert!(has_native_nesting(
+            ".btn { color: red; &:hover { color: blue; } }"
+        ));
         assert!(!has_native_nesting(".btn { color: red; }"));
     }
 }

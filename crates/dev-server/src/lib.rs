@@ -8,16 +8,16 @@
 
 use anyhow::Result;
 use axum::{
+    Router,
     extract::{Path, State, WebSocketUpgrade, ws::Message},
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::get,
-    Router,
 };
 use futures_util::{SinkExt, StreamExt};
-use pledgepack_core::{BuildEngine, PledgeConfig};
 use pledgepack_core::module::ModuleKind;
 use pledgepack_core::transform as pledge_transform;
+use pledgepack_core::{BuildEngine, PledgeConfig};
 use pledgepack_js_plugin_host::JsPluginHost;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -25,11 +25,11 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 use tracing::info;
 
-mod watcher;
 mod hmr_diff;
 mod lazy_pipeline;
 mod middleware;
 mod shell_generator;
+mod watcher;
 
 /// A TLS listener that wraps a TCP listener with tokio-rustls
 struct TlsListener {
@@ -44,15 +44,13 @@ impl axum::serve::Listener for TlsListener {
     async fn accept(&mut self) -> (Self::Io, Self::Addr) {
         loop {
             match self.listener.accept().await {
-                Ok((stream, addr)) => {
-                    match self.acceptor.accept(stream).await {
-                        Ok(tls_stream) => return (tls_stream, addr),
-                        Err(e) => {
-                            tracing::warn!("TLS accept error: {}", e);
-                            continue;
-                        }
+                Ok((stream, addr)) => match self.acceptor.accept(stream).await {
+                    Ok(tls_stream) => return (tls_stream, addr),
+                    Err(e) => {
+                        tracing::warn!("TLS accept error: {}", e);
+                        continue;
                     }
-                }
+                },
                 Err(e) => {
                     tracing::warn!("TCP accept error: {}", e);
                     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -143,12 +141,17 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
     }
 
     // Build middleware chain from config
-    let middleware_fns: Vec<middleware::MiddlewareFn> = config.dev_server.middleware
+    let middleware_fns: Vec<middleware::MiddlewareFn> = config
+        .dev_server
+        .middleware
         .iter()
         .filter_map(|src| middleware::MiddlewareFn::from_source(src))
         .collect();
     if !middleware_fns.is_empty() {
-        info!("Middleware chain: {} functions registered", middleware_fns.len());
+        info!(
+            "Middleware chain: {} functions registered",
+            middleware_fns.len()
+        );
     }
 
     // Detect multi-entry HTML files
@@ -156,7 +159,10 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
     if entries.len() > 1 {
         info!("Multi-entry dev server: {} entries detected", entries.len());
         for entry in &entries {
-            info!("  Entry '{}': {} → {}", entry.name, entry.html_file, entry.entry_module);
+            info!(
+                "  Entry '{}': {} → {}",
+                entry.name, entry.html_file, entry.entry_module
+            );
         }
     }
 
@@ -210,18 +216,24 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
 
     // Apply HTTP compression middleware (feature 12: WebSocket compression via per-message deflate
     // is handled at the WebSocket upgrade level; this handles HTTP response compression)
-    let mut app = app.layer(tower_http::compression::CompressionLayer::new()
-        .gzip(true)
-        .quality(tower_http::CompressionLevel::Fastest));
+    let mut app = app.layer(
+        tower_http::compression::CompressionLayer::new()
+            .gzip(true)
+            .quality(tower_http::CompressionLevel::Fastest),
+    );
 
     // Execute configureServer hooks from JS plugins
     let plugins_dir = config.root.join("plugins");
-    if plugins_dir.is_dir() {
-        if let Ok(mut plugin_host) = JsPluginHost::load_from_dir(&plugins_dir) {
-            let middlewares = plugin_host.configure_server();
-            for mw in &middlewares {
-                info!("[plugin:{}] configureServer registered middleware ({} bytes)", mw.plugin_name, mw.source.len());
-            }
+    if plugins_dir.is_dir()
+        && let Ok(mut plugin_host) = JsPluginHost::load_from_dir(&plugins_dir)
+    {
+        let middlewares = plugin_host.configure_server();
+        for mw in &middlewares {
+            info!(
+                "[plugin:{}] configureServer registered middleware ({} bytes)",
+                mw.plugin_name,
+                mw.source.len()
+            );
         }
     }
 
@@ -236,18 +248,36 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
         let proxy_rewrite = proxy.rewrite;
         let proxy_path = proxy.path.clone();
         let proxy_headers = proxy.headers.clone();
-        info!("Proxy: {} → {}{}", proxy_path, proxy_target, if proxy_rewrite { " (rewrite)" } else { "" });
+        info!(
+            "Proxy: {} → {}{}",
+            proxy_path,
+            proxy_target,
+            if proxy_rewrite { " (rewrite)" } else { "" }
+        );
         let proxy_router = Router::new().route(
             &format!("/{}/*rest", proxy_path.trim_start_matches('/')),
-            axum::routing::any(move |method: axum::http::Method, Path(rest): Path<String>, body: axum::body::Body| {
-                let target = proxy_target.clone();
-                let path_prefix = proxy_path.clone();
-                let rewrite = proxy_rewrite;
-                let headers = proxy_headers.clone();
-                async move {
-                    proxy_handler(method, &rest, &target, &path_prefix, rewrite, &headers, body).await
-                }
-            }),
+            axum::routing::any(
+                move |method: axum::http::Method,
+                      Path(rest): Path<String>,
+                      body: axum::body::Body| {
+                    let target = proxy_target.clone();
+                    let path_prefix = proxy_path.clone();
+                    let rewrite = proxy_rewrite;
+                    let headers = proxy_headers.clone();
+                    async move {
+                        proxy_handler(
+                            method,
+                            &rest,
+                            &target,
+                            &path_prefix,
+                            rewrite,
+                            &headers,
+                            body,
+                        )
+                        .await
+                    }
+                },
+            ),
         );
         app = app.merge(proxy_router);
 
@@ -259,19 +289,24 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
             info!("WS Proxy: {} → {}", ws_path, ws_target);
             let ws_router = Router::new().route(
                 &format!("/{}/*rest", ws_path.trim_start_matches('/')),
-                get(move |ws: axum::extract::WebSocketUpgrade, Path(rest): Path<String>| {
-                    let target = ws_target.clone();
-                    let rewrite = ws_rewrite;
-                    let path_prefix = ws_path.clone();
-                    async move {
-                        ws.on_upgrade(move |socket| {
-                            let rest = rest.clone();
-                            let target = target.clone();
-                            let path_prefix = path_prefix.clone();
-                            async move { ws_proxy_handler(socket, &rest, &target, &path_prefix, rewrite).await }
-                        })
-                    }
-                }),
+                get(
+                    move |ws: axum::extract::WebSocketUpgrade, Path(rest): Path<String>| {
+                        let target = ws_target.clone();
+                        let rewrite = ws_rewrite;
+                        let path_prefix = ws_path.clone();
+                        async move {
+                            ws.on_upgrade(move |socket| {
+                                let rest = rest.clone();
+                                let target = target.clone();
+                                let path_prefix = path_prefix.clone();
+                                async move {
+                                    ws_proxy_handler(socket, &rest, &target, &path_prefix, rewrite)
+                                        .await
+                                }
+                            })
+                        }
+                    },
+                ),
             );
             app = app.merge(ws_router);
         }
@@ -282,7 +317,11 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
 
     // Auto-open browser if configured
     if config.dev_server.open {
-        let protocol = if config.https.is_some() { "https" } else { "http" };
+        let protocol = if config.https.is_some() {
+            "https"
+        } else {
+            "http"
+        };
         let url = format!("{}://{}", protocol, addr);
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -327,13 +366,13 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
 
         let mut tls_config = rustls::ServerConfig::builder()
             .with_no_client_auth()
-            .with_single_cert(cert_chain.into_iter().map(rustls::pki_types::CertificateDer::from).collect(), key_der)
+            .with_single_cert(cert_chain.into_iter().collect(), key_der)
             .map_err(|e| anyhow::anyhow!("Failed to build TLS config: {}", e))?;
         tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
         let tls_acceptor = tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(tls_config));
         let listener = tokio::net::TcpListener::bind(&addr).await?;
-        
+
         // Serve with TLS using a custom Listener implementation
         let tls_listener = TlsListener {
             listener,
@@ -362,11 +401,15 @@ async fn router_handler(State(state): State<Arc<DevServerState>>) -> Response {
                 let router_module = route_table.generate_router_module();
                 return (
                     [
-                        (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+                        (
+                            header::CONTENT_TYPE,
+                            "application/javascript; charset=utf-8",
+                        ),
                         (header::CACHE_CONTROL, "no-cache"),
                     ],
                     router_module,
-                ).into_response();
+                )
+                    .into_response();
             }
             Err(e) => {
                 let error_body = format!(
@@ -375,11 +418,15 @@ async fn router_handler(State(state): State<Arc<DevServerState>>) -> Response {
                 );
                 return (
                     [
-                        (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+                        (
+                            header::CONTENT_TYPE,
+                            "application/javascript; charset=utf-8",
+                        ),
                         (header::CACHE_CONTROL, "no-cache"),
                     ],
                     error_body,
-                ).into_response();
+                )
+                    .into_response();
             }
         }
     }
@@ -387,11 +434,15 @@ async fn router_handler(State(state): State<Arc<DevServerState>>) -> Response {
     // No app directory — return a minimal router that renders nothing
     (
         [
-            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
             (header::CACHE_CONTROL, "no-cache"),
         ],
         "export function render() { return null; }".to_string(),
-    ).into_response()
+    )
+        .into_response()
 }
 
 /// Serve the auto-generated entry module (replaces static entry.tsx)
@@ -399,19 +450,27 @@ async fn entry_module_handler() -> Response {
     let entry_code = shell_generator::generate_entry_module();
     (
         [
-            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
             (header::CACHE_CONTROL, "no-cache"),
         ],
         entry_code,
-    ).into_response()
+    )
+        .into_response()
 }
 
 /// Shell preview endpoint — shows the generated HTML shell for debugging
 async fn shell_preview_handler(State(state): State<Arc<DevServerState>>) -> Response {
-    let (html_attrs, head_content) = match shell_generator::try_extract_shell_from_project(&state.config.root) {
-        Some((attrs, head)) => (attrs, head),
-        None => ("lang=\"en\"".to_string(), "<title>PledgeStack</title>".to_string()),
-    };
+    let (html_attrs, head_content) =
+        match shell_generator::try_extract_shell_from_project(&state.config.root) {
+            Some((attrs, head)) => (attrs, head),
+            None => (
+                "lang=\"en\"".to_string(),
+                "<title>PledgeStack</title>".to_string(),
+            ),
+        };
 
     let import_map = generate_import_map(&state.config);
 
@@ -470,10 +529,14 @@ async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRes
         Ok(content) => content,
         Err(_) => {
             // Auto-generate HTML shell from layout.tsx (no static index.html needed)
-            let (html_attrs, head_content) = match shell_generator::try_extract_shell_from_project(&state.config.root) {
-                Some((attrs, head)) => (attrs, head),
-                None => ("lang=\"en\"".to_string(), "<title>PledgeStack</title>".to_string()),
-            };
+            let (html_attrs, head_content) =
+                match shell_generator::try_extract_shell_from_project(&state.config.root) {
+                    Some((attrs, head)) => (attrs, head),
+                    None => (
+                        "lang=\"en\"".to_string(),
+                        "<title>PledgeStack</title>".to_string(),
+                    ),
+                };
             let import_map = generate_import_map(&state.config);
             shell_generator::generate_html_shell(&html_attrs, &head_content, "", &import_map)
         }
@@ -738,7 +801,9 @@ async fn app_route_handler(
     Path(path): Path<String>,
 ) -> Response {
     // If the path looks like a static asset (has a file extension), serve it as a module
-    let has_extension = path.rsplit('/').next()
+    let has_extension = path
+        .rsplit('/')
+        .next()
         .map(|last| last.contains('.'))
         .unwrap_or(false);
 
@@ -763,10 +828,14 @@ async fn app_route_handler(
         Ok(content) => content,
         Err(_) => {
             // Auto-generate HTML shell from layout.tsx (no static index.html needed)
-            let (html_attrs, head_content) = match shell_generator::try_extract_shell_from_project(&state.config.root) {
-                Some((attrs, head)) => (attrs, head),
-                None => ("lang=\"en\"".to_string(), "<title>PledgeStack</title>".to_string()),
-            };
+            let (html_attrs, head_content) =
+                match shell_generator::try_extract_shell_from_project(&state.config.root) {
+                    Some((attrs, head)) => (attrs, head),
+                    None => (
+                        "lang=\"en\"".to_string(),
+                        "<title>PledgeStack</title>".to_string(),
+                    ),
+                };
             let import_map = generate_import_map(&state.config);
             shell_generator::generate_html_shell(&html_attrs, &head_content, "", &import_map)
         }
@@ -928,116 +997,152 @@ fn generate_import_map(config: &PledgeConfig) -> String {
     // Known CJS-only packages that need esm.sh CDN
     let cjs_only_packages = ["react", "react-dom", "scheduler"];
 
-    if node_modules.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&node_modules) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with('.') {
-                    continue;
-                }
-                if name.starts_with('@') {
-                    let scoped_dir = entry.path();
-                    if scoped_dir.is_dir() {
-                        if let Ok(scoped_entries) = std::fs::read_dir(&scoped_dir) {
-                            for se in scoped_entries.flatten() {
-                                let sub_name = se.file_name().to_string_lossy().to_string();
-                                let pkg_name = format!("{}/{}", name, sub_name);
-                                let pkg_json = scoped_dir.join(&sub_name).join("package.json");
-                                if let Ok(content) = std::fs::read_to_string(&pkg_json) {
-                                    if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
-                                        let has_esm = pkg.get("module").is_some()
-                                            || pkg.get("type").and_then(|v| v.as_str()) == Some("module");
-                                        if has_esm {
-                                            let entry_field = pkg.get("module").or_else(|| pkg.get("main"))
-                                                .and_then(|v| v.as_str()).unwrap_or("index.js");
-                                            imports.insert(pkg_name, serde_json::Value::String(
-                                                format!("/node_modules/{}/{}/{}", name, sub_name, entry_field)
-                                                    .replace('\\', "/")
-                                            ));
-                                        } else {
-                                            // CJS-only: use esm.sh
-                                            imports.insert(pkg_name.clone(), serde_json::Value::String(
-                                                format!("https://esm.sh/{}", pkg_name)
-                                            ));
-                                        }
-                                    }
-                                }
+    if node_modules.is_dir()
+        && let Ok(entries) = std::fs::read_dir(&node_modules)
+    {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            if name.starts_with('@') {
+                let scoped_dir = entry.path();
+                if scoped_dir.is_dir()
+                    && let Ok(scoped_entries) = std::fs::read_dir(&scoped_dir)
+                {
+                    for se in scoped_entries.flatten() {
+                        let sub_name = se.file_name().to_string_lossy().to_string();
+                        let pkg_name = format!("{}/{}", name, sub_name);
+                        let pkg_json = scoped_dir.join(&sub_name).join("package.json");
+                        if let Ok(content) = std::fs::read_to_string(&pkg_json)
+                            && let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content)
+                        {
+                            let has_esm = pkg.get("module").is_some()
+                                || pkg.get("type").and_then(|v| v.as_str()) == Some("module");
+                            if has_esm {
+                                let entry_field = pkg
+                                    .get("module")
+                                    .or_else(|| pkg.get("main"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("index.js");
+                                imports.insert(
+                                    pkg_name,
+                                    serde_json::Value::String(
+                                        format!(
+                                            "/node_modules/{}/{}/{}",
+                                            name, sub_name, entry_field
+                                        )
+                                        .replace('\\', "/"),
+                                    ),
+                                );
+                            } else {
+                                // CJS-only: use esm.sh
+                                imports.insert(
+                                    pkg_name.clone(),
+                                    serde_json::Value::String(format!(
+                                        "https://esm.sh/{}",
+                                        pkg_name
+                                    )),
+                                );
                             }
                         }
                     }
-                    continue;
                 }
-                let pkg_json = node_modules.join(&name).join("package.json");
-                if let Ok(content) = std::fs::read_to_string(&pkg_json) {
-                    if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
-                        let has_esm = pkg.get("module").is_some()
-                            || pkg.get("type").and_then(|v| v.as_str()) == Some("module");
+                continue;
+            }
+            let pkg_json = node_modules.join(&name).join("package.json");
+            if let Ok(content) = std::fs::read_to_string(&pkg_json)
+                && let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content)
+            {
+                let has_esm = pkg.get("module").is_some()
+                    || pkg.get("type").and_then(|v| v.as_str()) == Some("module");
 
-                        // Check if exports has an "import" condition
-                        let has_esm_export = pkg.get("exports")
-                            .and_then(|e| e.as_object())
-                            .and_then(|o| o.get("."))
-                            .and_then(|d| d.as_object())
-                            .map(|d| d.contains_key("import") || d.contains_key("browser"))
-                            .unwrap_or(false);
+                // Check if exports has an "import" condition
+                let has_esm_export = pkg
+                    .get("exports")
+                    .and_then(|e| e.as_object())
+                    .and_then(|o| o.get("."))
+                    .and_then(|d| d.as_object())
+                    .map(|d| d.contains_key("import") || d.contains_key("browser"))
+                    .unwrap_or(false);
 
-                        let is_cjs_only = cjs_only_packages.contains(&name.as_str())
-                            || (!has_esm && !has_esm_export);
+                let is_cjs_only =
+                    cjs_only_packages.contains(&name.as_str()) || (!has_esm && !has_esm_export);
 
-                        if is_cjs_only {
-                            // CJS-only: use esm.sh CDN for all entry points
-                            imports.insert(name.clone(), serde_json::Value::String(
-                                format!("https://esm.sh/{}", name)
-                            ));
+                if is_cjs_only {
+                    // CJS-only: use esm.sh CDN for all entry points
+                    imports.insert(
+                        name.clone(),
+                        serde_json::Value::String(format!("https://esm.sh/{}", name)),
+                    );
 
-                            // Add exports map entries via esm.sh
-                            if let Some(exports) = pkg.get("exports") {
-                                if let Some(obj) = exports.as_object() {
-                                    for (export_key, _) in obj {
-                                        if export_key == "." {
-                                            continue;
-                                        }
-                                        let full_key = format!("{}/{}", name, export_key.trim_start_matches("./"));
-                                        imports.insert(full_key, serde_json::Value::String(
-                                            format!("https://esm.sh/{}/{}", name, export_key.trim_start_matches("./"))
-                                        ));
-                                    }
-                                }
+                    // Add exports map entries via esm.sh
+                    if let Some(exports) = pkg.get("exports")
+                        && let Some(obj) = exports.as_object()
+                    {
+                        for (export_key, _) in obj {
+                            if export_key == "." {
+                                continue;
                             }
-                        } else {
-                            // ESM package: serve locally
-                            let entry_field = pkg.get("module").or_else(|| pkg.get("main"))
-                                .and_then(|v| v.as_str()).unwrap_or("index.js");
-                            imports.insert(name.clone(), serde_json::Value::String(
-                                format!("/node_modules/{}/{}", name, entry_field).replace('\\', "/")
-                            ));
+                            let full_key =
+                                format!("{}/{}", name, export_key.trim_start_matches("./"));
+                            imports.insert(
+                                full_key,
+                                serde_json::Value::String(format!(
+                                    "https://esm.sh/{}/{}",
+                                    name,
+                                    export_key.trim_start_matches("./")
+                                )),
+                            );
+                        }
+                    }
+                } else {
+                    // ESM package: serve locally
+                    let entry_field = pkg
+                        .get("module")
+                        .or_else(|| pkg.get("main"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("index.js");
+                    imports.insert(
+                        name.clone(),
+                        serde_json::Value::String(
+                            format!("/node_modules/{}/{}", name, entry_field).replace('\\', "/"),
+                        ),
+                    );
 
-                            // Add exports map entries
-                            if let Some(exports) = pkg.get("exports") {
-                                if let Some(obj) = exports.as_object() {
-                                    for (export_key, export_val) in obj {
-                                        if export_key == "." {
-                                            continue;
-                                        }
-                                        let resolved = if let Some(s) = export_val.as_str() {
-                                            Some(s.to_string())
-                                        } else if let Some(obj) = export_val.as_object() {
-                                            obj.get("browser").or_else(|| obj.get("import"))
-                                                .or_else(|| obj.get("default"))
-                                                .and_then(|v| v.as_str())
-                                                .map(|s| s.to_string())
-                                        } else {
-                                            None
-                                        };
-                                        if let Some(resolved_path) = resolved {
-                                            let full_key = format!("{}/{}", name, export_key.trim_start_matches("./"));
-                                            imports.insert(full_key, serde_json::Value::String(
-                                                format!("/node_modules/{}/{}", name, resolved_path.trim_start_matches("./"))
-                                                    .replace('\\', "/")
-                                            ));
-                                        }
-                                    }
-                                }
+                    // Add exports map entries
+                    if let Some(exports) = pkg.get("exports")
+                        && let Some(obj) = exports.as_object()
+                    {
+                        for (export_key, export_val) in obj {
+                            if export_key == "." {
+                                continue;
+                            }
+                            let resolved = if let Some(s) = export_val.as_str() {
+                                Some(s.to_string())
+                            } else if let Some(obj) = export_val.as_object() {
+                                obj.get("browser")
+                                    .or_else(|| obj.get("import"))
+                                    .or_else(|| obj.get("default"))
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                            } else {
+                                None
+                            };
+                            if let Some(resolved_path) = resolved {
+                                let full_key =
+                                    format!("{}/{}", name, export_key.trim_start_matches("./"));
+                                imports.insert(
+                                    full_key,
+                                    serde_json::Value::String(
+                                        format!(
+                                            "/node_modules/{}/{}",
+                                            name,
+                                            resolved_path.trim_start_matches("./")
+                                        )
+                                        .replace('\\', "/"),
+                                    ),
+                                );
                             }
                         }
                     }
@@ -1084,31 +1189,51 @@ fn build_import_map_scopes(
                 }
                 if name.starts_with('@') {
                     let scoped_dir = entry.path();
-                    if scoped_dir.is_dir() {
-                        if let Ok(scoped_entries) = std::fs::read_dir(&scoped_dir) {
-                            for se in scoped_entries.flatten() {
-                                let sub_name = se.file_name().to_string_lossy().to_string();
-                                let pkg_name = format!("{}/{}", name, sub_name);
-                                let pkg_json = scoped_dir.join(&sub_name).join("package.json");
-                                if let Ok(content) = std::fs::read_to_string(&pkg_json) {
-                                    if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
-                                        let version = pkg.get("version").and_then(|v| v.as_str()).unwrap_or("0.0.0");
-                                        let rel_path = dir.strip_prefix(root).unwrap_or(dir).to_string_lossy().to_string();
-                                        pkg_versions.entry(pkg_name).or_default().push((version.to_string(), rel_path));
-                                    }
-                                }
+                    if scoped_dir.is_dir()
+                        && let Ok(scoped_entries) = std::fs::read_dir(&scoped_dir)
+                    {
+                        for se in scoped_entries.flatten() {
+                            let sub_name = se.file_name().to_string_lossy().to_string();
+                            let pkg_name = format!("{}/{}", name, sub_name);
+                            let pkg_json = scoped_dir.join(&sub_name).join("package.json");
+                            if let Ok(content) = std::fs::read_to_string(&pkg_json)
+                                && let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content)
+                            {
+                                let version = pkg
+                                    .get("version")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("0.0.0");
+                                let rel_path = dir
+                                    .strip_prefix(root)
+                                    .unwrap_or(dir)
+                                    .to_string_lossy()
+                                    .to_string();
+                                pkg_versions
+                                    .entry(pkg_name)
+                                    .or_default()
+                                    .push((version.to_string(), rel_path));
                             }
                         }
                     }
                     continue;
                 }
                 let pkg_json = dir.join(&name).join("package.json");
-                if let Ok(content) = std::fs::read_to_string(&pkg_json) {
-                    if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
-                        let version = pkg.get("version").and_then(|v| v.as_str()).unwrap_or("0.0.0");
-                        let rel_path = dir.strip_prefix(root).unwrap_or(dir).to_string_lossy().to_string();
-                        pkg_versions.entry(name).or_default().push((version.to_string(), rel_path));
-                    }
+                if let Ok(content) = std::fs::read_to_string(&pkg_json)
+                    && let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content)
+                {
+                    let version = pkg
+                        .get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("0.0.0");
+                    let rel_path = dir
+                        .strip_prefix(root)
+                        .unwrap_or(dir)
+                        .to_string_lossy()
+                        .to_string();
+                    pkg_versions
+                        .entry(name)
+                        .or_default()
+                        .push((version.to_string(), rel_path));
                 }
             }
         }
@@ -1117,7 +1242,12 @@ fn build_import_map_scopes(
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_dir() && path.file_name().map(|n| n != "node_modules").unwrap_or(true) {
+                if path.is_dir()
+                    && path
+                        .file_name()
+                        .map(|n| n != "node_modules")
+                        .unwrap_or(true)
+                {
                     let nested_nm = path.join("node_modules");
                     if nested_nm.is_dir() {
                         scan_node_modules(&nested_nm, root, pkg_versions);
@@ -1143,8 +1273,11 @@ fn build_import_map_scopes(
         }
 
         // For each version, create a scope that maps the package to the correct path
-        for (_version, parent_path) in &by_version {
-            let scope_key = format!("/node_modules/{}/", parent_path.trim_start_matches("node_modules/"));
+        for parent_path in by_version.values() {
+            let scope_key = format!(
+                "/node_modules/{}/",
+                parent_path.trim_start_matches("node_modules/")
+            );
             let scope_key = scope_key.replace("//", "/");
 
             let scope_entry = scopes
@@ -1153,7 +1286,11 @@ fn build_import_map_scopes(
 
             if let Some(scope_obj) = scope_entry.as_object_mut() {
                 // Map this package to its nested version path
-                let nested_path = format!("/node_modules/{}/{}/", parent_path.trim_start_matches("node_modules/"), pkg_name);
+                let nested_path = format!(
+                    "/node_modules/{}/{}/",
+                    parent_path.trim_start_matches("node_modules/"),
+                    pkg_name
+                );
                 let nested_path = nested_path.replace("//", "/");
 
                 // Try to get the entry field from the nested package.json
@@ -1165,7 +1302,12 @@ fn build_import_map_scopes(
                 let entry_field = std::fs::read_to_string(&nested_pkg_json)
                     .ok()
                     .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
-                    .and_then(|p| p.get("module").or_else(|| p.get("main")).and_then(|v| v.as_str()).map(String::from))
+                    .and_then(|p| {
+                        p.get("module")
+                            .or_else(|| p.get("main"))
+                            .and_then(|v| v.as_str())
+                            .map(String::from)
+                    })
                     .unwrap_or_else(|| "index.js".to_string());
 
                 let full_path = format!("{}{}", nested_path, entry_field).replace('\\', "/");
@@ -1178,9 +1320,7 @@ fn build_import_map_scopes(
 }
 
 /// Error overlay endpoint — returns error info as JSON for programmatic access
-async fn error_overlay_handler(
-    State(_state): State<Arc<DevServerState>>,
-) -> Response {
+async fn error_overlay_handler(State(_state): State<Arc<DevServerState>>) -> Response {
     // Return a simple page that can be used to display errors
     let html = r#"<!DOCTYPE html>
 <html>
@@ -1201,14 +1341,12 @@ async fn module_handler(
     // First, try serving from the configured public directory (static assets)
     let public_dir = &state.config.dev_server.public_dir;
     let public_path = state.config.root.join(public_dir).join(&path);
-    if public_path.exists() && public_path.is_file() {
-        if let Ok(content) = tokio::fs::read(&public_path).await {
-            let content_type = guess_content_type(&path);
-            return (
-                [(header::CONTENT_TYPE, content_type)],
-                content,
-            ).into_response();
-        }
+    if public_path.exists()
+        && public_path.is_file()
+        && let Ok(content) = tokio::fs::read(&public_path).await
+    {
+        let content_type = guess_content_type(&path);
+        return ([(header::CONTENT_TYPE, content_type)], content).into_response();
     }
 
     let full_path = state.config.root.join(&path);
@@ -1221,7 +1359,9 @@ async fn module_handler(
         // Try replacing .js extension with source extensions
         let stem = full_path.with_extension("");
         let mut found = None;
-        for ext in &["tsx", "ts", "jsx", "js", "mjs", "css", "json", "vue", "svelte"] {
+        for ext in &[
+            "tsx", "ts", "jsx", "js", "mjs", "css", "json", "vue", "svelte",
+        ] {
             let candidate = stem.with_extension(ext);
             if candidate.exists() {
                 found = Some(candidate);
@@ -1252,7 +1392,8 @@ async fn module_handler(
         if is_cjs {
             let specifier = path.strip_prefix("node_modules/").unwrap_or(&path);
             let rewritten = rewrite_cjs_requires(&source_str, &path);
-            let wrapped = pledgepack_core::dep_bundler::DepBundler::cjs_to_esm_wrapper(specifier, &rewritten);
+            let wrapped =
+                pledgepack_core::dep_bundler::DepBundler::cjs_to_esm_wrapper(specifier, &rewritten);
             (wrapped, true)
         } else {
             (source_str, false)
@@ -1268,7 +1409,8 @@ async fn module_handler(
     }
 
     // Determine module kind from extension
-    let ext_str = full_path.extension()
+    let ext_str = full_path
+        .extension()
         .and_then(|e| e.to_str())
         .map(|e| format!(".{}", e))
         .unwrap_or_default();
@@ -1303,17 +1445,19 @@ async fn module_handler(
                 // Also return an error response with proper content type
                 let error_body = format!(
                     "/* Pledge Transform Error */\nconsole.error('[pledge] Transform error in {}: {}');\nthrow new Error('Transform error: {}');",
-                    path,
-                    e,
-                    e
+                    path, e, e
                 );
                 return (
                     [
-                        (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+                        (
+                            header::CONTENT_TYPE,
+                            "application/javascript; charset=utf-8",
+                        ),
                         (header::CACHE_CONTROL, "no-cache"),
                     ],
                     error_body,
-                ).into_response();
+                )
+                    .into_response();
             }
         }
     };
@@ -1370,15 +1514,19 @@ export {{}};
             // Replace the empty export with actual CSS module exports
             let js_module = js_module.replace(
                 "export default {};\nexport {};\n",
-                &format!("export default {{\n{}}};\n", exports)
+                &format!("export default {{\n{}}};\n", exports),
             );
             return (
                 [
-                    (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+                    (
+                        header::CONTENT_TYPE,
+                        "application/javascript; charset=utf-8",
+                    ),
                     (header::CACHE_CONTROL, "no-cache"),
                 ],
                 js_module,
-            ).into_response();
+            )
+                .into_response();
         }
 
         // Regular CSS: inject as JS module that creates a <style> tag
@@ -1403,16 +1551,23 @@ if (import.meta.hot) {{
 
         return (
             [
-                (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+                (
+                    header::CONTENT_TYPE,
+                    "application/javascript; charset=utf-8",
+                ),
                 (header::CACHE_CONTROL, "no-cache"),
             ],
             js_module,
-        ).into_response();
+        )
+            .into_response();
     }
 
     // Handle extracted CSS from SFCs (Vue/Svelte/Astro) — inject as style tag
     if let Some(ref extracted_css) = transform_output.extracted_css {
-        let style_id = format!("__pledge_style_{}", path.replace(|c: char| !c.is_alphanumeric(), "_"));
+        let style_id = format!(
+            "__pledge_style_{}",
+            path.replace(|c: char| !c.is_alphanumeric(), "_")
+        );
         let css_inject = format!(
             r#"
 const __css = {};
@@ -1429,7 +1584,11 @@ __existing.textContent = __css;
             style_id
         );
         // Prepend CSS injection to the module code
-        let transformed = rewrite_imports(&format!("{}\n{}", css_inject, transform_output.code), &path, &state.config.resolve_alias);
+        let transformed = rewrite_imports(
+            &format!("{}\n{}", css_inject, transform_output.code),
+            &path,
+            &state.config.resolve_alias,
+        );
         // Continue with normal JS module handling below using the combined code
         let transform_output = pledgepack_core::transform::TransformOutput {
             code: transformed,
@@ -1451,11 +1610,7 @@ __existing.textContent = __css;
 }
 
 /// Serve a JS module with HMR polyfill, dependency tracking, and source maps
-async fn serve_js_module(
-    path: &str,
-    transformed: &str,
-    state: &Arc<DevServerState>,
-) -> Response {
+async fn serve_js_module(path: &str, transformed: &str, state: &Arc<DevServerState>) -> Response {
     // Track imports in the dependency graph for cascading HMR updates
     {
         let imports = extract_imports(transformed);
@@ -1508,11 +1663,14 @@ if (!import.meta.hot) {{
     );
 
     // Add HMR boundary code for JS/TS files
-    let module_with_hmr = if path.ends_with(".tsx") || path.ends_with(".jsx") || path.ends_with(".ts") || path.ends_with(".js") {
+    let module_with_hmr = if path.ends_with(".tsx")
+        || path.ends_with(".jsx")
+        || path.ends_with(".ts")
+        || path.ends_with(".js")
+    {
         format!(
             "{}\n{}\nif (import.meta.hot) {{\nimport.meta.hot.accept();\n}}",
-            hmr_polyfill,
-            transformed
+            hmr_polyfill, transformed
         )
     } else {
         format!("{}\n{}", hmr_polyfill, transformed)
@@ -1520,7 +1678,10 @@ if (!import.meta.hot) {{
 
     (
         [
-            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
             (header::CACHE_CONTROL, "no-cache"),
         ],
         module_with_hmr,
@@ -1541,8 +1702,12 @@ fn normalize_module_path(specifier: &str, importer: &str) -> String {
         for part in parts {
             match part {
                 "." => {}
-                ".." => { path_parts.pop(); }
-                _ => { path_parts.push(part); }
+                ".." => {
+                    path_parts.pop();
+                }
+                _ => {
+                    path_parts.push(part);
+                }
             }
         }
         return path_parts.join("/");
@@ -1556,7 +1721,10 @@ fn normalize_module_path(specifier: &str, importer: &str) -> String {
 /// them to absolute paths so the browser can fetch them as ESM modules.
 fn rewrite_cjs_requires(source: &str, module_path: &str) -> String {
     // Get the directory of the current module for resolving relative requires
-    let module_dir = module_path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+    let module_dir = module_path
+        .rsplit_once('/')
+        .map(|(dir, _)| dir)
+        .unwrap_or("");
 
     // Replace require("./...") and require("./...") with resolved absolute paths
     // The CJS wrapper already provides `require`, so we just need to make sure
@@ -1575,7 +1743,12 @@ fn rewrite_cjs_requires(source: &str, module_path: &str) -> String {
             // Resolve relative to module directory
             let resolved = resolve_relative_require(module_dir, relative_path);
 
-            result = format!("{}require(\"{}\"){}", &result[..start], resolved, &result[quote_end + 2..]);
+            result = format!(
+                "{}require(\"{}\"){}",
+                &result[..start],
+                resolved,
+                &result[quote_end + 2..]
+            );
         } else {
             break;
         }
@@ -1590,7 +1763,12 @@ fn rewrite_cjs_requires(source: &str, module_path: &str) -> String {
 
             let resolved = resolve_relative_require(module_dir, relative_path);
 
-            result = format!("{}require('{}'){}", &result[..start], resolved, &result[quote_end + 2..]);
+            result = format!(
+                "{}require('{}'){}",
+                &result[..start],
+                resolved,
+                &result[quote_end + 2..]
+            );
         } else {
             break;
         }
@@ -1602,14 +1780,18 @@ fn rewrite_cjs_requires(source: &str, module_path: &str) -> String {
 /// Resolve a relative require() path to an absolute /node_modules/... path.
 /// Handles ./, ../, and multi-level ../../ paths correctly.
 fn resolve_relative_require(module_dir: &str, relative_path: &str) -> String {
-    if relative_path.starts_with("./") {
-        format!("/node_modules/{}/{}", module_dir, &relative_path[2..])
-    } else if relative_path.starts_with("../") {
+    if let Some(rest) = relative_path.strip_prefix("./") {
+        format!("/node_modules/{}/{}", module_dir, rest)
+    } else if let Some(rest) = relative_path.strip_prefix("../") {
         // Count and strip all ../ segments
         let mut dir = module_dir.to_string();
-        let mut rest = &relative_path[3..];
+        let mut rest = rest;
         while rest.starts_with("../") {
-            dir = dir.rsplit_once('/').map(|(d, _)| d).unwrap_or(&dir).to_string();
+            dir = dir
+                .rsplit_once('/')
+                .map(|(d, _)| d)
+                .unwrap_or(&dir)
+                .to_string();
             rest = &rest[3..];
         }
         // Handle remaining ../ (if rest is just "../foo" without another "../")
@@ -1624,13 +1806,25 @@ fn resolve_relative_require(module_dir: &str, relative_path: &str) -> String {
 /// Converts `./foo` → `./foo.js`, `../bar` → `../bar.js`, etc.
 /// Also rewrites resolve aliases (e.g., `@/components` → `/src/components`).
 /// Bare specifiers like `react` are left as-is (browser must resolve via import map).
-fn rewrite_imports(code: &str, _current_module_path: &str, aliases: &[pledgepack_core::PathAlias]) -> String {
+fn rewrite_imports(
+    code: &str,
+    _current_module_path: &str,
+    aliases: &[pledgepack_core::PathAlias],
+) -> String {
     let mut result = code.to_string();
 
     // Rewrite relative import/export specifiers to include .tsx extension
     // This is a simple regex-like approach; Oxc could do this in AST but
     // for dev server speed, string rewriting is sufficient.
-    for pattern in ["from \"", "from '", "import \"", "import '", "import(", "export * from \"", "export * from '"] {
+    for pattern in [
+        "from \"",
+        "from '",
+        "import \"",
+        "import '",
+        "import(",
+        "export * from \"",
+        "export * from '",
+    ] {
         let mut search_from = 0;
         while let Some(pos) = result[search_from..].find(pattern) {
             let pos = search_from + pos;
@@ -1638,13 +1832,17 @@ fn rewrite_imports(code: &str, _current_module_path: &str, aliases: &[pledgepack
             let rest = &result[after_pattern..];
 
             // Find the closing quote
-            let closing_quote = if pattern.ends_with('"') { '"' }
-                else if pattern.ends_with('\'') { '\'' }
-                else { '(' }; // for "import("
+            let closing_quote = if pattern.ends_with('"') {
+                '"'
+            } else if pattern.ends_with('\'') {
+                '\''
+            } else {
+                '('
+            }; // for "import("
 
             if closing_quote == '(' {
                 // Dynamic import: find the string inside
-                if let Some(quote_pos) = rest.find(|c: char| c == '"' || c == '\'') {
+                if let Some(quote_pos) = rest.find(['"', '\'']) {
                     let quote_char = rest.as_bytes()[quote_pos] as char;
                     let spec_start = quote_pos + 1;
                     let spec_rest = &rest[spec_start..];
@@ -1685,7 +1883,15 @@ fn rewrite_imports(code: &str, _current_module_path: &str, aliases: &[pledgepack
     for alias in aliases {
         let from_with_slash = format!("{}/", alias.from);
         let from_exact = alias.from.as_str();
-        for pattern in ["from \"", "from '", "import \"", "import '", "import(", "export * from \"", "export * from '"] {
+        for pattern in [
+            "from \"",
+            "from '",
+            "import \"",
+            "import '",
+            "import(",
+            "export * from \"",
+            "export * from '",
+        ] {
             // Match alias as exact or prefix
             let alias_prefixes = [from_exact, &from_with_slash];
             for &alias_prefix in &alias_prefixes {
@@ -1695,7 +1901,8 @@ fn rewrite_imports(code: &str, _current_module_path: &str, aliases: &[pledgepack
                     let pos = search_from + pos;
                     // Replace the alias with the target path
                     let replacement = format!("{}{}", pattern, alias.to);
-                    result.replace_range(pos..pos + pattern.len() + alias_prefix.len(), &replacement);
+                    result
+                        .replace_range(pos..pos + pattern.len() + alias_prefix.len(), &replacement);
                     // Advance past the replacement to avoid infinite loops
                     search_from = pos + replacement.len();
                 }
@@ -1735,10 +1942,7 @@ async fn hmr_websocket_handler(
     ws.on_upgrade(move |socket| handle_hmr_connection(socket, state))
 }
 
-async fn handle_hmr_connection(
-    socket: axum::extract::ws::WebSocket,
-    state: Arc<DevServerState>,
-) {
+async fn handle_hmr_connection(socket: axum::extract::ws::WebSocket, state: Arc<DevServerState>) {
     info!("HMR client connected");
 
     // Split socket into sender and receiver
@@ -1749,7 +1953,7 @@ async fn handle_hmr_connection(
         "type": "connected",
         "message": "Pledge HMR connected"
     });
-    let _ = socket_tx.send(Message::Text(hello.to_string().into()));
+    drop(socket_tx.send(Message::Text(hello.to_string().into())));
 
     // Register this client to receive HMR updates
     let (client_tx, mut client_rx) = mpsc::unbounded_channel::<HmrUpdate>();
@@ -1770,7 +1974,11 @@ async fn handle_hmr_connection(
                     break;
                 }
             } else {
-                if socket_tx.send(Message::Binary(json.into_bytes().into())).await.is_err() {
+                if socket_tx
+                    .send(Message::Binary(json.into_bytes().into()))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -1814,18 +2022,27 @@ fn start_native_file_watcher(
 
     // Process events from the native watcher and send HMR updates
     while let Ok(event) = rx.recv() {
-        let rel_path = event.path.strip_prefix(&root)
+        let rel_path = event
+            .path
+            .strip_prefix(&root)
             .unwrap_or(&event.path)
             .to_string_lossy()
             .replace('\\', "/");
 
-        let ext = event.path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let ext = event
+            .path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
 
         // Check if this is a server-only file change
         let is_server_file = is_server_file(&rel_path, &server_dirs, &server_entry);
 
         if is_server_file {
-            info!("Server file changed: {} — triggering graceful reload", rel_path);
+            info!(
+                "Server file changed: {} — triggering graceful reload",
+                rel_path
+            );
 
             // Send "server-reload" notification so clients know to expect a brief pause
             let reload_start = HmrUpdate {
@@ -1896,10 +2113,10 @@ fn compute_server_dirs(root: &std::path::Path, server_entry: &Option<String>) ->
     let mut dirs = Vec::new();
     if let Some(entry) = server_entry {
         // Derive server directory from entry path (e.g., "server/index.ts" → "server")
-        if let Some(parent) = std::path::Path::new(entry).parent() {
-            if !parent.as_os_str().is_empty() {
-                dirs.push(parent.to_string_lossy().replace('\\', "/"));
-            }
+        if let Some(parent) = std::path::Path::new(entry).parent()
+            && !parent.as_os_str().is_empty()
+        {
+            dirs.push(parent.to_string_lossy().replace('\\', "/"));
         }
     }
     // Common SSR/API directories
@@ -1912,16 +2129,12 @@ fn compute_server_dirs(root: &std::path::Path, server_entry: &Option<String>) ->
 }
 
 /// Check if a file path is a server-only file
-fn is_server_file(
-    rel_path: &str,
-    server_dirs: &[String],
-    server_entry: &Option<String>,
-) -> bool {
+fn is_server_file(rel_path: &str, server_dirs: &[String], server_entry: &Option<String>) -> bool {
     // Check if it's the server entry file itself
-    if let Some(entry) = server_entry {
-        if rel_path == entry.as_str() {
-            return true;
-        }
+    if let Some(entry) = server_entry
+        && rel_path == entry.as_str()
+    {
+        return true;
     }
     // Check if it's in a server directory
     for dir in server_dirs {
@@ -1975,7 +2188,11 @@ fn detect_entries(config: &PledgeConfig) -> Vec<EntryConfig> {
 
                 // Find the corresponding entry module
                 let entry_module = if entry_name == "index" {
-                    config.entry.first().cloned().unwrap_or_else(|| "src/index.tsx".to_string())
+                    config
+                        .entry
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| "src/index.tsx".to_string())
                 } else {
                     // Look for matching JS/TS file
                     let candidates = [
@@ -1986,13 +2203,15 @@ fn detect_entries(config: &PledgeConfig) -> Vec<EntryConfig> {
                         format!("{}.tsx", entry_name),
                         format!("{}.ts", entry_name),
                     ];
-                    candidates.iter()
+                    candidates
+                        .iter()
                         .find(|c| config.root.join(c).exists())
                         .cloned()
                         .unwrap_or_else(|| format!("src/{}.tsx", entry_name))
                 };
 
-                let html_rel = path.strip_prefix(&config.root)
+                let html_rel = path
+                    .strip_prefix(&config.root)
                     .unwrap_or(&path)
                     .to_string_lossy()
                     .to_string();
@@ -2011,7 +2230,11 @@ fn detect_entries(config: &PledgeConfig) -> Vec<EntryConfig> {
         entries.push(EntryConfig {
             name: "index".to_string(),
             html_file: "index.html".to_string(),
-            entry_module: config.entry.first().cloned().unwrap_or_else(|| "src/index.tsx".to_string()),
+            entry_module: config
+                .entry
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "src/index.tsx".to_string()),
         });
     }
 
@@ -2037,10 +2260,14 @@ async fn entry_index_handler(
         Ok(content) => content,
         Err(_) => {
             // Auto-generate HTML shell from layout.tsx
-            let (html_attrs, head_content) = match shell_generator::try_extract_shell_from_project(&state.config.root) {
-                Some((attrs, head)) => (attrs, head),
-                None => ("lang=\"en\"".to_string(), format!("<title>Pledge — {}</title>", entry.name)),
-            };
+            let (html_attrs, head_content) =
+                match shell_generator::try_extract_shell_from_project(&state.config.root) {
+                    Some((attrs, head)) => (attrs, head),
+                    None => (
+                        "lang=\"en\"".to_string(),
+                        format!("<title>Pledge — {}</title>", entry.name),
+                    ),
+                };
             let import_map = generate_import_map(&state.config);
             shell_generator::generate_html_shell(&html_attrs, &head_content, "", &import_map)
         }
@@ -2194,42 +2421,46 @@ async fn hmr_broadcast_loop(
         info!("HMR update: {} (type: {})", update.path, update.update_type);
 
         // Compute line-level diff for partial HMR updates (feature 10)
-        if update.update_type == "update" {
-            if let Some(ref full_code) = update.full_code {
-                let module_cache = state.module_cache.read().await;
-                if let Some(old_code) = module_cache.get(&update.path) {
-                    let diff = hmr_diff::compute_diff(old_code, full_code);
-                    if diff.is_small() {
-                        update.diff = Some(diff);
-                    } else {
-                        update.diff = None;
-                    }
+        if update.update_type == "update"
+            && let Some(ref full_code) = update.full_code
+        {
+            let module_cache = state.module_cache.read().await;
+            if let Some(old_code) = module_cache.get(&update.path) {
+                let diff = hmr_diff::compute_diff(old_code, full_code);
+                if diff.is_small() {
+                    update.diff = Some(diff);
+                } else {
+                    update.diff = None;
                 }
-                drop(module_cache);
-
-                let mut module_cache = state.module_cache.write().await;
-                module_cache.insert(update.path.clone(), full_code.clone());
             }
+            drop(module_cache);
+
+            let mut module_cache = state.module_cache.write().await;
+            module_cache.insert(update.path.clone(), full_code.clone());
         }
 
         // Track import pattern changes for on-demand optimization (feature 15)
-        if update.update_type == "update" {
-            if let Some(ref new_code) = update.full_code {
-                let new_imports = extract_imports(new_code);
-                let import_patterns = state.import_patterns.read().await;
-                let old_imports = import_patterns.get(&update.path);
-                let imports_changed = old_imports.map_or(true, |old| {
-                    old.len() != new_imports.len() || old.iter().zip(new_imports.iter()).any(|(a, b)| a != b)
-                });
-                drop(import_patterns);
+        if update.update_type == "update"
+            && let Some(ref new_code) = update.full_code
+        {
+            let new_imports = extract_imports(new_code);
+            let import_patterns = state.import_patterns.read().await;
+            let old_imports = import_patterns.get(&update.path);
+            let imports_changed = old_imports.is_none_or(|old| {
+                old.len() != new_imports.len()
+                    || old.iter().zip(new_imports.iter()).any(|(a, b)| a != b)
+            });
+            drop(import_patterns);
 
-                if imports_changed {
-                    info!("Import patterns changed for {}, re-optimizing dependencies", update.path);
-                    let mut import_patterns = state.import_patterns.write().await;
-                    import_patterns.insert(update.path.clone(), new_imports);
-                    let mut lazy_pipeline = state.lazy_pipeline.write().await;
-                    lazy_pipeline.mark_deps_dirty(&update.path);
-                }
+            if imports_changed {
+                info!(
+                    "Import patterns changed for {}, re-optimizing dependencies",
+                    update.path
+                );
+                let mut import_patterns = state.import_patterns.write().await;
+                import_patterns.insert(update.path.clone(), new_imports);
+                let mut lazy_pipeline = state.lazy_pipeline.write().await;
+                lazy_pipeline.mark_deps_dirty(&update.path);
             }
         }
 
@@ -2262,12 +2493,16 @@ fn extract_imports(code: &str) -> Vec<String> {
             let after_pattern = pos + pattern.len();
             let rest = &code[after_pattern..];
 
-            let closing_quote = if pattern.ends_with('"') { '"' }
-                else if pattern.ends_with('\'') { '\'' }
-                else { '(' };
+            let closing_quote = if pattern.ends_with('"') {
+                '"'
+            } else if pattern.ends_with('\'') {
+                '\''
+            } else {
+                '('
+            };
 
             if closing_quote == '(' {
-                if let Some(quote_pos) = rest.find(|c: char| c == '"' || c == '\'') {
+                if let Some(quote_pos) = rest.find(['"', '\'']) {
                     let quote_char = rest.as_bytes()[quote_pos] as char;
                     let spec_start = quote_pos + 1;
                     let spec_rest = &rest[spec_start..];
@@ -2307,7 +2542,12 @@ fn collect_dependents(
     visited.insert(path.to_string());
 
     // Try exact match and also try with common extensions
-    let candidates = [path.to_string(), format!("{}.js", path), format!("{}.ts", path), format!("{}.tsx", path)];
+    let candidates = [
+        path.to_string(),
+        format!("{}.js", path),
+        format!("{}.ts", path),
+        format!("{}.tsx", path),
+    ];
     for candidate in &candidates {
         if let Some(direct_deps) = graph.get(candidate) {
             for dep in direct_deps {
@@ -2338,13 +2578,22 @@ async fn proxy_handler(
         format!("{}{}/{}", target.trim_end_matches('/'), path_prefix, rest)
     };
 
-    info!("Proxy: {} {}{}/{} → {}", method, path_prefix, rest, if rewrite { " (rewrite)" } else { "" }, target_url);
+    info!(
+        "Proxy: {} {}{}/{} → {}",
+        method,
+        path_prefix,
+        rest,
+        if rewrite { " (rewrite)" } else { "" },
+        target_url
+    );
 
     let client = reqwest::Client::new();
-    let req_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
-        .unwrap_or(reqwest::Method::GET);
+    let req_method =
+        reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap_or(reqwest::Method::GET);
 
-    let body_bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap_or_default();
+    let body_bytes = axum::body::to_bytes(body, usize::MAX)
+        .await
+        .unwrap_or_default();
 
     let request = client.request(req_method, &target_url).body(body_bytes);
 
@@ -2357,13 +2606,22 @@ async fn proxy_handler(
             let mut response_headers = Vec::new();
             for (key, value) in headers.iter() {
                 // Skip hop-by-hop headers
-                if !matches!(key.as_str(), "connection" | "keep-alive" | "transfer-encoding" | "te" | "trailer" | "upgrade") {
-                    if let Ok(v) = value.to_str() {
-                        response_headers.push((
-                            axum::http::HeaderName::try_from(key.as_str()).unwrap_or(axum::http::header::CONTENT_TYPE),
-                            axum::http::HeaderValue::try_from(v).unwrap_or(axum::http::HeaderValue::from_static("")),
-                        ));
-                    }
+                if !matches!(
+                    key.as_str(),
+                    "connection"
+                        | "keep-alive"
+                        | "transfer-encoding"
+                        | "te"
+                        | "trailer"
+                        | "upgrade"
+                ) && let Ok(v) = value.to_str()
+                {
+                    response_headers.push((
+                        axum::http::HeaderName::try_from(key.as_str())
+                            .unwrap_or(axum::http::header::CONTENT_TYPE),
+                        axum::http::HeaderValue::try_from(v)
+                            .unwrap_or(axum::http::HeaderValue::from_static("")),
+                    ));
                 }
             }
 
@@ -2379,10 +2637,7 @@ async fn proxy_handler(
         }
         Err(e) => {
             tracing::warn!("Proxy error: {}", e);
-            (
-                StatusCode::BAD_GATEWAY,
-                format!("Proxy error: {}", e),
-            ).into_response()
+            (StatusCode::BAD_GATEWAY, format!("Proxy error: {}", e)).into_response()
         }
     }
 }
@@ -2408,8 +2663,8 @@ async fn ws_proxy_handler(
 
     info!("WS Proxy: connecting to {}", ws_url);
 
-    use tokio_tungstenite::tungstenite::Message;
     use futures_util::StreamExt;
+    use tokio_tungstenite::tungstenite::Message;
 
     // Connect to the target WebSocket
     let (target_socket, _) = match tokio_tungstenite::connect_async(&ws_url).await {
@@ -2424,29 +2679,37 @@ async fn ws_proxy_handler(
     let (target_sink, target_stream) = target_socket.split();
 
     // Convert client messages to tungstenite messages and forward
-    let client_to_target = client_stream.filter_map(|msg| async {
-        match msg {
-            Ok(axum::extract::ws::Message::Text(text)) => Some(Ok(Message::Text(text.to_string().into()))),
-            Ok(axum::extract::ws::Message::Binary(bin)) => Some(Ok(Message::Binary(bin))),
-            Ok(axum::extract::ws::Message::Ping(data)) => Some(Ok(Message::Ping(data))),
-            Ok(axum::extract::ws::Message::Pong(data)) => Some(Ok(Message::Pong(data))),
-            Ok(axum::extract::ws::Message::Close(_)) => Some(Ok(Message::Close(None))),
-            Err(_) => None,
-        }
-    }).forward(target_sink);
+    let client_to_target = client_stream
+        .filter_map(|msg| async {
+            match msg {
+                Ok(axum::extract::ws::Message::Text(text)) => {
+                    Some(Ok(Message::Text(text.to_string().into())))
+                }
+                Ok(axum::extract::ws::Message::Binary(bin)) => Some(Ok(Message::Binary(bin))),
+                Ok(axum::extract::ws::Message::Ping(data)) => Some(Ok(Message::Ping(data))),
+                Ok(axum::extract::ws::Message::Pong(data)) => Some(Ok(Message::Pong(data))),
+                Ok(axum::extract::ws::Message::Close(_)) => Some(Ok(Message::Close(None))),
+                Err(_) => None,
+            }
+        })
+        .forward(target_sink);
 
     // Convert target messages to client messages and forward
-    let target_to_client = target_stream.filter_map(|msg| async {
-        match msg {
-            Ok(Message::Text(text)) => Some(Ok(axum::extract::ws::Message::Text(text.to_string().into()))),
-            Ok(Message::Binary(bin)) => Some(Ok(axum::extract::ws::Message::Binary(bin))),
-            Ok(Message::Ping(data)) => Some(Ok(axum::extract::ws::Message::Ping(data))),
-            Ok(Message::Pong(data)) => Some(Ok(axum::extract::ws::Message::Pong(data))),
-            Ok(Message::Close(_)) => Some(Ok(axum::extract::ws::Message::Close(None))),
-            Ok(_) => None,
-            Err(_) => None,
-        }
-    }).forward(client_sink);
+    let target_to_client = target_stream
+        .filter_map(|msg| async {
+            match msg {
+                Ok(Message::Text(text)) => Some(Ok(axum::extract::ws::Message::Text(
+                    text.to_string().into(),
+                ))),
+                Ok(Message::Binary(bin)) => Some(Ok(axum::extract::ws::Message::Binary(bin))),
+                Ok(Message::Ping(data)) => Some(Ok(axum::extract::ws::Message::Ping(data))),
+                Ok(Message::Pong(data)) => Some(Ok(axum::extract::ws::Message::Pong(data))),
+                Ok(Message::Close(_)) => Some(Ok(axum::extract::ws::Message::Close(None))),
+                Ok(_) => None,
+                Err(_) => None,
+            }
+        })
+        .forward(client_sink);
 
     tokio::select! {
         _ = client_to_target => {},
@@ -2480,7 +2743,9 @@ async fn virtual_fs_handler(
     };
     let root_canonical = match state.config.root.canonicalize() {
         Ok(c) => c,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Cannot resolve root").into_response(),
+        Err(_) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Cannot resolve root").into_response();
+        }
     };
 
     // Allow access to project root and its node_modules
@@ -2493,10 +2758,13 @@ async fn virtual_fs_handler(
     if let Ok(content) = tokio::fs::read(&canonical).await {
         let content_type = guess_content_type(&canonical.to_string_lossy());
         return (
-            [(header::CONTENT_TYPE, content_type),
-             (header::CACHE_CONTROL, "no-cache")],
+            [
+                (header::CONTENT_TYPE, content_type),
+                (header::CACHE_CONTROL, "no-cache"),
+            ],
             content,
-        ).into_response();
+        )
+            .into_response();
     }
 
     (StatusCode::NOT_FOUND, "Virtual file not found").into_response()
@@ -2511,48 +2779,73 @@ async fn virtual_id_handler(
     // /@id/ resolves virtual module IDs to actual files
     // First try as a bare specifier in node_modules
     let node_modules_path = state.config.root.join("node_modules").join(&path);
-    if node_modules_path.exists() {
-        if let Ok(content) = tokio::fs::read(&node_modules_path).await {
-            let content_type = guess_content_type(&path);
-            return (
-                [(header::CONTENT_TYPE, content_type),
-                 (header::CACHE_CONTROL, "no-cache")],
-                content,
-            ).into_response();
-        }
+    if node_modules_path.exists()
+        && let Ok(content) = tokio::fs::read(&node_modules_path).await
+    {
+        let content_type = guess_content_type(&path);
+        return (
+            [
+                (header::CONTENT_TYPE, content_type),
+                (header::CACHE_CONTROL, "no-cache"),
+            ],
+            content,
+        )
+            .into_response();
     }
 
     // Try as a path relative to project root
     let root_path = state.config.root.join(&path);
-    if root_path.exists() && root_path.is_file() {
-        if let Ok(content) = tokio::fs::read(&root_path).await {
-            let content_type = guess_content_type(&path);
-            return (
-                [(header::CONTENT_TYPE, content_type),
-                 (header::CACHE_CONTROL, "no-cache")],
-                content,
-            ).into_response();
-        }
+    if root_path.exists()
+        && root_path.is_file()
+        && let Ok(content) = tokio::fs::read(&root_path).await
+    {
+        let content_type = guess_content_type(&path);
+        return (
+            [
+                (header::CONTENT_TYPE, content_type),
+                (header::CACHE_CONTROL, "no-cache"),
+            ],
+            content,
+        )
+            .into_response();
     }
 
     // Try resolving as a package with module/main field
-    let pkg_json = state.config.root.join("node_modules").join(&path).join("package.json");
-    if pkg_json.exists() {
-        if let Ok(content) = std::fs::read_to_string(&pkg_json) {
-            if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
-                let entry = pkg.get("module").or_else(|| pkg.get("main"))
-                    .and_then(|v| v.as_str()).unwrap_or("index.js");
-                let entry_path = state.config.root.join("node_modules").join(&path).join(entry);
-                if entry_path.exists() {
-                    if let Ok(entry_content) = tokio::fs::read(&entry_path).await {
-                        return (
-                            [(header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
-                             (header::CACHE_CONTROL, "no-cache")],
-                            entry_content,
-                        ).into_response();
-                    }
-                }
-            }
+    let pkg_json = state
+        .config
+        .root
+        .join("node_modules")
+        .join(&path)
+        .join("package.json");
+    if pkg_json.exists()
+        && let Ok(content) = std::fs::read_to_string(&pkg_json)
+        && let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content)
+    {
+        let entry = pkg
+            .get("module")
+            .or_else(|| pkg.get("main"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("index.js");
+        let entry_path = state
+            .config
+            .root
+            .join("node_modules")
+            .join(&path)
+            .join(entry);
+        if entry_path.exists()
+            && let Ok(entry_content) = tokio::fs::read(&entry_path).await
+        {
+            return (
+                [
+                    (
+                        header::CONTENT_TYPE,
+                        "application/javascript; charset=utf-8",
+                    ),
+                    (header::CACHE_CONTROL, "no-cache"),
+                ],
+                entry_content,
+            )
+                .into_response();
         }
     }
 
@@ -2574,10 +2867,13 @@ async fn public_dir_handler(
     if let Ok(content) = tokio::fs::read(&public_path).await {
         let content_type = guess_content_type(&path);
         return (
-            [(header::CONTENT_TYPE, content_type),
-             (header::CACHE_CONTROL, "public, max-age=3600")],
+            [
+                (header::CONTENT_TYPE, content_type),
+                (header::CACHE_CONTROL, "public, max-age=3600"),
+            ],
             content,
-        ).into_response();
+        )
+            .into_response();
     }
 
     (StatusCode::NOT_FOUND, "Static asset not found").into_response()
@@ -2621,8 +2917,11 @@ fn open_browser(url: &str) {
 
 /// Generate a self-signed TLS certificate and private key for local HTTPS dev server.
 /// Uses rcgen to create a certificate valid for localhost and the local IP.
-fn generate_self_signed_cert(cert_path: &std::path::Path, key_path: &std::path::Path) -> anyhow::Result<()> {
-    use rcgen::{CertificateParams, KeyPair, DistinguishedName, DnType};
+fn generate_self_signed_cert(
+    cert_path: &std::path::Path,
+    key_path: &std::path::Path,
+) -> anyhow::Result<()> {
+    use rcgen::{CertificateParams, DistinguishedName, DnType, KeyPair};
 
     let mut san_names = vec!["localhost".to_string()];
     if let Ok(ip) = local_ip_address::local_ip() {

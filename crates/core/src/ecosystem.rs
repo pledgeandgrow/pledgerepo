@@ -1,6 +1,8 @@
 // Ecosystem & Extensibility features: #94, #97, #98, #99, #100
 
-use crate::config::{PluginPreset, TransformPipelineConfig, WorkspaceConfig, PledgeConfig, Framework};
+use crate::config::{
+    Framework, PledgeConfig, PluginPreset, TransformPipelineConfig, WorkspaceConfig,
+};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -75,13 +77,12 @@ pub fn resolve_preset(name: &str) -> Option<PluginPreset> {
     }
     let pkg = format!("pledgepack-preset-{}", name);
     let path = PathBuf::from("node_modules").join(&pkg).join("preset.json");
-    if path.is_file() {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(preset) = serde_json::from_str::<PluginPreset>(&content) {
-                info!("Loaded community preset '{}' from {}", name, path.display());
-                return Some(preset);
-            }
-        }
+    if path.is_file()
+        && let Ok(content) = std::fs::read_to_string(&path)
+        && let Ok(preset) = serde_json::from_str::<PluginPreset>(&content)
+    {
+        info!("Loaded community preset '{}' from {}", name, path.display());
+        return Some(preset);
     }
     warn!("Preset '{}' not found", name);
     None
@@ -96,12 +97,11 @@ pub fn apply_presets(config: &mut PledgeConfig) -> Result<()> {
         if let Some(preset) = resolve_preset(name) {
             info!("Applying preset: {} — {}", preset.name, preset.description);
             all_plugins.extend(preset.plugins);
-            if let Some(obj) = preset.config_defaults.as_object() {
-                if let Some(fw) = obj.get("framework").and_then(|v| v.as_str()) {
-                    if let Some(framework) = parse_framework(fw) {
-                        config.framework = framework;
-                    }
-                }
+            if let Some(obj) = preset.config_defaults.as_object()
+                && let Some(fw) = obj.get("framework").and_then(|v| v.as_str())
+                && let Some(framework) = parse_framework(fw)
+            {
+                config.framework = framework;
             }
         }
     }
@@ -112,16 +112,16 @@ pub fn apply_presets(config: &mut PledgeConfig) -> Result<()> {
 pub fn list_available_presets() -> Vec<String> {
     let mut names: Vec<String> = builtin_presets().iter().map(|p| p.name.clone()).collect();
     let nm = PathBuf::from("node_modules");
-    if nm.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&nm) {
-            for entry in entries.flatten() {
-                if let Some(n) = entry.file_name().to_str() {
-                    if n.starts_with("pledgepack-preset-") {
-                        let s = n.trim_start_matches("pledgepack-preset-").to_string();
-                        if !names.contains(&s) {
-                            names.push(s);
-                        }
-                    }
+    if nm.is_dir()
+        && let Ok(entries) = std::fs::read_dir(&nm)
+    {
+        for entry in entries.flatten() {
+            if let Some(n) = entry.file_name().to_str()
+                && n.starts_with("pledgepack-preset-")
+            {
+                let s = n.trim_start_matches("pledgepack-preset-").to_string();
+                if !names.contains(&s) {
+                    names.push(s);
                 }
             }
         }
@@ -150,23 +150,51 @@ pub fn build_pipeline(config: &TransformPipelineConfig) -> Vec<TransformStep> {
             });
         }
     } else {
-        steps.push(TransformStep { name: "oxc".into(), built_in: true, config: serde_json::Value::Null });
+        steps.push(TransformStep {
+            name: "oxc".into(),
+            built_in: true,
+            config: serde_json::Value::Null,
+        });
         for name in &config.pipeline {
             if !matches!(name.as_str(), "oxc" | "minify" | "tree-shake") {
-                steps.push(TransformStep { name: name.clone(), built_in: false, config: serde_json::Value::Null });
+                steps.push(TransformStep {
+                    name: name.clone(),
+                    built_in: false,
+                    config: serde_json::Value::Null,
+                });
             }
         }
-        steps.push(TransformStep { name: "minify".into(), built_in: true, config: serde_json::Value::Null });
-        steps.push(TransformStep { name: "tree-shake".into(), built_in: true, config: serde_json::Value::Null });
+        steps.push(TransformStep {
+            name: "minify".into(),
+            built_in: true,
+            config: serde_json::Value::Null,
+        });
+        steps.push(TransformStep {
+            name: "tree-shake".into(),
+            built_in: true,
+            config: serde_json::Value::Null,
+        });
     }
     steps
 }
 
 pub fn default_pipeline() -> Vec<TransformStep> {
     vec![
-        TransformStep { name: "oxc".into(), built_in: true, config: serde_json::Value::Null },
-        TransformStep { name: "minify".into(), built_in: true, config: serde_json::Value::Null },
-        TransformStep { name: "tree-shake".into(), built_in: true, config: serde_json::Value::Null },
+        TransformStep {
+            name: "oxc".into(),
+            built_in: true,
+            config: serde_json::Value::Null,
+        },
+        TransformStep {
+            name: "minify".into(),
+            built_in: true,
+            config: serde_json::Value::Null,
+        },
+        TransformStep {
+            name: "tree-shake".into(),
+            built_in: true,
+            config: serde_json::Value::Null,
+        },
     ]
 }
 
@@ -198,55 +226,92 @@ pub fn detect_workspace_root(start: &Path) -> Option<PathBuf> {
     };
     loop {
         let pkg = current.join("package.json");
-        if pkg.is_file() {
-            if let Ok(content) = std::fs::read_to_string(&pkg) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if json.get("workspaces").is_some() {
-                        return Some(current);
-                    }
-                }
-            }
+        if pkg.is_file()
+            && let Ok(content) = std::fs::read_to_string(&pkg)
+            && let Ok(json) = serde_json::from_str::<serde_json::Value>(&content)
+            && json.get("workspaces").is_some()
+        {
+            return Some(current);
         }
         if current.join("pnpm-workspace.yaml").is_file() || current.join("lerna.json").is_file() {
             return Some(current);
         }
-        if !current.pop() { break; }
+        if !current.pop() {
+            break;
+        }
     }
     None
 }
 
 fn detect_package_manager(root: &Path) -> String {
-    if root.join("pnpm-lock.yaml").is_file() { "pnpm".into() }
-    else if root.join("yarn.lock").is_file() { "yarn".into() }
-    else { "npm".into() }
+    if root.join("pnpm-lock.yaml").is_file() {
+        "pnpm".into()
+    } else if root.join("yarn.lock").is_file() {
+        "yarn".into()
+    } else {
+        "npm".into()
+    }
 }
 
 fn parse_workspace_patterns(root: &Path) -> Vec<String> {
     let pkg = root.join("package.json");
-    if !pkg.is_file() { return vec![]; }
-    let content = match std::fs::read_to_string(&pkg) { Ok(c) => c, Err(_) => return vec![] };
-    let json: serde_json::Value = match serde_json::from_str(&content) { Ok(j) => j, Err(_) => return vec![] };
+    if !pkg.is_file() {
+        return vec![];
+    }
+    let content = match std::fs::read_to_string(&pkg) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+    let json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(j) => j,
+        Err(_) => return vec![],
+    };
     match json.get("workspaces") {
-        Some(serde_json::Value::Array(arr)) => arr.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
-        Some(serde_json::Value::Object(obj)) => obj.get("packages").and_then(|p| p.as_array())
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default(),
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        Some(serde_json::Value::Object(obj)) => obj
+            .get("packages")
+            .and_then(|p| p.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default(),
         _ => vec![],
     }
 }
 
 fn parse_pnpm_patterns(root: &Path) -> Vec<String> {
     let path = root.join("pnpm-workspace.yaml");
-    if !path.is_file() { return vec![]; }
-    let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => return vec![] };
+    if !path.is_file() {
+        return vec![];
+    }
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
     let mut patterns = Vec::new();
     let mut in_pkgs = false;
     for line in content.lines() {
         let t = line.trim();
-        if t.starts_with("packages:") { in_pkgs = true; continue; }
+        if t.starts_with("packages:") {
+            in_pkgs = true;
+            continue;
+        }
         if in_pkgs {
             if t.starts_with('-') {
-                patterns.push(t.trim_start_matches('-').trim().trim_matches(|c| c == '"' || c == '\'').to_string());
-            } else if !t.is_empty() && !t.starts_with('#') { in_pkgs = false; }
+                patterns.push(
+                    t.trim_start_matches('-')
+                        .trim()
+                        .trim_matches(|c| c == '"' || c == '\'')
+                        .to_string(),
+                );
+            } else if !t.is_empty() && !t.starts_with('#') {
+                in_pkgs = false;
+            }
         }
     }
     patterns
@@ -258,35 +323,50 @@ fn expand_glob(root: &Path, pattern: &str) -> Vec<PathBuf> {
         let parts: Vec<&str> = pattern.split('*').collect();
         if parts.len() == 2 {
             let dir = root.join(parts[0].trim_end_matches('/'));
-            if dir.is_dir() {
-                if let Ok(entries) = std::fs::read_dir(&dir) {
-                    for e in entries.flatten() {
-                        let p = e.path();
-                        if p.is_dir() && p.join("package.json").is_file() {
-                            results.push(p);
-                        }
+            if dir.is_dir()
+                && let Ok(entries) = std::fs::read_dir(&dir)
+            {
+                for e in entries.flatten() {
+                    let p = e.path();
+                    if p.is_dir() && p.join("package.json").is_file() {
+                        results.push(p);
                     }
                 }
             }
         }
     } else {
         let p = root.join(pattern);
-        if p.join("package.json").is_file() { results.push(p); }
+        if p.join("package.json").is_file() {
+            results.push(p);
+        }
     }
     results
 }
 
 fn parse_pkg(path: &Path) -> Option<WorkspacePackage> {
     let pj = path.join("package.json");
-    if !pj.is_file() { return None; }
+    if !pj.is_file() {
+        return None;
+    }
     let content = std::fs::read_to_string(&pj).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
     Some(WorkspacePackage {
-        name: json.get("name").and_then(|v| v.as_str()).unwrap_or("").into(),
+        name: json
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .into(),
         path: path.to_path_buf(),
-        version: json.get("version").and_then(|v| v.as_str()).unwrap_or("0.0.0").into(),
+        version: json
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0.0.0")
+            .into(),
         main: json.get("main").and_then(|v| v.as_str()).map(String::from),
-        module: json.get("module").and_then(|v| v.as_str()).map(String::from),
+        module: json
+            .get("module")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         types: json.get("types").and_then(|v| v.as_str()).map(String::from),
         exports: json.get("exports").cloned(),
     })
@@ -297,54 +377,91 @@ pub fn detect_workspace(start: &Path) -> Option<WorkspaceInfo> {
     let pm = detect_package_manager(&root);
     let patterns = if pm == "pnpm" {
         let mut p = parse_pnpm_patterns(&root);
-        if p.is_empty() { p = parse_workspace_patterns(&root); }
+        if p.is_empty() {
+            p = parse_workspace_patterns(&root);
+        }
         p
-    } else { parse_workspace_patterns(&root) };
+    } else {
+        parse_workspace_patterns(&root)
+    };
 
     let mut packages = std::collections::HashMap::new();
     for pattern in &patterns {
         for pkg_path in expand_glob(&root, pattern) {
-            if let Some(pkg) = parse_pkg(&pkg_path) {
-                if !pkg.name.is_empty() { packages.insert(pkg.name.clone(), pkg); }
+            if let Some(pkg) = parse_pkg(&pkg_path)
+                && !pkg.name.is_empty()
+            {
+                packages.insert(pkg.name.clone(), pkg);
             }
         }
     }
-    info!("Detected workspace at {} with {} packages ({})", root.display(), packages.len(), pm);
-    Some(WorkspaceInfo { root, packages, package_manager: pm })
+    info!(
+        "Detected workspace at {} with {} packages ({})",
+        root.display(),
+        packages.len(),
+        pm
+    );
+    Some(WorkspaceInfo {
+        root,
+        packages,
+        package_manager: pm,
+    })
 }
 
 pub fn resolve_workspace_import(specifier: &str, ws: &WorkspaceInfo) -> Option<PathBuf> {
-    let (pkg_name, subpath) = if specifier.starts_with('@') {
-        if let Some(pos) = specifier[1..].find('/') {
-            (&specifier[..pos + 1], Some(&specifier[pos + 2..]))
-        } else { (specifier, None) }
+    let (pkg_name, subpath) = if let Some(rest) = specifier.strip_prefix('@') {
+        if let Some(pos) = rest.find('/') {
+            (&specifier[..pos + 1], Some(&rest[pos + 1..]))
+        } else {
+            (specifier, None)
+        }
     } else if let Some(pos) = specifier.find('/') {
         (&specifier[..pos], Some(&specifier[pos + 1..]))
-    } else { (specifier, None) };
+    } else {
+        (specifier, None)
+    };
 
     let pkg = ws.packages.get(pkg_name)?;
     if let Some(sub) = subpath {
-        if let Some(exports) = &pkg.exports {
-            if let Some(obj) = exports.as_object() {
-                let key = format!("./{}", sub);
-                if let Some(v) = obj.get(&key).and_then(|v| v.as_str()) {
-                    let p = pkg.path.join(v);
-                    if p.is_file() { return Some(p); }
+        if let Some(exports) = &pkg.exports
+            && let Some(obj) = exports.as_object()
+        {
+            let key = format!("./{}", sub);
+            if let Some(v) = obj.get(&key).and_then(|v| v.as_str()) {
+                let p = pkg.path.join(v);
+                if p.is_file() {
+                    return Some(p);
                 }
             }
         }
         let direct = pkg.path.join(sub);
-        if direct.is_file() { return Some(direct); }
+        if direct.is_file() {
+            return Some(direct);
+        }
         for ext in [".ts", ".tsx", ".js", ".jsx", ".mjs", ".json"] {
             let p = PathBuf::from(format!("{}{}", direct.display(), ext));
-            if p.is_file() { return Some(p); }
+            if p.is_file() {
+                return Some(p);
+            }
         }
     } else {
-        if let Some(m) = &pkg.module { let p = pkg.path.join(m); if p.is_file() { return Some(p); } }
-        if let Some(m) = &pkg.main { let p = pkg.path.join(m); if p.is_file() { return Some(p); } }
+        if let Some(m) = &pkg.module {
+            let p = pkg.path.join(m);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+        if let Some(m) = &pkg.main {
+            let p = pkg.path.join(m);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
         for idx in ["index.ts", "index.tsx", "index.js", "index.jsx"] {
             let p = pkg.path.join(idx);
-            if p.is_file() { return Some(p); }
+            if p.is_file() {
+                return Some(p);
+            }
         }
     }
     None
@@ -359,30 +476,43 @@ pub struct HmrDependencyMap {
 }
 
 impl HmrDependencyMap {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn register_file(&mut self, file: PathBuf, pkg: &str) {
-        self.file_to_packages.entry(file.clone()).or_default().push(pkg.into());
-        self.package_to_files.entry(pkg.into()).or_default().push(file);
+        self.file_to_packages
+            .entry(file.clone())
+            .or_default()
+            .push(pkg.into());
+        self.package_to_files
+            .entry(pkg.into())
+            .or_default()
+            .push(file);
     }
 
     pub fn compute_hmr_set(&self, changed: &Path, _ws: &WorkspaceInfo) -> Vec<PathBuf> {
         let mut set = vec![changed.to_path_buf()];
         for (pkg_name, files) in &self.package_to_files {
             if files.iter().any(|f| f == changed) {
-                for f in files { if !set.contains(f) { set.push(f.clone()); } }
+                for f in files {
+                    if !set.contains(f) {
+                        set.push(f.clone());
+                    }
+                }
                 for (other_name, other_files) in &self.package_to_files {
                     if other_name != pkg_name {
                         for of in other_files {
-                            if let Ok(content) = std::fs::read_to_string(of) {
-                                if content.contains(&format!("from \"{}\"", pkg_name))
+                            if let Ok(content) = std::fs::read_to_string(of)
+                                && (content.contains(&format!("from \"{}\"", pkg_name))
                                     || content.contains(&format!("from '{}'", pkg_name))
                                     || content.contains(&format!("import(\"{}\")", pkg_name))
-                                    || content.contains(&format!("import('{}')", pkg_name))
-                                {
-                                    if !set.contains(of) { set.push(of.clone()); }
-                                    break;
+                                    || content.contains(&format!("import('{}')", pkg_name)))
+                            {
+                                if !set.contains(of) {
+                                    set.push(of.clone());
                                 }
+                                break;
                             }
                         }
                     }
@@ -393,7 +523,11 @@ impl HmrDependencyMap {
         if let Some(deps) = self.file_to_packages.get(changed) {
             for dep in deps {
                 if let Some(files) = self.package_to_files.get(dep) {
-                    for f in files { if !set.contains(f) { set.push(f.clone()); } }
+                    for f in files {
+                        if !set.contains(f) {
+                            set.push(f.clone());
+                        }
+                    }
                 }
             }
         }
@@ -415,11 +549,12 @@ fn scan_files(dir: &Path, pkg: &str, map: &mut HmrDependencyMap) {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for e in entries.flatten() {
             let p = e.path();
-            if p.is_dir() { scan_files(&p, pkg, map); }
-            else if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-                if matches!(ext, "ts" | "tsx" | "js" | "jsx" | "mjs" | "vue" | "svelte") {
-                    map.register_file(p, pkg);
-                }
+            if p.is_dir() {
+                scan_files(&p, pkg, map);
+            } else if let Some(ext) = p.extension().and_then(|e| e.to_str())
+                && matches!(ext, "ts" | "tsx" | "js" | "jsx" | "mjs" | "vue" | "svelte")
+            {
+                map.register_file(p, pkg);
             }
         }
     }
@@ -436,8 +571,10 @@ pub fn resolve_shared_cache_dir(ws: &WorkspaceInfo, config: &WorkspaceConfig) ->
 }
 
 pub fn resolve_workspace_root(config: &WorkspaceConfig, start: &Path) -> Option<PathBuf> {
-    if let Some(ref root) = config.root {
-        if root.is_dir() { return Some(root.clone()); }
+    if let Some(ref root) = config.root
+        && root.is_dir()
+    {
+        return Some(root.clone());
     }
     detect_workspace_root(start)
 }
@@ -468,8 +605,10 @@ mod tests {
 
     #[test]
     fn test_apply_presets() {
-        let mut config = PledgeConfig::default();
-        config.presets = vec!["react".into()];
+        let mut config = PledgeConfig {
+            presets: vec!["react".into()],
+            ..Default::default()
+        };
         apply_presets(&mut config).unwrap();
         assert_eq!(config.framework, crate::config::Framework::React);
     }
@@ -484,7 +623,10 @@ mod tests {
 
     #[test]
     fn test_pipeline_replace() {
-        let cfg = TransformPipelineConfig { pipeline: vec!["oxc".into()], replace_default: true };
+        let cfg = TransformPipelineConfig {
+            pipeline: vec!["oxc".into()],
+            replace_default: true,
+        };
         let steps = build_pipeline(&cfg);
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].name, "oxc");
@@ -492,9 +634,14 @@ mod tests {
 
     #[test]
     fn test_pipeline_custom_insert() {
-        let cfg = TransformPipelineConfig { pipeline: vec!["my-transform".into()], replace_default: false };
+        let cfg = TransformPipelineConfig {
+            pipeline: vec!["my-transform".into()],
+            replace_default: false,
+        };
         let steps = build_pipeline(&cfg);
-        let has_custom = steps.iter().any(|s| s.name == "my-transform" && !s.built_in);
+        let has_custom = steps
+            .iter()
+            .any(|s| s.name == "my-transform" && !s.built_in);
         assert!(has_custom);
         let oxc_pos = steps.iter().position(|s| s.name == "oxc").unwrap();
         let custom_pos = steps.iter().position(|s| s.name == "my-transform").unwrap();

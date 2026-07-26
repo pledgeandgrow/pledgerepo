@@ -29,20 +29,20 @@ pub extern "C" fn __stack_chk_fail() -> ! {
 core::arch::global_asm!(
     ".globl ___chkstk_ms",
     "___chkstk_ms:",
-    "mov r10, rax",           // r10 = remaining = size (r10 is volatile)
-    "mov rcx, rsp",           // rcx = cursor = rsp (rcx is volatile)
-    "cmp r10, 0x1000",        // if remaining < page_size, skip loop
+    "mov r10, rax",    // r10 = remaining = size (r10 is volatile)
+    "mov rcx, rsp",    // rcx = cursor = rsp (rcx is volatile)
+    "cmp r10, 0x1000", // if remaining < page_size, skip loop
     "jb 2f",
-    "1:",                     // probe full pages
-    "sub rcx, 0x1000",        // cursor -= 4096
-    "test [rcx], al",         // touch page at cursor
-    "sub r10, 0x1000",        // remaining -= 4096
-    "cmp r10, 0x1000",        // more than a page left?
+    "1:",              // probe full pages
+    "sub rcx, 0x1000", // cursor -= 4096
+    "test [rcx], al",  // touch page at cursor
+    "sub r10, 0x1000", // remaining -= 4096
+    "cmp r10, 0x1000", // more than a page left?
     "ja 1b",
-    "2:",                     // probe final partial page
-    "sub rcx, r10",           // cursor -= remaining
-    "test [rcx], al",         // touch final page
-    "ret",                    // rax preserved (never modified), rsp preserved
+    "2:",             // probe final partial page
+    "sub rcx, r10",   // cursor -= remaining
+    "test [rcx], al", // touch final page
+    "ret",            // rax preserved (never modified), rsp preserved
 );
 
 /// LdrRegisterDllNotification — Windows ntdll function for DLL load notifications
@@ -114,6 +114,12 @@ pub struct Graph {
     handle: ModuleGraphHandle,
 }
 
+impl Default for Graph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Graph {
     pub fn new() -> Self {
         unsafe {
@@ -124,13 +130,7 @@ impl Graph {
     }
 
     pub fn add_module(&self, path: &str) -> u32 {
-        unsafe {
-            pledge_graph_add_module(
-                self.handle,
-                path.as_ptr(),
-                path.len(),
-            )
-        }
+        unsafe { pledge_graph_add_module(self.handle, path.as_ptr(), path.len()) }
     }
 
     pub fn add_dependency(&self, from: u32, to: u32) {
@@ -140,12 +140,7 @@ impl Graph {
     pub fn get_dependents(&self, module_id: u32, capacity: usize) -> Vec<u32> {
         let mut ids = vec![0u32; capacity];
         let count = unsafe {
-            pledge_graph_get_dependents(
-                self.handle,
-                module_id,
-                ids.as_mut_ptr(),
-                capacity,
-            )
+            pledge_graph_get_dependents(self.handle, module_id, ids.as_mut_ptr(), capacity)
         };
         ids.truncate(count);
         ids
@@ -155,12 +150,7 @@ impl Graph {
     pub fn get_dependencies(&self, module_id: u32, capacity: usize) -> Vec<u32> {
         let mut ids = vec![0u32; capacity];
         let count = unsafe {
-            pledge_graph_get_dependencies(
-                self.handle,
-                module_id,
-                ids.as_mut_ptr(),
-                capacity,
-            )
+            pledge_graph_get_dependencies(self.handle, module_id, ids.as_mut_ptr(), capacity)
         };
         ids.truncate(count);
         ids

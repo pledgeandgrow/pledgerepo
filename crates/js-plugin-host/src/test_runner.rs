@@ -14,8 +14,8 @@
 //   - UI mode (HTML report generation)
 
 use anyhow::Result;
-use boa_engine::{Context, JsValue, Source, js_string, NativeFunction};
 use boa_engine::object::ObjectInitializer;
+use boa_engine::{Context, JsValue, NativeFunction, Source, js_string};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -61,13 +61,19 @@ impl CoverageReport {
             out.push_str(&format!(
                 "{}\t\t{}/{}\t{}/{}\t{}/{}\n",
                 e.file,
-                e.lines_covered, e.lines_total,
-                e.functions_covered, e.functions_total,
-                e.branches_covered, e.branches_total,
+                e.lines_covered,
+                e.lines_total,
+                e.functions_covered,
+                e.functions_total,
+                e.branches_covered,
+                e.branches_total,
             ));
         }
         let (total, covered, pct) = self.summary();
-        out.push_str(&format!("\nAll files\t{}/{}\t{:.1}%\n", covered, total, pct));
+        out.push_str(&format!(
+            "\nAll files\t{}/{}\t{:.1}%\n",
+            covered, total, pct
+        ));
         out
     }
 
@@ -88,18 +94,29 @@ impl CoverageReport {
         for e in &self.entries {
             let line_pct = if e.lines_total > 0 {
                 (e.lines_covered as f64 / e.lines_total as f64) * 100.0
-            } else { 0.0 };
-            let color = if line_pct >= 80.0 { "#4caf50" }
-                else if line_pct >= 50.0 { "#ff9800" }
-                else { "#f44336" };
+            } else {
+                0.0
+            };
+            let color = if line_pct >= 80.0 {
+                "#4caf50"
+            } else if line_pct >= 50.0 {
+                "#ff9800"
+            } else {
+                "#f44336"
+            };
             rows.push_str(&format!(
                 "<tr><td>{}</td><td style='color:{}'>{:.1}%</td><td>{}/{}</td><td>{}/{}</td></tr>",
-                e.file, color, line_pct,
-                e.lines_covered, e.lines_total,
-                e.functions_covered, e.functions_total,
+                e.file,
+                color,
+                line_pct,
+                e.lines_covered,
+                e.lines_total,
+                e.functions_covered,
+                e.functions_total,
             ));
         }
-        format!(r#"<!DOCTYPE html>
+        format!(
+            r#"<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>Coverage Report</title>
 <style>body{{font-family:monospace;background:#1a1a1a;color:#e0e0e0;padding:2rem;}}
 table{{border-collapse:collapse;width:100%;}}th,td{{border:1px solid #333;padding:0.5rem;text-align:left;}}
@@ -107,7 +124,8 @@ th{{background:#333;}}.summary{{margin-bottom:1rem;font-size:1.2rem;}}</style></
 <body><div class="summary">Coverage: {}/{} lines ({:.1}%)</div>
 <table><tr><th>File</th><th>Lines</th><th>Functions</th><th>Branches</th></tr>
 {}</table></body></html>"#,
-            covered, total, pct, rows)
+            covered, total, pct, rows
+        )
     }
 }
 
@@ -123,9 +141,9 @@ pub struct SnapshotStore {
 impl SnapshotStore {
     pub fn load(snapshot_dir: &Path, test_file: &Path) -> Self {
         let mut store = Self::default();
-        let snapshot_file = snapshot_dir.join(
-            test_file.file_name().unwrap_or_default()
-        ).with_extension("snap");
+        let snapshot_file = snapshot_dir
+            .join(test_file.file_name().unwrap_or_default())
+            .with_extension("snap");
         if let Ok(content) = std::fs::read_to_string(&snapshot_file) {
             for line in content.lines() {
                 if let Some(colon_pos) = line.find("\t") {
@@ -140,9 +158,9 @@ impl SnapshotStore {
 
     pub fn save(&self, snapshot_dir: &Path, test_file: &Path) {
         std::fs::create_dir_all(snapshot_dir).ok();
-        let snapshot_file = snapshot_dir.join(
-            test_file.file_name().unwrap_or_default()
-        ).with_extension("snap");
+        let snapshot_file = snapshot_dir
+            .join(test_file.file_name().unwrap_or_default())
+            .with_extension("snap");
         let mut content = String::new();
         for (key, val) in &self.snapshots {
             content.push_str(&format!("{}\t{}\n", key, val));
@@ -158,7 +176,8 @@ impl SnapshotStore {
                 self.updated += 1;
             }
             self.snapshots.insert(key.to_string(), value.to_string());
-            self.new_snapshots.push((key.to_string(), value.to_string()));
+            self.new_snapshots
+                .push((key.to_string(), value.to_string()));
             Ok(true)
         } else {
             let existing = self.snapshots.get(key).unwrap();
@@ -185,10 +204,16 @@ pub fn generate_html_report(summaries: &[(String, TestSummary)]) -> String {
                 TestStatus::Failed => ("✗", "#f44336"),
                 TestStatus::Skipped => ("○", "#9e9e9e"),
             };
-            let error_html = result.error.as_ref().map(|e| {
-                format!("<div style='color:#f44336;padding-left:2rem;font-size:0.85rem;'>{}</div>",
-                    e.replace('<', "&lt;").replace('>', "&gt;"))
-            }).unwrap_or_default();
+            let error_html = result
+                .error
+                .as_ref()
+                .map(|e| {
+                    format!(
+                        "<div style='color:#f44336;padding-left:2rem;font-size:0.85rem;'>{}</div>",
+                        e.replace('<', "&lt;").replace('>', "&gt;")
+                    )
+                })
+                .unwrap_or_default();
             test_rows.push_str(&format!(
                 "<tr><td style='color:{}'>{} {}</td><td style='color:#888'>{}</td><td style='color:#888'>{}ms</td></tr>{}",
                 color, icon, result.name, file, result.duration_ms, error_html
@@ -196,10 +221,15 @@ pub fn generate_html_report(summaries: &[(String, TestSummary)]) -> String {
         }
     }
 
-    let status_color = if total_failed > 0 { "#f44336" } else { "#4caf50" };
+    let status_color = if total_failed > 0 {
+        "#f44336"
+    } else {
+        "#4caf50"
+    };
     let status_text = if total_failed > 0 { "FAILED" } else { "PASSED" };
 
-    format!(r#"<!DOCTYPE html>
+    format!(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pledge Test Results</title>
@@ -226,9 +256,7 @@ pub fn generate_html_report(summaries: &[(String, TestSummary)]) -> String {
   {}
   </table>
 </body></html>"#,
-        status_color, status_text, "",
-        total_passed, total_failed, total_skipped,
-        test_rows
+        status_color, status_text, "", total_passed, total_failed, total_skipped, test_rows
     )
 }
 
@@ -256,11 +284,11 @@ pub fn run_test_file_with_config(
     // Run setup files before the test file
     for setup_file in &config.setup_files {
         let setup_path = root.join(setup_file);
-        if setup_path.exists() {
-            if let Ok(setup_source) = std::fs::read_to_string(&setup_path) {
-                let setup_js = strip_typescript(&setup_source);
-                let _ = context.eval(Source::from_bytes(setup_js.as_str()));
-            }
+        if setup_path.exists()
+            && let Ok(setup_source) = std::fs::read_to_string(&setup_path)
+        {
+            let setup_js = strip_typescript(&setup_source);
+            let _ = context.eval(Source::from_bytes(setup_js.as_str()));
         }
     }
 
@@ -298,11 +326,11 @@ pub fn run_test_file_with_config(
     // Collect test results from the global __pledge_test_results array
     if let Ok(results_val) = context.eval(Source::from_bytes(
         r#"JSON.stringify((typeof __pledge_test_results !== 'undefined') ? __pledge_test_results : [])"#
-    )) {
-        if let Ok(json_str) = results_val.to_string(&mut context) {
+    ))
+        && let Ok(json_str) = results_val.to_string(&mut context) {
             let json_str = json_str.to_std_string_escaped();
-            if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if let Some(tests) = arr.as_array() {
+            if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&json_str)
+                && let Some(tests) = arr.as_array() {
                     for test in tests {
                         let name = test.get("name")
                             .and_then(|v| v.as_str())
@@ -337,14 +365,16 @@ pub fn run_test_file_with_config(
                         });
                     }
                 }
-            }
         }
-    }
 
     // If there were eval errors and no results, add them as failed tests
     for err in errors {
         results.push(TestResult {
-            name: file_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string(),
+            name: file_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string(),
             suite: String::new(),
             status: TestStatus::Failed,
             error: Some(err),
@@ -361,9 +391,18 @@ pub fn run_test_file_with_config(
     }
 
     // Build summary
-    let passed = results.iter().filter(|r| r.status == TestStatus::Passed).count();
-    let failed = results.iter().filter(|r| r.status == TestStatus::Failed).count();
-    let skipped = results.iter().filter(|r| r.status == TestStatus::Skipped).count();
+    let passed = results
+        .iter()
+        .filter(|r| r.status == TestStatus::Passed)
+        .count();
+    let failed = results
+        .iter()
+        .filter(|r| r.status == TestStatus::Failed)
+        .count();
+    let skipped = results
+        .iter()
+        .filter(|r| r.status == TestStatus::Skipped)
+        .count();
 
     Ok(TestSummary {
         total: results.len(),
@@ -434,11 +473,11 @@ pub fn run_test_file(file_path: &Path) -> Result<TestSummary> {
     // Collect test results from the global __pledge_test_results array
     if let Ok(results_val) = context.eval(Source::from_bytes(
         r#"JSON.stringify((typeof __pledge_test_results !== 'undefined') ? __pledge_test_results : [])"#
-    )) {
-        if let Ok(json_str) = results_val.to_string(&mut context) {
+    ))
+        && let Ok(json_str) = results_val.to_string(&mut context) {
             let json_str = json_str.to_std_string_escaped();
-            if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if let Some(tests) = arr.as_array() {
+            if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&json_str)
+                && let Some(tests) = arr.as_array() {
                     for test in tests {
                         let name = test.get("name")
                             .and_then(|v| v.as_str())
@@ -473,14 +512,16 @@ pub fn run_test_file(file_path: &Path) -> Result<TestSummary> {
                         });
                     }
                 }
-            }
         }
-    }
 
     // If there were eval errors and no results, add them as failed tests
     for err in errors {
         results.push(TestResult {
-            name: file_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string(),
+            name: file_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string(),
             suite: String::new(),
             status: TestStatus::Failed,
             error: Some(err),
@@ -489,9 +530,18 @@ pub fn run_test_file(file_path: &Path) -> Result<TestSummary> {
     }
 
     // Build summary
-    let passed = results.iter().filter(|r| r.status == TestStatus::Passed).count();
-    let failed = results.iter().filter(|r| r.status == TestStatus::Failed).count();
-    let skipped = results.iter().filter(|r| r.status == TestStatus::Skipped).count();
+    let passed = results
+        .iter()
+        .filter(|r| r.status == TestStatus::Passed)
+        .count();
+    let failed = results
+        .iter()
+        .filter(|r| r.status == TestStatus::Failed)
+        .count();
+    let skipped = results
+        .iter()
+        .filter(|r| r.status == TestStatus::Skipped)
+        .count();
 
     Ok(TestSummary {
         total: results.len(),
@@ -743,8 +793,13 @@ fn setup_test_harness(context: &mut Context) {
 /// Set up console.log support
 fn setup_console(context: &mut Context) {
     let console_log = NativeFunction::from_copy_closure(|_this, args, ctx| {
-        let msg = args.iter()
-            .map(|v| v.to_string(ctx).map(|s| s.to_std_string_escaped()).unwrap_or_default())
+        let msg = args
+            .iter()
+            .map(|v| {
+                v.to_string(ctx)
+                    .map(|s| s.to_std_string_escaped())
+                    .unwrap_or_default()
+            })
             .collect::<Vec<_>>()
             .join(" ");
         tracing::info!("[test console] {}", msg);
@@ -765,9 +820,8 @@ fn setup_console(context: &mut Context) {
 /// Set up a minimal module shim so import/export statements don't crash
 fn setup_module_shim(context: &mut Context, _file_path: &Path) {
     // Provide a minimal `require` function
-    let require_fn = NativeFunction::from_copy_closure(|_this, _args, _ctx| {
-        Ok(JsValue::undefined())
-    });
+    let require_fn =
+        NativeFunction::from_copy_closure(|_this, _args, _ctx| Ok(JsValue::undefined()));
     let _ = context.register_global_callable(js_string!("require"), 1, require_fn);
 }
 
@@ -834,7 +888,8 @@ fn strip_typescript(source: &str) -> String {
     }
 
     // Remove ESM import/export statements (replace with no-ops)
-    let result = result
+
+    result
         .lines()
         .map(|line| {
             let trimmed = line.trim();
@@ -842,11 +897,12 @@ fn strip_typescript(source: &str) -> String {
                 // Keep export default as a variable assignment
                 if trimmed.starts_with("export default") {
                     line.replace("export default", "var __default =")
-                } else if trimmed.starts_with("export const") || trimmed.starts_with("export let") || trimmed.starts_with("export var") {
-                    line.replace("export ", "")
-                } else if trimmed.starts_with("export function") {
-                    line.replace("export ", "")
-                } else if trimmed.starts_with("export class") {
+                } else if trimmed.starts_with("export const")
+                    || trimmed.starts_with("export let")
+                    || trimmed.starts_with("export var")
+                    || trimmed.starts_with("export function")
+                    || trimmed.starts_with("export class")
+                {
                     line.replace("export ", "")
                 } else {
                     // Skip import statements
@@ -857,15 +913,14 @@ fn strip_typescript(source: &str) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join("\n");
-
-    result
+        .join("\n")
 }
 
 /// Set up test environment (jsdom/happy-dom shims or node defaults)
 fn setup_test_environment(context: &mut Context, environment: &str) {
     let env_code = match environment {
-        "jsdom" => r#"
+        "jsdom" => {
+            r#"
             // Minimal jsdom-like environment shim
             var __pledge_document = {
                 createElement: function(tag) {
@@ -905,8 +960,10 @@ fn setup_test_environment(context: &mut Context, environment: &str) {
             globalThis.customElements = { define: function() {}, get: function() { return undefined; } };
             globalThis.MutationObserver = function() { this.observe = function() {}; this.disconnect = function() {}; };
             globalThis.getComputedStyle = function() { return { getPropertyValue: function() { return ''; } }; };
-        "#,
-        "happy-dom" => r#"
+        "#
+        }
+        "happy-dom" => {
+            r#"
             // Minimal happy-dom-like environment shim (similar to jsdom but lighter)
             var __pledge_document = {
                 createElement: function(tag) {
@@ -927,8 +984,10 @@ fn setup_test_environment(context: &mut Context, environment: &str) {
             globalThis.location = { href: 'http://localhost/', hostname: 'localhost' };
             globalThis.customElements = { define: function() {}, get: function() { return undefined; } };
             globalThis.MutationObserver = function() { this.observe = function() {}; this.disconnect = function() {}; };
-        "#,
-        _ => r#"
+        "#
+        }
+        _ => {
+            r#"
             // Node.js environment — no DOM shims needed
             // Provide minimal process and Buffer stubs
             if (typeof process === 'undefined') {
@@ -937,17 +996,14 @@ fn setup_test_environment(context: &mut Context, environment: &str) {
             if (typeof Buffer === 'undefined') {
                 globalThis.Buffer = { from: function(s) { return s; }, concat: function(arrs) { return arrs.join(''); } };
             }
-        "#,
+        "#
+        }
     };
     let _ = context.eval(Source::from_bytes(env_code));
 }
 
 /// Set up snapshot testing API (toMatchSnapshot, toMatchInlineSnapshot)
-fn setup_snapshot_api(
-    context: &mut Context,
-    _store: &Arc<Mutex<SnapshotStore>>,
-    update: bool,
-) {
+fn setup_snapshot_api(context: &mut Context, _store: &Arc<Mutex<SnapshotStore>>, update: bool) {
     // Inject __pledge_snapshot_data as a global object that expect() can access
     let snapshot_code = format!(
         r#"
@@ -1005,12 +1061,10 @@ fn setup_snapshot_api(
     let _ = context.eval(Source::from_bytes(snapshot_extension));
 }
 
+type CoverageData = Arc<Mutex<Vec<(String, usize, usize)>>>;
+
 /// Set up coverage tracking instrumentation
-fn setup_coverage_tracking(
-    context: &mut Context,
-    _coverage_data: &Arc<Mutex<Vec<(String, usize, usize)>>>,
-    file_path: &Path,
-) {
+fn setup_coverage_tracking(context: &mut Context, _coverage_data: &CoverageData, file_path: &Path) {
     let file_str = file_path.to_string_lossy().replace('\\', "/");
     let coverage_code = format!(
         r#"

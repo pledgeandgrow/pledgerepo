@@ -7,8 +7,8 @@
 //   - Source map support
 //   - Autoprefixer integration
 
-use std::path::Path;
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Tailwind configuration parsed from tailwind.config.js/ts/mjs
 #[derive(Debug, Clone, Default)]
@@ -39,23 +39,21 @@ impl TailwindConfig {
 
         for candidate in &candidates {
             let path = root.join(candidate);
-            if path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    return Some(Self::parse_config(&content));
-                }
+            if path.exists()
+                && let Ok(content) = std::fs::read_to_string(&path)
+            {
+                return Some(Self::parse_config(&content));
             }
         }
 
         // Check package.json for "tailwindcss" field with config
         let pkg_path = root.join("package.json");
-        if pkg_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&pkg_path) {
-                if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(tw) = pkg.get("tailwindcss") {
-                        return Some(Self::parse_from_json(tw));
-                    }
-                }
-            }
+        if pkg_path.exists()
+            && let Ok(content) = std::fs::read_to_string(&pkg_path)
+            && let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content)
+            && let Some(tw) = pkg.get("tailwindcss")
+        {
+            return Some(Self::parse_from_json(tw));
         }
 
         None
@@ -68,10 +66,11 @@ impl TailwindConfig {
             return Self::parse_from_json(&json);
         }
 
-        let mut config = Self::default();
-
-        // Extract content paths — look for content: [...] or content: '...'
-        config.content = extract_array_strings(content, "content");
+        let content_paths = extract_array_strings(content, "content");
+        let mut config = Self {
+            content: content_paths,
+            ..Default::default()
+        };
 
         // Extract darkMode
         if let Some(dm) = extract_string_value(content, "darkMode") {
@@ -109,7 +108,9 @@ impl TailwindConfig {
         if self.content.is_empty() {
             // Default content paths
             vec![
-                root.join("src").join("**").join("*.{html,js,ts,jsx,tsx,vue,svelte}"),
+                root.join("src")
+                    .join("**")
+                    .join("*.{html,js,ts,jsx,tsx,vue,svelte}"),
             ]
         } else {
             self.content.iter().map(|s| root.join(s)).collect()
@@ -120,34 +121,34 @@ impl TailwindConfig {
 /// Extract an array of strings from JS source for a given field name
 fn extract_array_strings(source: &str, field: &str) -> Vec<String> {
     let mut result = Vec::new();
-    
+
     // Look for field: [...] patterns
     let patterns = [format!("{}:", field), format!("{} :", field)];
     for pattern in &patterns {
         if let Some(pos) = source.find(pattern) {
             let rest = &source[pos + pattern.len()..];
-            if let Some(start) = rest.find('[') {
-                if let Some(end) = rest[start..].find(']') {
-                    let array_content = &rest[start + 1..start + end];
-                    // Extract quoted strings from the array
-                    for quote in ['"', '\''] {
-                        let mut search = 0;
-                        while let Some(q_start) = array_content[search..].find(quote) {
-                            let abs_start = search + q_start + 1;
-                            if let Some(q_end) = array_content[abs_start..].find(quote) {
-                                result.push(array_content[abs_start..abs_start + q_end].to_string());
-                                search = abs_start + q_end + 1;
-                            } else {
-                                break;
-                            }
+            if let Some(start) = rest.find('[')
+                && let Some(end) = rest[start..].find(']')
+            {
+                let array_content = &rest[start + 1..start + end];
+                // Extract quoted strings from the array
+                for quote in ['"', '\''] {
+                    let mut search = 0;
+                    while let Some(q_start) = array_content[search..].find(quote) {
+                        let abs_start = search + q_start + 1;
+                        if let Some(q_end) = array_content[abs_start..].find(quote) {
+                            result.push(array_content[abs_start..abs_start + q_end].to_string());
+                            search = abs_start + q_end + 1;
+                        } else {
+                            break;
                         }
                     }
-                    return result;
                 }
+                return result;
             }
         }
     }
-    
+
     result
 }
 
@@ -158,10 +159,10 @@ fn extract_string_value(source: &str, field: &str) -> Option<String> {
         if let Some(pos) = source.find(&pattern) {
             let rest = &source[pos + pattern.len()..];
             let trimmed = rest.trim_start();
-            if trimmed.starts_with(quote) {
-                if let Some(end) = trimmed[1..].find(quote) {
-                    return Some(trimmed[1..1 + end].to_string());
-                }
+            if trimmed.starts_with(quote)
+                && let Some(end) = trimmed[1..].find(quote)
+            {
+                return Some(trimmed[1..1 + end].to_string());
             }
         }
     }
@@ -184,34 +185,32 @@ impl BrowserslistConfig {
 
         // Try .browserslistrc file first
         let rc_path = root.join(".browserslistrc");
-        if rc_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&rc_path) {
-                config.targets = content
-                    .lines()
-                    .map(|l| l.trim())
-                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                    .map(|l| l.to_string())
-                    .collect();
-            }
+        if rc_path.exists()
+            && let Ok(content) = std::fs::read_to_string(&rc_path)
+        {
+            config.targets = content
+                .lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .map(|l| l.to_string())
+                .collect();
         }
 
         // Check package.json for "browserslist" field
         if config.targets.is_empty() {
             let pkg_path = root.join("package.json");
-            if pkg_path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&pkg_path) {
-                    if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
-                        if let Some(bl) = pkg.get("browserslist") {
-                            if let Some(arr) = bl.as_array() {
-                                config.targets = arr
-                                    .iter()
-                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                    .collect();
-                            } else if let Some(s) = bl.as_str() {
-                                config.targets = vec![s.to_string()];
-                            }
-                        }
-                    }
+            if pkg_path.exists()
+                && let Ok(content) = std::fs::read_to_string(&pkg_path)
+                && let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content)
+                && let Some(bl) = pkg.get("browserslist")
+            {
+                if let Some(arr) = bl.as_array() {
+                    config.targets = arr
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect();
+                } else if let Some(s) = bl.as_str() {
+                    config.targets = vec![s.to_string()];
                 }
             }
         }
@@ -355,23 +354,21 @@ impl PostCssConfig {
 
         for candidate in &candidates {
             let path = root.join(candidate);
-            if path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    return Some(Self::parse_config(&content));
-                }
+            if path.exists()
+                && let Ok(content) = std::fs::read_to_string(&path)
+            {
+                return Some(Self::parse_config(&content));
             }
         }
 
         // Check package.json for "postcss" field
         let pkg_path = root.join("package.json");
-        if pkg_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&pkg_path) {
-                if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(postcss) = pkg.get("postcss") {
-                        return Some(Self::parse_from_json(postcss));
-                    }
-                }
-            }
+        if pkg_path.exists()
+            && let Ok(content) = std::fs::read_to_string(&pkg_path)
+            && let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content)
+            && let Some(postcss) = pkg.get("postcss")
+        {
+            return Some(Self::parse_from_json(postcss));
         }
 
         None
@@ -406,7 +403,10 @@ impl PostCssConfig {
         // Check for sourceMap
         let source_map = content.contains("sourceMap: true") || content.contains("sourceMap:true");
 
-        Self { plugins, source_map }
+        Self {
+            plugins,
+            source_map,
+        }
     }
 
     /// Parse from JSON value
@@ -421,7 +421,10 @@ impl PostCssConfig {
                         options.insert(k.clone(), v.to_string());
                     }
                 }
-                plugins.push(PostCssPlugin { name: name.clone(), options });
+                plugins.push(PostCssPlugin {
+                    name: name.clone(),
+                    options,
+                });
             }
         } else if let Some(plugins_arr) = json.get("plugins").and_then(|p| p.as_array()) {
             for plugin in plugins_arr {
@@ -434,9 +437,15 @@ impl PostCssConfig {
             }
         }
 
-        let source_map = json.get("sourceMap").and_then(|v| v.as_bool()).unwrap_or(false);
+        let source_map = json
+            .get("sourceMap")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        Self { plugins, source_map }
+        Self {
+            plugins,
+            source_map,
+        }
     }
 
     /// Check if PostCSS is configured
@@ -491,7 +500,10 @@ pub fn process_css(
                 result = inline_imports(&result, file_path, root);
             }
             _ => {
-                tracing::debug!("PostCSS plugin '{}' not natively supported, skipping", plugin.name);
+                tracing::debug!(
+                    "PostCSS plugin '{}' not natively supported, skipping",
+                    plugin.name
+                );
             }
         }
     }
@@ -523,7 +535,10 @@ fn run_tailwind(css: &str, root: &Path) -> String {
 }
 
 /// Scan project source files for Tailwind class names using config content paths
-fn scan_tailwind_content_with_config(root: &Path, config: &TailwindConfig) -> std::collections::HashSet<String> {
+fn scan_tailwind_content_with_config(
+    root: &Path,
+    config: &TailwindConfig,
+) -> std::collections::HashSet<String> {
     let mut classes = std::collections::HashSet::new();
     for content_path in config.content_paths(root) {
         if content_path.is_dir() {
@@ -534,10 +549,10 @@ fn scan_tailwind_content_with_config(root: &Path, config: &TailwindConfig) -> st
             }
         } else {
             // Handle glob patterns — try scanning parent directory
-            if let Some(parent) = content_path.parent() {
-                if parent.is_dir() {
-                    scan_dir_for_classes(parent, &mut classes);
-                }
+            if let Some(parent) = content_path.parent()
+                && parent.is_dir()
+            {
+                scan_dir_for_classes(parent, &mut classes);
             }
         }
     }
@@ -567,10 +582,12 @@ fn scan_dir_for_classes(dir: &Path, classes: &mut std::collections::HashSet<Stri
                 scan_dir_for_classes(&path, classes);
             } else if path.is_file() {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if matches!(ext, "html" | "js" | "ts" | "jsx" | "tsx" | "vue" | "svelte" | "astro") {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        extract_class_names(&content, classes);
-                    }
+                if matches!(
+                    ext,
+                    "html" | "js" | "ts" | "jsx" | "tsx" | "vue" | "svelte" | "astro"
+                ) && let Ok(content) = std::fs::read_to_string(&path)
+                {
+                    extract_class_names(&content, classes);
                 }
             }
         }
@@ -625,7 +642,8 @@ fn process_tailwind_apply(css: &str) -> String {
             let utilities_str = &after[..semi];
             let mut expanded = String::new();
             for util in utilities_str.split_whitespace() {
-                if let Some((_, props)) = TAILWIND_CLASS_MAP.iter().find(|(name, _)| *name == util) {
+                if let Some((_, props)) = TAILWIND_CLASS_MAP.iter().find(|(name, _)| *name == util)
+                {
                     expanded.push_str(props);
                     expanded.push(' ');
                 }
@@ -645,7 +663,7 @@ fn process_tailwind_apply(css: &str) -> String {
 /// Run autoprefixer using Lightning CSS browser targets
 /// Reads browserslist from package.json or .browserslistrc, falls back to defaults
 fn run_autoprefixer(css: &str, root: &Path) -> String {
-    use lightningcss::stylesheet::{StyleSheet, ParserOptions, PrinterOptions};
+    use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 
     let browsers = BrowserslistConfig::from_root(root);
     let targets = lightningcss::targets::Targets {
@@ -674,11 +692,14 @@ fn run_autoprefixer(css: &str, root: &Path) -> String {
 
 /// Run CSS nesting transpilation via Lightning CSS
 fn run_nesting(css: &str) -> String {
-    use lightningcss::stylesheet::{StyleSheet, ParserOptions, PrinterOptions};
+    use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 
     match StyleSheet::parse(css, ParserOptions::default()) {
         Ok(stylesheet) => {
-            match stylesheet.to_css(PrinterOptions { minify: false, ..Default::default() }) {
+            match stylesheet.to_css(PrinterOptions {
+                minify: false,
+                ..Default::default()
+            }) {
                 Ok(output) => output.code,
                 Err(_) => css.to_string(),
             }
@@ -689,12 +710,15 @@ fn run_nesting(css: &str) -> String {
 
 /// Run cssnano-like minification via Lightning CSS
 fn run_cssnano(css: &str) -> String {
-    use lightningcss::stylesheet::{StyleSheet, ParserOptions, PrinterOptions};
+    use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 
     match StyleSheet::parse(css, ParserOptions::default()) {
         Ok(mut stylesheet) => {
             let _ = stylesheet.minify(lightningcss::stylesheet::MinifyOptions::default());
-            match stylesheet.to_css(PrinterOptions { minify: true, ..Default::default() }) {
+            match stylesheet.to_css(PrinterOptions {
+                minify: true,
+                ..Default::default()
+            }) {
                 Ok(output) => output.code,
                 Err(_) => css.to_string(),
             }
@@ -711,7 +735,7 @@ fn inline_imports(css: &str, file_path: &str, root: &Path) -> String {
     for line in css.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("@import") {
-            if let Some(url_start) = trimmed.find(|c: char| c == '"' || c == '\'') {
+            if let Some(url_start) = trimmed.find(['"', '\'']) {
                 let quote = trimmed.as_bytes()[url_start] as char;
                 if let Some(url_end) = trimmed[url_start + 1..].find(quote) {
                     let import_path = &trimmed[url_start + 1..url_start + 1 + url_end];
@@ -760,42 +784,78 @@ const TAILWIND_COMPONENTS: &str = r".container { width: 100%; margin-left: auto;
 
 /// Core Tailwind utility class map (most common classes)
 const TAILWIND_CLASS_MAP: &[(&str, &str)] = &[
-    ("flex", "display: flex;"), ("inline-flex", "display: inline-flex;"),
-    ("block", "display: block;"), ("inline-block", "display: inline-block;"),
-    ("hidden", "display: none;"), ("grid", "display: grid;"),
-    ("items-center", "align-items: center;"), ("items-start", "align-items: flex-start;"),
+    ("flex", "display: flex;"),
+    ("inline-flex", "display: inline-flex;"),
+    ("block", "display: block;"),
+    ("inline-block", "display: inline-block;"),
+    ("hidden", "display: none;"),
+    ("grid", "display: grid;"),
+    ("items-center", "align-items: center;"),
+    ("items-start", "align-items: flex-start;"),
     ("items-end", "align-items: flex-end;"),
-    ("justify-center", "justify-content: center;"), ("justify-between", "justify-content: space-between;"),
-    ("justify-start", "justify-content: flex-start;"), ("justify-end", "justify-content: flex-end;"),
-    ("flex-col", "flex-direction: column;"), ("flex-row", "flex-direction: row;"),
-    ("flex-wrap", "flex-wrap: wrap;"), ("flex-1", "flex: 1 1 0%;"),
-    ("flex-auto", "flex: 1 1 auto;"), ("flex-none", "flex: none;"),
-    ("w-full", "width: 100%;"), ("w-auto", "width: auto;"),
-    ("h-full", "height: 100%;"), ("h-auto", "height: auto;"),
-    ("w-1/2", "width: 50%;"), ("w-1/3", "width: 33.333%;"), ("w-2/3", "width: 66.666%;"),
-    ("w-1/4", "width: 25%;"), ("w-3/4", "width: 75%;"),
-    ("h-screen", "height: 100vh;"), ("min-h-screen", "min-height: 100vh;"),
-    ("max-w-sm", "max-width: 24rem;"), ("max-w-md", "max-width: 28rem;"),
-    ("max-w-lg", "max-width: 32rem;"), ("max-w-xl", "max-width: 36rem;"),
-    ("max-w-2xl", "max-width: 42rem;"), ("max-w-3xl", "max-width: 48rem;"),
-    ("max-w-4xl", "max-width: 56rem;"), ("max-w-5xl", "max-width: 64rem;"),
-    ("max-w-6xl", "max-width: 72rem;"), ("max-w-7xl", "max-width: 80rem;"),
-    ("text-center", "text-align: center;"), ("text-left", "text-align: left;"),
+    ("justify-center", "justify-content: center;"),
+    ("justify-between", "justify-content: space-between;"),
+    ("justify-start", "justify-content: flex-start;"),
+    ("justify-end", "justify-content: flex-end;"),
+    ("flex-col", "flex-direction: column;"),
+    ("flex-row", "flex-direction: row;"),
+    ("flex-wrap", "flex-wrap: wrap;"),
+    ("flex-1", "flex: 1 1 0%;"),
+    ("flex-auto", "flex: 1 1 auto;"),
+    ("flex-none", "flex: none;"),
+    ("w-full", "width: 100%;"),
+    ("w-auto", "width: auto;"),
+    ("h-full", "height: 100%;"),
+    ("h-auto", "height: auto;"),
+    ("w-1/2", "width: 50%;"),
+    ("w-1/3", "width: 33.333%;"),
+    ("w-2/3", "width: 66.666%;"),
+    ("w-1/4", "width: 25%;"),
+    ("w-3/4", "width: 75%;"),
+    ("h-screen", "height: 100vh;"),
+    ("min-h-screen", "min-height: 100vh;"),
+    ("max-w-sm", "max-width: 24rem;"),
+    ("max-w-md", "max-width: 28rem;"),
+    ("max-w-lg", "max-width: 32rem;"),
+    ("max-w-xl", "max-width: 36rem;"),
+    ("max-w-2xl", "max-width: 42rem;"),
+    ("max-w-3xl", "max-width: 48rem;"),
+    ("max-w-4xl", "max-width: 56rem;"),
+    ("max-w-5xl", "max-width: 64rem;"),
+    ("max-w-6xl", "max-width: 72rem;"),
+    ("max-w-7xl", "max-width: 80rem;"),
+    ("text-center", "text-align: center;"),
+    ("text-left", "text-align: left;"),
     ("text-right", "text-align: right;"),
-    ("font-bold", "font-weight: 700;"), ("font-semibold", "font-weight: 600;"),
-    ("font-medium", "font-weight: 500;"), ("font-normal", "font-weight: 400;"),
-    ("font-light", "font-weight: 300;"), ("font-extrabold", "font-weight: 800;"),
+    ("font-bold", "font-weight: 700;"),
+    ("font-semibold", "font-weight: 600;"),
+    ("font-medium", "font-weight: 500;"),
+    ("font-normal", "font-weight: 400;"),
+    ("font-light", "font-weight: 300;"),
+    ("font-extrabold", "font-weight: 800;"),
     ("font-black", "font-weight: 900;"),
-    ("text-xs", "font-size: 0.75rem;"), ("text-sm", "font-size: 0.875rem;"),
-    ("text-base", "font-size: 1rem;"), ("text-lg", "font-size: 1.125rem;"),
-    ("text-xl", "font-size: 1.25rem;"), ("text-2xl", "font-size: 1.5rem;"),
-    ("text-3xl", "font-size: 1.875rem;"), ("text-4xl", "font-size: 2.25rem;"),
-    ("text-5xl", "font-size: 3rem;"), ("text-6xl", "font-size: 3.75rem;"),
-    ("rounded", "border-radius: 0.25rem;"), ("rounded-md", "border-radius: 0.375rem;"),
-    ("rounded-lg", "border-radius: 0.5rem;"), ("rounded-xl", "border-radius: 0.75rem;"),
-    ("rounded-full", "border-radius: 9999px;"), ("rounded-sm", "border-radius: 0.125rem;"),
-    ("p-0", "padding: 0;"), ("p-1", "padding: 0.25rem;"), ("p-2", "padding: 0.5rem;"),
-    ("p-3", "padding: 0.75rem;"), ("p-4", "padding: 1rem;"), ("p-6", "padding: 1.5rem;"),
+    ("text-xs", "font-size: 0.75rem;"),
+    ("text-sm", "font-size: 0.875rem;"),
+    ("text-base", "font-size: 1rem;"),
+    ("text-lg", "font-size: 1.125rem;"),
+    ("text-xl", "font-size: 1.25rem;"),
+    ("text-2xl", "font-size: 1.5rem;"),
+    ("text-3xl", "font-size: 1.875rem;"),
+    ("text-4xl", "font-size: 2.25rem;"),
+    ("text-5xl", "font-size: 3rem;"),
+    ("text-6xl", "font-size: 3.75rem;"),
+    ("rounded", "border-radius: 0.25rem;"),
+    ("rounded-md", "border-radius: 0.375rem;"),
+    ("rounded-lg", "border-radius: 0.5rem;"),
+    ("rounded-xl", "border-radius: 0.75rem;"),
+    ("rounded-full", "border-radius: 9999px;"),
+    ("rounded-sm", "border-radius: 0.125rem;"),
+    ("p-0", "padding: 0;"),
+    ("p-1", "padding: 0.25rem;"),
+    ("p-2", "padding: 0.5rem;"),
+    ("p-3", "padding: 0.75rem;"),
+    ("p-4", "padding: 1rem;"),
+    ("p-6", "padding: 1.5rem;"),
     ("p-8", "padding: 2rem;"),
     ("px-1", "padding-left: 0.25rem; padding-right: 0.25rem;"),
     ("px-2", "padding-left: 0.5rem; padding-right: 0.5rem;"),
@@ -809,136 +869,293 @@ const TAILWIND_CLASS_MAP: &[(&str, &str)] = &[
     ("py-4", "padding-top: 1rem; padding-bottom: 1rem;"),
     ("py-6", "padding-top: 1.5rem; padding-bottom: 1.5rem;"),
     ("py-8", "padding-top: 2rem; padding-bottom: 2rem;"),
-    ("m-0", "margin: 0;"), ("m-1", "margin: 0.25rem;"), ("m-2", "margin: 0.5rem;"),
-    ("m-4", "margin: 1rem;"), ("m-auto", "margin: auto;"),
+    ("m-0", "margin: 0;"),
+    ("m-1", "margin: 0.25rem;"),
+    ("m-2", "margin: 0.5rem;"),
+    ("m-4", "margin: 1rem;"),
+    ("m-auto", "margin: auto;"),
     ("mx-auto", "margin-left: auto; margin-right: auto;"),
-    ("mt-0", "margin-top: 0;"), ("mt-1", "margin-top: 0.25rem;"),
-    ("mt-2", "margin-top: 0.5rem;"), ("mt-4", "margin-top: 1rem;"), ("mt-8", "margin-top: 2rem;"),
-    ("mb-0", "margin-bottom: 0;"), ("mb-1", "margin-bottom: 0.25rem;"),
-    ("mb-2", "margin-bottom: 0.5rem;"), ("mb-4", "margin-bottom: 1rem;"), ("mb-8", "margin-bottom: 2rem;"),
-    ("ml-1", "margin-left: 0.25rem;"), ("ml-2", "margin-left: 0.5rem;"), ("ml-4", "margin-left: 1rem;"),
-    ("mr-1", "margin-right: 0.25rem;"), ("mr-2", "margin-right: 0.5rem;"), ("mr-4", "margin-right: 1rem;"),
-    ("gap-1", "gap: 0.25rem;"), ("gap-2", "gap: 0.5rem;"), ("gap-3", "gap: 0.75rem;"),
-    ("gap-4", "gap: 1rem;"), ("gap-6", "gap: 1.5rem;"), ("gap-8", "gap: 2rem;"),
-    ("bg-white", "background-color: #fff;"), ("bg-black", "background-color: #000;"),
+    ("mt-0", "margin-top: 0;"),
+    ("mt-1", "margin-top: 0.25rem;"),
+    ("mt-2", "margin-top: 0.5rem;"),
+    ("mt-4", "margin-top: 1rem;"),
+    ("mt-8", "margin-top: 2rem;"),
+    ("mb-0", "margin-bottom: 0;"),
+    ("mb-1", "margin-bottom: 0.25rem;"),
+    ("mb-2", "margin-bottom: 0.5rem;"),
+    ("mb-4", "margin-bottom: 1rem;"),
+    ("mb-8", "margin-bottom: 2rem;"),
+    ("ml-1", "margin-left: 0.25rem;"),
+    ("ml-2", "margin-left: 0.5rem;"),
+    ("ml-4", "margin-left: 1rem;"),
+    ("mr-1", "margin-right: 0.25rem;"),
+    ("mr-2", "margin-right: 0.5rem;"),
+    ("mr-4", "margin-right: 1rem;"),
+    ("gap-1", "gap: 0.25rem;"),
+    ("gap-2", "gap: 0.5rem;"),
+    ("gap-3", "gap: 0.75rem;"),
+    ("gap-4", "gap: 1rem;"),
+    ("gap-6", "gap: 1.5rem;"),
+    ("gap-8", "gap: 2rem;"),
+    ("bg-white", "background-color: #fff;"),
+    ("bg-black", "background-color: #000;"),
     ("bg-transparent", "background-color: transparent;"),
-    ("bg-gray-50", "background-color: #f9fafb;"), ("bg-gray-100", "background-color: #f3f4f6;"),
-    ("bg-gray-200", "background-color: #e5e7eb;"), ("bg-gray-300", "background-color: #d1d5db;"),
-    ("bg-gray-400", "background-color: #9ca3af;"), ("bg-gray-500", "background-color: #6b7280;"),
-    ("bg-gray-600", "background-color: #4b5563;"), ("bg-gray-700", "background-color: #374151;"),
-    ("bg-gray-800", "background-color: #1f2937;"), ("bg-gray-900", "background-color: #111827;"),
-    ("bg-red-500", "background-color: #ef4444;"), ("bg-red-600", "background-color: #dc2626;"),
-    ("bg-blue-500", "background-color: #3b82f6;"), ("bg-blue-600", "background-color: #2563eb;"),
-    ("bg-green-500", "background-color: #22c55e;"), ("bg-green-600", "background-color: #16a34a;"),
-    ("bg-yellow-500", "background-color: #eab308;"), ("bg-yellow-400", "background-color: #facc15;"),
-    ("bg-indigo-500", "background-color: #6366f1;"), ("bg-indigo-600", "background-color: #4f46e5;"),
-    ("bg-purple-500", "background-color: #a855f7;"), ("bg-purple-600", "background-color: #9333ea;"),
-    ("bg-pink-500", "background-color: #ec4899;"), ("bg-pink-600", "background-color: #db2777;"),
-    ("text-white", "color: #fff;"), ("text-black", "color: #000;"),
-    ("text-gray-300", "color: #d1d5db;"), ("text-gray-400", "color: #9ca3af;"),
-    ("text-gray-500", "color: #6b7280;"), ("text-gray-600", "color: #4b5563;"),
-    ("text-gray-700", "color: #374151;"), ("text-gray-800", "color: #1f2937;"),
+    ("bg-gray-50", "background-color: #f9fafb;"),
+    ("bg-gray-100", "background-color: #f3f4f6;"),
+    ("bg-gray-200", "background-color: #e5e7eb;"),
+    ("bg-gray-300", "background-color: #d1d5db;"),
+    ("bg-gray-400", "background-color: #9ca3af;"),
+    ("bg-gray-500", "background-color: #6b7280;"),
+    ("bg-gray-600", "background-color: #4b5563;"),
+    ("bg-gray-700", "background-color: #374151;"),
+    ("bg-gray-800", "background-color: #1f2937;"),
+    ("bg-gray-900", "background-color: #111827;"),
+    ("bg-red-500", "background-color: #ef4444;"),
+    ("bg-red-600", "background-color: #dc2626;"),
+    ("bg-blue-500", "background-color: #3b82f6;"),
+    ("bg-blue-600", "background-color: #2563eb;"),
+    ("bg-green-500", "background-color: #22c55e;"),
+    ("bg-green-600", "background-color: #16a34a;"),
+    ("bg-yellow-500", "background-color: #eab308;"),
+    ("bg-yellow-400", "background-color: #facc15;"),
+    ("bg-indigo-500", "background-color: #6366f1;"),
+    ("bg-indigo-600", "background-color: #4f46e5;"),
+    ("bg-purple-500", "background-color: #a855f7;"),
+    ("bg-purple-600", "background-color: #9333ea;"),
+    ("bg-pink-500", "background-color: #ec4899;"),
+    ("bg-pink-600", "background-color: #db2777;"),
+    ("text-white", "color: #fff;"),
+    ("text-black", "color: #000;"),
+    ("text-gray-300", "color: #d1d5db;"),
+    ("text-gray-400", "color: #9ca3af;"),
+    ("text-gray-500", "color: #6b7280;"),
+    ("text-gray-600", "color: #4b5563;"),
+    ("text-gray-700", "color: #374151;"),
+    ("text-gray-800", "color: #1f2937;"),
     ("text-gray-900", "color: #111827;"),
-    ("text-red-500", "color: #ef4444;"), ("text-red-600", "color: #dc2626;"),
-    ("text-blue-500", "color: #3b82f6;"), ("text-blue-600", "color: #2563eb;"),
-    ("text-green-500", "color: #22c55e;"), ("text-green-600", "color: #16a34a;"),
-    ("text-yellow-500", "color: #eab308;"), ("text-indigo-500", "color: #6366f1;"),
-    ("text-purple-500", "color: #a855f7;"), ("text-pink-500", "color: #ec4899;"),
-    ("border", "border-width: 1px;"), ("border-0", "border-width: 0;"), ("border-2", "border-width: 2px;"),
-    ("border-t", "border-top-width: 1px;"), ("border-b", "border-bottom-width: 1px;"),
-    ("border-l", "border-left-width: 1px;"), ("border-r", "border-right-width: 1px;"),
-    ("border-gray-200", "border-color: #e5e7eb;"), ("border-gray-300", "border-color: #d1d5db;"),
-    ("border-gray-400", "border-color: #9ca3af;"), ("border-gray-500", "border-color: #6b7280;"),
-    ("border-red-500", "border-color: #ef4444;"), ("border-blue-500", "border-color: #3b82f6;"),
+    ("text-red-500", "color: #ef4444;"),
+    ("text-red-600", "color: #dc2626;"),
+    ("text-blue-500", "color: #3b82f6;"),
+    ("text-blue-600", "color: #2563eb;"),
+    ("text-green-500", "color: #22c55e;"),
+    ("text-green-600", "color: #16a34a;"),
+    ("text-yellow-500", "color: #eab308;"),
+    ("text-indigo-500", "color: #6366f1;"),
+    ("text-purple-500", "color: #a855f7;"),
+    ("text-pink-500", "color: #ec4899;"),
+    ("border", "border-width: 1px;"),
+    ("border-0", "border-width: 0;"),
+    ("border-2", "border-width: 2px;"),
+    ("border-t", "border-top-width: 1px;"),
+    ("border-b", "border-bottom-width: 1px;"),
+    ("border-l", "border-left-width: 1px;"),
+    ("border-r", "border-right-width: 1px;"),
+    ("border-gray-200", "border-color: #e5e7eb;"),
+    ("border-gray-300", "border-color: #d1d5db;"),
+    ("border-gray-400", "border-color: #9ca3af;"),
+    ("border-gray-500", "border-color: #6b7280;"),
+    ("border-red-500", "border-color: #ef4444;"),
+    ("border-blue-500", "border-color: #3b82f6;"),
     ("border-green-500", "border-color: #22c55e;"),
-    ("overflow-hidden", "overflow: hidden;"), ("overflow-auto", "overflow: auto;"),
+    ("overflow-hidden", "overflow: hidden;"),
+    ("overflow-auto", "overflow: auto;"),
     ("overflow-scroll", "overflow: scroll;"),
-    ("overflow-x-auto", "overflow-x: auto;"), ("overflow-y-auto", "overflow-y: auto;"),
-    ("overflow-x-hidden", "overflow-x: hidden;"), ("overflow-y-hidden", "overflow-y: hidden;"),
-    ("relative", "position: relative;"), ("absolute", "position: absolute;"),
-    ("fixed", "position: fixed;"), ("sticky", "position: sticky;"),
-    ("top-0", "top: 0;"), ("bottom-0", "bottom: 0;"), ("left-0", "left: 0;"), ("right-0", "right: 0;"),
+    ("overflow-x-auto", "overflow-x: auto;"),
+    ("overflow-y-auto", "overflow-y: auto;"),
+    ("overflow-x-hidden", "overflow-x: hidden;"),
+    ("overflow-y-hidden", "overflow-y: hidden;"),
+    ("relative", "position: relative;"),
+    ("absolute", "position: absolute;"),
+    ("fixed", "position: fixed;"),
+    ("sticky", "position: sticky;"),
+    ("top-0", "top: 0;"),
+    ("bottom-0", "bottom: 0;"),
+    ("left-0", "left: 0;"),
+    ("right-0", "right: 0;"),
     ("inset-0", "top: 0; right: 0; bottom: 0; left: 0;"),
-    ("z-0", "z-index: 0;"), ("z-10", "z-index: 10;"), ("z-20", "z-index: 20;"),
-    ("z-30", "z-index: 30;"), ("z-40", "z-index: 40;"), ("z-50", "z-index: 50;"),
+    ("z-0", "z-index: 0;"),
+    ("z-10", "z-index: 10;"),
+    ("z-20", "z-index: 20;"),
+    ("z-30", "z-index: 30;"),
+    ("z-40", "z-index: 40;"),
+    ("z-50", "z-index: 50;"),
     ("shadow", "box-shadow: 0 1px 3px rgba(0,0,0,0.1);"),
     ("shadow-sm", "box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);"),
     ("shadow-md", "box-shadow: 0 4px 6px rgba(0,0,0,0.1);"),
     ("shadow-lg", "box-shadow: 0 10px 15px rgba(0,0,0,0.1);"),
     ("shadow-xl", "box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);"),
-    ("shadow-2xl", "box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);"),
+    (
+        "shadow-2xl",
+        "box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);",
+    ),
     ("shadow-none", "box-shadow: none;"),
-    ("transition", "transition: all 0.15s ease;"), ("transition-all", "transition: all 0.15s ease;"),
-    ("transition-colors", "transition: color, background-color, border-color, fill, stroke;"),
-    ("transition-opacity", "transition: opacity;"), ("transition-transform", "transition: transform;"),
-    ("duration-100", "transition-duration: 100ms;"), ("duration-150", "transition-duration: 150ms;"),
-    ("duration-200", "transition-duration: 200ms;"), ("duration-300", "transition-duration: 300ms;"),
-    ("duration-500", "transition-duration: 500ms;"), ("duration-700", "transition-duration: 700ms;"),
+    ("transition", "transition: all 0.15s ease;"),
+    ("transition-all", "transition: all 0.15s ease;"),
+    (
+        "transition-colors",
+        "transition: color, background-color, border-color, fill, stroke;",
+    ),
+    ("transition-opacity", "transition: opacity;"),
+    ("transition-transform", "transition: transform;"),
+    ("duration-100", "transition-duration: 100ms;"),
+    ("duration-150", "transition-duration: 150ms;"),
+    ("duration-200", "transition-duration: 200ms;"),
+    ("duration-300", "transition-duration: 300ms;"),
+    ("duration-500", "transition-duration: 500ms;"),
+    ("duration-700", "transition-duration: 700ms;"),
     ("duration-1000", "transition-duration: 1000ms;"),
     ("ease-linear", "transition-timing-function: linear;"),
-    ("ease-in", "transition-timing-function: cubic-bezier(0.4, 0, 1, 1);"),
-    ("ease-out", "transition-timing-function: cubic-bezier(0, 0, 0.2, 1);"),
-    ("ease-in-out", "transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);"),
-    ("cursor-pointer", "cursor: pointer;"), ("cursor-default", "cursor: default;"),
-    ("cursor-wait", "cursor: wait;"), ("cursor-not-allowed", "cursor: not-allowed;"),
-    ("cursor-text", "cursor: text;"), ("cursor-move", "cursor: move;"),
-    ("opacity-0", "opacity: 0;"), ("opacity-25", "opacity: 0.25;"),
-    ("opacity-50", "opacity: 0.5;"), ("opacity-75", "opacity: 0.75;"), ("opacity-100", "opacity: 1;"),
-    ("pointer-events-none", "pointer-events: none;"), ("pointer-events-auto", "pointer-events: auto;"),
-    ("select-none", "user-select: none;"), ("select-text", "user-select: text;"),
-    ("whitespace-nowrap", "white-space: nowrap;"), ("whitespace-pre", "white-space: pre;"),
+    (
+        "ease-in",
+        "transition-timing-function: cubic-bezier(0.4, 0, 1, 1);",
+    ),
+    (
+        "ease-out",
+        "transition-timing-function: cubic-bezier(0, 0, 0.2, 1);",
+    ),
+    (
+        "ease-in-out",
+        "transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);",
+    ),
+    ("cursor-pointer", "cursor: pointer;"),
+    ("cursor-default", "cursor: default;"),
+    ("cursor-wait", "cursor: wait;"),
+    ("cursor-not-allowed", "cursor: not-allowed;"),
+    ("cursor-text", "cursor: text;"),
+    ("cursor-move", "cursor: move;"),
+    ("opacity-0", "opacity: 0;"),
+    ("opacity-25", "opacity: 0.25;"),
+    ("opacity-50", "opacity: 0.5;"),
+    ("opacity-75", "opacity: 0.75;"),
+    ("opacity-100", "opacity: 1;"),
+    ("pointer-events-none", "pointer-events: none;"),
+    ("pointer-events-auto", "pointer-events: auto;"),
+    ("select-none", "user-select: none;"),
+    ("select-text", "user-select: text;"),
+    ("whitespace-nowrap", "white-space: nowrap;"),
+    ("whitespace-pre", "white-space: pre;"),
     ("break-words", "overflow-wrap: break-word;"),
-    ("truncate", "overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"),
-    ("underline", "text-decoration: underline;"), ("line-through", "text-decoration: line-through;"),
+    (
+        "truncate",
+        "overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
+    ),
+    ("underline", "text-decoration: underline;"),
+    ("line-through", "text-decoration: line-through;"),
     ("no-underline", "text-decoration: none;"),
-    ("uppercase", "text-transform: uppercase;"), ("lowercase", "text-transform: lowercase;"),
-    ("capitalize", "text-transform: capitalize;"), ("normal-case", "text-transform: none;"),
-    ("italic", "font-style: italic;"), ("not-italic", "font-style: normal;"),
-    ("font-mono", "font-family: ui-monospace, SFMono-Regular, monospace;"),
-    ("font-sans", "font-family: ui-sans-serif, system-ui, sans-serif;"),
+    ("uppercase", "text-transform: uppercase;"),
+    ("lowercase", "text-transform: lowercase;"),
+    ("capitalize", "text-transform: capitalize;"),
+    ("normal-case", "text-transform: none;"),
+    ("italic", "font-style: italic;"),
+    ("not-italic", "font-style: normal;"),
+    (
+        "font-mono",
+        "font-family: ui-monospace, SFMono-Regular, monospace;",
+    ),
+    (
+        "font-sans",
+        "font-family: ui-sans-serif, system-ui, sans-serif;",
+    ),
     ("font-serif", "font-family: ui-serif, Georgia, serif;"),
-    ("antialiased", "-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;"),
-    ("leading-none", "line-height: 1;"), ("leading-tight", "line-height: 1.25;"),
-    ("leading-normal", "line-height: 1.5;"), ("leading-loose", "line-height: 2;"),
-    ("tracking-tight", "letter-spacing: -0.025em;"), ("tracking-normal", "letter-spacing: 0;"),
+    (
+        "antialiased",
+        "-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;",
+    ),
+    ("leading-none", "line-height: 1;"),
+    ("leading-tight", "line-height: 1.25;"),
+    ("leading-normal", "line-height: 1.5;"),
+    ("leading-loose", "line-height: 2;"),
+    ("tracking-tight", "letter-spacing: -0.025em;"),
+    ("tracking-normal", "letter-spacing: 0;"),
     ("tracking-wide", "letter-spacing: 0.025em;"),
-    ("grid-cols-1", "grid-template-columns: repeat(1, minmax(0, 1fr));"),
-    ("grid-cols-2", "grid-template-columns: repeat(2, minmax(0, 1fr));"),
-    ("grid-cols-3", "grid-template-columns: repeat(3, minmax(0, 1fr));"),
-    ("grid-cols-4", "grid-template-columns: repeat(4, minmax(0, 1fr));"),
-    ("grid-cols-5", "grid-template-columns: repeat(5, minmax(0, 1fr));"),
-    ("grid-cols-6", "grid-template-columns: repeat(6, minmax(0, 1fr));"),
-    ("grid-cols-12", "grid-template-columns: repeat(12, minmax(0, 1fr));"),
+    (
+        "grid-cols-1",
+        "grid-template-columns: repeat(1, minmax(0, 1fr));",
+    ),
+    (
+        "grid-cols-2",
+        "grid-template-columns: repeat(2, minmax(0, 1fr));",
+    ),
+    (
+        "grid-cols-3",
+        "grid-template-columns: repeat(3, minmax(0, 1fr));",
+    ),
+    (
+        "grid-cols-4",
+        "grid-template-columns: repeat(4, minmax(0, 1fr));",
+    ),
+    (
+        "grid-cols-5",
+        "grid-template-columns: repeat(5, minmax(0, 1fr));",
+    ),
+    (
+        "grid-cols-6",
+        "grid-template-columns: repeat(6, minmax(0, 1fr));",
+    ),
+    (
+        "grid-cols-12",
+        "grid-template-columns: repeat(12, minmax(0, 1fr));",
+    ),
     ("col-span-1", "grid-column: span 1 / span 1;"),
     ("col-span-2", "grid-column: span 2 / span 2;"),
     ("col-span-3", "grid-column: span 3 / span 3;"),
     ("ring", "box-shadow: 0 0 0 3px rgba(59,130,246,0.5);"),
     ("ring-2", "box-shadow: 0 0 0 2px rgba(59,130,246,0.5);"),
-    ("outline-none", "outline: 2px solid transparent; outline-offset: 2px;"),
-    ("appearance-none", "appearance: none;"), ("resize-none", "resize: none;"),
-    ("sr-only", "position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;"),
-    ("blur", "filter: blur(4px);"), ("blur-sm", "filter: blur(2px);"),
-    ("grayscale", "filter: grayscale(100%);"), ("invert", "filter: invert(100%);"),
-    ("backdrop-blur", "backdrop-filter: blur(4px);"), ("backdrop-blur-sm", "backdrop-filter: blur(2px);"),
+    (
+        "outline-none",
+        "outline: 2px solid transparent; outline-offset: 2px;",
+    ),
+    ("appearance-none", "appearance: none;"),
+    ("resize-none", "resize: none;"),
+    (
+        "sr-only",
+        "position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;",
+    ),
+    ("blur", "filter: blur(4px);"),
+    ("blur-sm", "filter: blur(2px);"),
+    ("grayscale", "filter: grayscale(100%);"),
+    ("invert", "filter: invert(100%);"),
+    ("backdrop-blur", "backdrop-filter: blur(4px);"),
+    ("backdrop-blur-sm", "backdrop-filter: blur(2px);"),
     ("transform", "transform: translateX(0) translateY(0);"),
-    ("translate-x-0", "transform: translateX(0);"), ("translate-x-1", "transform: translateX(0.25rem);"),
-    ("translate-y-0", "transform: translateY(0);"), ("translate-y-1", "transform: translateY(0.25rem);"),
-    ("rotate-45", "transform: rotate(45deg);"), ("rotate-90", "transform: rotate(90deg);"),
-    ("scale-75", "transform: scale(0.75);"), ("scale-100", "transform: scale(1);"),
+    ("translate-x-0", "transform: translateX(0);"),
+    ("translate-x-1", "transform: translateX(0.25rem);"),
+    ("translate-y-0", "transform: translateY(0);"),
+    ("translate-y-1", "transform: translateY(0.25rem);"),
+    ("rotate-45", "transform: rotate(45deg);"),
+    ("rotate-90", "transform: rotate(90deg);"),
+    ("scale-75", "transform: scale(0.75);"),
+    ("scale-100", "transform: scale(1);"),
     ("scale-110", "transform: scale(1.1);"),
     ("animate-spin", "animation: spin 1s linear infinite;"),
-    ("animate-ping", "animation: ping 1s cubic-bezier(0,0,0.2,1) infinite;"),
-    ("animate-pulse", "animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite;"),
+    (
+        "animate-ping",
+        "animation: ping 1s cubic-bezier(0,0,0.2,1) infinite;",
+    ),
+    (
+        "animate-pulse",
+        "animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite;",
+    ),
     ("animate-bounce", "animation: bounce 1s infinite;"),
-    ("fill-current", "fill: currentColor;"), ("stroke-current", "stroke: currentColor;"),
-    ("object-contain", "object-fit: contain;"), ("object-cover", "object-fit: cover;"),
-    ("float-right", "float: right;"), ("float-left", "float: left;"), ("float-none", "float: none;"),
+    ("fill-current", "fill: currentColor;"),
+    ("stroke-current", "stroke: currentColor;"),
+    ("object-contain", "object-fit: contain;"),
+    ("object-cover", "object-fit: cover;"),
+    ("float-right", "float: right;"),
+    ("float-left", "float: left;"),
+    ("float-none", "float: none;"),
     ("clear-both", "clear: both;"),
-    ("visible", "visibility: visible;"), ("invisible", "visibility: hidden;"),
-    ("box-border", "box-sizing: border-box;"), ("box-content", "box-sizing: content-box;"),
-    ("aspect-square", "aspect-ratio: 1 / 1;"), ("aspect-video", "aspect-ratio: 16 / 9;"),
-    ("flex-grow", "flex-grow: 1;"), ("flex-shrink", "flex-shrink: 1;"), ("flex-shrink-0", "flex-shrink: 0;"),
-    ("order-1", "order: 1;"), ("order-2", "order: 2;"),
+    ("visible", "visibility: visible;"),
+    ("invisible", "visibility: hidden;"),
+    ("box-border", "box-sizing: border-box;"),
+    ("box-content", "box-sizing: content-box;"),
+    ("aspect-square", "aspect-ratio: 1 / 1;"),
+    ("aspect-video", "aspect-ratio: 16 / 9;"),
+    ("flex-grow", "flex-grow: 1;"),
+    ("flex-shrink", "flex-shrink: 1;"),
+    ("flex-shrink-0", "flex-shrink: 0;"),
+    ("order-1", "order: 1;"),
+    ("order-2", "order: 2;"),
     ("divide-y", "& > * + * { border-top-width: 1px; }"),
     ("divide-x", "& > * + * { border-right-width: 1px; }"),
     ("space-x-1", "& > * + * { margin-left: 0.25rem; }"),
@@ -947,33 +1164,69 @@ const TAILWIND_CLASS_MAP: &[(&str, &str)] = &[
     ("space-y-1", "& > * + * { margin-top: 0.25rem; }"),
     ("space-y-2", "& > * + * { margin-top: 0.5rem; }"),
     ("space-y-4", "& > * + * { margin-top: 1rem; }"),
-    ("min-w-0", "min-width: 0;"), ("min-w-full", "min-width: 100%;"),
-    ("min-h-0", "min-height: 0;"), ("min-h-full", "min-height: 100%;"),
-    ("max-w-none", "max-width: none;"), ("max-w-full", "max-width: 100%;"),
-    ("list-none", "list-style-type: none;"), ("list-disc", "list-style-type: disc;"),
+    ("min-w-0", "min-width: 0;"),
+    ("min-w-full", "min-width: 100%;"),
+    ("min-h-0", "min-height: 0;"),
+    ("min-h-full", "min-height: 100%;"),
+    ("max-w-none", "max-width: none;"),
+    ("max-w-full", "max-width: 100%;"),
+    ("list-none", "list-style-type: none;"),
+    ("list-disc", "list-style-type: disc;"),
     ("list-decimal", "list-style-type: decimal;"),
-    ("align-baseline", "vertical-align: baseline;"), ("align-top", "vertical-align: top;"),
-    ("align-middle", "vertical-align: middle;"), ("align-bottom", "vertical-align: bottom;"),
-    ("table-auto", "table-layout: auto;"), ("table-fixed", "table-layout: fixed;"),
-    ("border-solid", "border-style: solid;"), ("border-dashed", "border-style: dashed;"),
-    ("border-dotted", "border-style: dotted;"), ("border-none", "border-style: none;"),
-    ("text-transparent", "color: transparent;"), ("bg-none", "background-image: none;"),
-    ("bg-cover", "background-size: cover;"), ("bg-contain", "background-size: contain;"),
-    ("bg-center", "background-position: center;"), ("bg-fixed", "background-attachment: fixed;"),
-    ("bg-no-repeat", "background-repeat: no-repeat;"), ("bg-repeat", "background-repeat: repeat;"),
+    ("align-baseline", "vertical-align: baseline;"),
+    ("align-top", "vertical-align: top;"),
+    ("align-middle", "vertical-align: middle;"),
+    ("align-bottom", "vertical-align: bottom;"),
+    ("table-auto", "table-layout: auto;"),
+    ("table-fixed", "table-layout: fixed;"),
+    ("border-solid", "border-style: solid;"),
+    ("border-dashed", "border-style: dashed;"),
+    ("border-dotted", "border-style: dotted;"),
+    ("border-none", "border-style: none;"),
+    ("text-transparent", "color: transparent;"),
+    ("bg-none", "background-image: none;"),
+    ("bg-cover", "background-size: cover;"),
+    ("bg-contain", "background-size: contain;"),
+    ("bg-center", "background-position: center;"),
+    ("bg-fixed", "background-attachment: fixed;"),
+    ("bg-no-repeat", "background-repeat: no-repeat;"),
+    ("bg-repeat", "background-repeat: repeat;"),
     ("isolate", "isolation: isolate;"),
-    ("will-change-transform", "will-change: transform;"), ("will-change-auto", "will-change: auto;"),
-    ("scroll-smooth", "scroll-behavior: smooth;"), ("scroll-auto", "scroll-behavior: auto;"),
-    ("snap-x", "scroll-snap-type: x;"), ("snap-y", "scroll-snap-type: y;"),
-    ("touch-none", "touch-action: none;"), ("touch-pan-x", "touch-action: pan-x;"),
-    ("touch-pan-y", "touch-action: pan-y;"), ("touch-manipulation", "touch-action: manipulation;"),
+    ("will-change-transform", "will-change: transform;"),
+    ("will-change-auto", "will-change: auto;"),
+    ("scroll-smooth", "scroll-behavior: smooth;"),
+    ("scroll-auto", "scroll-behavior: auto;"),
+    ("snap-x", "scroll-snap-type: x;"),
+    ("snap-y", "scroll-snap-type: y;"),
+    ("touch-none", "touch-action: none;"),
+    ("touch-pan-x", "touch-action: pan-x;"),
+    ("touch-pan-y", "touch-action: pan-y;"),
+    ("touch-manipulation", "touch-action: manipulation;"),
     ("print:hidden", "@media print { display: none; }"),
-    ("dark:bg-gray-800", "@media (prefers-color-scheme: dark) { background-color: #1f2937; }"),
-    ("dark:bg-gray-900", "@media (prefers-color-scheme: dark) { background-color: #111827; }"),
-    ("dark:text-white", "@media (prefers-color-scheme: dark) { color: #fff; }"),
-    ("dark:text-gray-100", "@media (prefers-color-scheme: dark) { color: #f3f4f6; }"),
-    ("motion-safe:animate-spin", "@media (prefers-reduced-motion: no-preference) { animation: spin 1s linear infinite; }"),
-    ("motion-reduce:animate-none", "@media (prefers-reduced-motion: reduce) { animation: none; }"),
+    (
+        "dark:bg-gray-800",
+        "@media (prefers-color-scheme: dark) { background-color: #1f2937; }",
+    ),
+    (
+        "dark:bg-gray-900",
+        "@media (prefers-color-scheme: dark) { background-color: #111827; }",
+    ),
+    (
+        "dark:text-white",
+        "@media (prefers-color-scheme: dark) { color: #fff; }",
+    ),
+    (
+        "dark:text-gray-100",
+        "@media (prefers-color-scheme: dark) { color: #f3f4f6; }",
+    ),
+    (
+        "motion-safe:animate-spin",
+        "@media (prefers-reduced-motion: no-preference) { animation: spin 1s linear infinite; }",
+    ),
+    (
+        "motion-reduce:animate-none",
+        "@media (prefers-reduced-motion: reduce) { animation: none; }",
+    ),
 ];
 
 /// Extract plugin name from a JS line

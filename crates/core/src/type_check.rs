@@ -49,19 +49,23 @@ pub fn run_type_check(root: &Path) -> Result<TypeCheckResult> {
 
     let tsc_path = match tsc {
         Some(path) => path,
-        None => return Ok(TypeCheckResult {
-            success: true,
-            errors: vec![TypeError {
-                file: "tsconfig.json".to_string(),
-                line: 0,
-                column: 0,
-                code: "TSC_NOT_FOUND".to_string(),
-                message: "TypeScript compiler not found. Install with: npm install -D typescript".to_string(),
-                severity: "warning".to_string(),
-            }],
-            warnings: Vec::new(),
-            duration_ms: start.elapsed().as_millis(),
-        }),
+        None => {
+            return Ok(TypeCheckResult {
+                success: true,
+                errors: vec![TypeError {
+                    file: "tsconfig.json".to_string(),
+                    line: 0,
+                    column: 0,
+                    code: "TSC_NOT_FOUND".to_string(),
+                    message:
+                        "TypeScript compiler not found. Install with: npm install -D typescript"
+                            .to_string(),
+                    severity: "warning".to_string(),
+                }],
+                warnings: Vec::new(),
+                duration_ms: start.elapsed().as_millis(),
+            });
+        }
     };
 
     // Run tsc --noEmit --pretty false for parseable output
@@ -83,38 +87,53 @@ pub fn run_type_check(root: &Path) -> Result<TypeCheckResult> {
 
     // Try parsing as JSON (tsc --format json outputs newline-delimited JSON)
     for line in stdout.lines() {
-        if line.trim_start().starts_with('{') {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-                let severity = json.get("category")
+        if line.trim_start().starts_with('{')
+            && let Ok(json) = serde_json::from_str::<serde_json::Value>(line)
+        {
+            let severity = json
+                .get("category")
+                .and_then(|c| c.as_str())
+                .unwrap_or("error");
+
+            let te = TypeError {
+                file: json
+                    .get("file")
+                    .and_then(|f| f.as_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
+                line: json
+                    .get("startPosition")
+                    .and_then(|p| p.get("line"))
+                    .and_then(|l| l.as_u64())
+                    .map(|l| l as u32 + 1)
+                    .unwrap_or(0),
+                column: json
+                    .get("startPosition")
+                    .and_then(|p| p.get("character"))
+                    .and_then(|c| c.as_u64())
+                    .map(|c| c as u32 + 1)
+                    .unwrap_or(0),
+                code: json
+                    .get("code")
                     .and_then(|c| c.as_str())
-                    .unwrap_or("error");
+                    .unwrap_or("")
+                    .to_string(),
+                message: json
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                severity: severity.to_string(),
+            };
 
-                let te = TypeError {
-                    file: json.get("file").and_then(|f| f.as_str()).unwrap_or("unknown").to_string(),
-                    line: json.get("startPosition")
-                        .and_then(|p| p.get("line"))
-                        .and_then(|l| l.as_u64())
-                        .map(|l| l as u32 + 1)
-                        .unwrap_or(0),
-                    column: json.get("startPosition")
-                        .and_then(|p| p.get("character"))
-                        .and_then(|c| c.as_u64())
-                        .map(|c| c as u32 + 1)
-                        .unwrap_or(0),
-                    code: json.get("code").and_then(|c| c.as_str()).unwrap_or("").to_string(),
-                    message: json.get("message").and_then(|m| m.as_str()).unwrap_or("").to_string(),
-                    severity: severity.to_string(),
-                };
-
-                if severity == "warning" {
-                    warnings.push(TypeWarning {
-                        file: te.file.clone(),
-                        line: te.line,
-                        message: te.message.clone(),
-                    });
-                } else {
-                    errors.push(te);
-                }
+            if severity == "warning" {
+                warnings.push(TypeWarning {
+                    file: te.file.clone(),
+                    line: te.line,
+                    message: te.message.clone(),
+                });
+            } else {
+                errors.push(te);
             }
         }
     }
@@ -210,10 +229,10 @@ fn find_tsc(root: &Path) -> Option<String> {
     let npx_check = Command::new("npx")
         .args(["--no-install", "tsc", "--version"])
         .output();
-    if let Ok(out) = npx_check {
-        if out.status.success() {
-            return Some("npx".to_string());
-        }
+    if let Ok(out) = npx_check
+        && out.status.success()
+    {
+        return Some("npx".to_string());
     }
 
     None
@@ -236,14 +255,12 @@ fn parse_tsc_line(line: &str) -> Option<TypeError> {
     let rest = &line[paren_start + paren_end + 1..].trim();
 
     // Parse severity and code
-    let (severity, code, message) = if rest.starts_with("error TS") {
-        let after = &rest["error TS".len()..];
+    let (severity, code, message) = if let Some(after) = rest.strip_prefix("error TS") {
         let colon = after.find(':')?;
         let code = format!("TS{}", &after[..colon]);
         let message = after[colon + 1..].trim().to_string();
         ("error", code, message)
-    } else if rest.starts_with("warning TS") {
-        let after = &rest["warning TS".len()..];
+    } else if let Some(after) = rest.strip_prefix("warning TS") {
         let colon = after.find(':')?;
         let code = format!("TS{}", &after[..colon]);
         let message = after[colon + 1..].trim().to_string();
@@ -276,10 +293,10 @@ pub fn detect_type_only_imports(source: &str) -> Vec<TypeOnlyImport> {
         // Match: import type { Foo, Bar } from "./module"
         // Match: import type Foo from "./module"
         // Match: import { type Foo, Bar } from "./module"  (inline type specifier)
-        if trimmed.starts_with("import ") {
-            if let Some(type_import) = parse_type_import(trimmed) {
-                imports.push(type_import);
-            }
+        if trimmed.starts_with("import ")
+            && let Some(type_import) = parse_type_import(trimmed)
+        {
+            imports.push(type_import);
         }
     }
 
@@ -297,39 +314,34 @@ pub struct TypeOnlyImport {
 /// Parse a single import line for type-only imports
 fn parse_type_import(line: &str) -> Option<TypeOnlyImport> {
     // `import type { Foo, Bar } from "module"`
-    if line.starts_with("import type ") {
-        let rest = &line["import type ".len()..];
+    if let Some(rest) = line.strip_prefix("import type ") {
         return parse_import_specifiers(rest, true);
     }
 
     // `import { type Foo, Bar } from "module"` — inline type
-    if line.starts_with("import {") {
-        if let Some(from_pos) = line.find(" from ") {
-            let specifiers = &line["import {".len()..from_pos];
-            let module = extract_module_path(&line[from_pos..]);
+    if line.starts_with("import {")
+        && let Some(from_pos) = line.find(" from ")
+    {
+        let specifiers = &line["import {".len()..from_pos];
+        let module = extract_module_path(&line[from_pos..]);
 
-            if let Some(module) = module {
-                let type_names: Vec<String> = specifiers
-                    .split(',')
-                    .filter_map(|s| {
-                        let s = s.trim();
-                        if s.starts_with("type ") {
-                            Some(s["type ".len()..].trim().to_string())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
+        if let Some(module) = module {
+            let type_names: Vec<String> = specifiers
+                .split(',')
+                .filter_map(|s| {
+                    let s = s.trim();
+                    s.strip_prefix("type ").map(|rest| rest.trim().to_string())
+                })
+                .collect();
 
-                if !type_names.is_empty() {
-                    // Check if ALL specifiers are type-only
-                    let all_type = specifiers.split(',').all(|s| s.trim().starts_with("type "));
-                    return Some(TypeOnlyImport {
-                        module,
-                        type_names,
-                        is_all_type: all_type,
-                    });
-                }
+            if !type_names.is_empty() {
+                // Check if ALL specifiers are type-only
+                let all_type = specifiers.split(',').all(|s| s.trim().starts_with("type "));
+                return Some(TypeOnlyImport {
+                    module,
+                    type_names,
+                    is_all_type: all_type,
+                });
             }
         }
     }
@@ -404,29 +416,30 @@ pub fn strip_type_only_imports(source: &str) -> String {
         }
 
         // For `import { type Foo, Bar } from "module"`, remove only the type specifiers
-        if trimmed.starts_with("import {") && trimmed.contains("type ") {
-            if let Some(from_pos) = trimmed.find(" from ") {
-                let specifiers = &trimmed["import {".len()..from_pos];
-                let module_part = &trimmed[from_pos..];
+        if trimmed.starts_with("import {")
+            && trimmed.contains("type ")
+            && let Some(from_pos) = trimmed.find(" from ")
+        {
+            let specifiers = &trimmed["import {".len()..from_pos];
+            let module_part = &trimmed[from_pos..];
 
-                let runtime_specifiers: Vec<&str> = specifiers
-                    .split(',')
-                    .map(|s| s.trim())
-                    .filter(|s| !s.is_empty() && !s.starts_with("type "))
-                    .collect();
+            let runtime_specifiers: Vec<&str> = specifiers
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty() && !s.starts_with("type "))
+                .collect();
 
-                if runtime_specifiers.is_empty() {
-                    // All specifiers were type-only, skip entire import
-                    continue;
-                }
-
-                result.push_str(&format!(
-                    "import {{ {} }} {};\n",
-                    runtime_specifiers.join(", "),
-                    module_part.trim_end_matches(';')
-                ));
+            if runtime_specifiers.is_empty() {
+                // All specifiers were type-only, skip entire import
                 continue;
             }
+
+            result.push_str(&format!(
+                "import {{ {} }} {};\n",
+                runtime_specifiers.join(", "),
+                module_part.trim_end_matches(';')
+            ));
+            continue;
         }
 
         result.push_str(line);
@@ -441,10 +454,7 @@ pub fn strip_type_only_imports(source: &str) -> String {
 /// Bundle TypeScript declarations into a single .d.ts file.
 /// Tree-shakes unused type declarations by following the public API surface
 /// from the entry point.
-pub fn bundle_declarations(
-    entry_dts: &Path,
-    project_root: &Path,
-) -> Result<String> {
+pub fn bundle_declarations(entry_dts: &Path, project_root: &Path) -> Result<String> {
     let mut bundled = String::new();
     let mut visited = std::collections::HashSet::new();
 
@@ -482,28 +492,29 @@ fn bundle_dts_recursive(
         }
 
         // Handle import statements — inline the imported .d.ts
-        if trimmed.starts_with("import ") {
-            if let Some(from_pos) = trimmed.find(" from ") {
-                let module_part = &trimmed[from_pos + 6..];
-                if let Some(module) = extract_quoted_string(module_part.trim()) {
-                    // Resolve relative to current file
-                    let resolved = file.parent()
-                        .map(|p| p.join(&module))
-                        .unwrap_or_else(|| root.join(&module));
+        if trimmed.starts_with("import ")
+            && let Some(from_pos) = trimmed.find(" from ")
+        {
+            let module_part = &trimmed[from_pos + 6..];
+            if let Some(module) = extract_quoted_string(module_part.trim()) {
+                // Resolve relative to current file
+                let resolved = file
+                    .parent()
+                    .map(|p| p.join(&module))
+                    .unwrap_or_else(|| root.join(&module));
 
-                    // Try .d.ts extension
-                    let dts_path = if resolved.extension().and_then(|e| e.to_str()) == Some("ts") {
-                        resolved.with_extension("d.ts")
-                    } else if resolved.extension().and_then(|e| e.to_str()) == Some("d.ts") {
-                        resolved
-                    } else {
-                        resolved.with_extension("d.ts")
-                    };
+                // Try .d.ts extension
+                let dts_path = if resolved.extension().and_then(|e| e.to_str()) == Some("ts") {
+                    resolved.with_extension("d.ts")
+                } else if resolved.extension().and_then(|e| e.to_str()) == Some("d.ts") {
+                    resolved
+                } else {
+                    resolved.with_extension("d.ts")
+                };
 
-                    if dts_path.exists() {
-                        bundle_dts_recursive(&dts_path, root, output, visited)?;
-                        continue;
-                    }
+                if dts_path.exists() {
+                    bundle_dts_recursive(&dts_path, root, output, visited)?;
+                    continue;
                 }
             }
         }

@@ -126,7 +126,13 @@ fn parse_column_line(line: &str) -> Option<DrizzleColumn> {
     let type_name = rest
         .find('(')
         .map(|p| rest[..p].trim().to_string())
-        .unwrap_or_else(|| rest.split('.').next().unwrap_or("unknown").trim().to_string());
+        .unwrap_or_else(|| {
+            rest.split('.')
+                .next()
+                .unwrap_or("unknown")
+                .trim()
+                .to_string()
+        });
 
     let mut col = DrizzleColumn {
         name: col_name,
@@ -155,12 +161,12 @@ fn parse_column_line(line: &str) -> Option<DrizzleColumn> {
             }
         }
     }
-    if rest.contains(".references(") {
-        if let Some(start) = rest.find(".references(") {
-            let after = &rest[start + 12..];
-            if let Some(end) = after.find(')') {
-                col.references = Some(after[..end].trim().to_string());
-            }
+    if rest.contains(".references(")
+        && let Some(start) = rest.find(".references(")
+    {
+        let after = &rest[start + 12..];
+        if let Some(end) = after.find(')') {
+            col.references = Some(after[..end].trim().to_string());
         }
     }
 
@@ -172,7 +178,10 @@ pub fn generate_migration(schema: &DrizzleSchema) -> String {
     let mut sql = String::new();
 
     for table in &schema.tables {
-        sql.push_str(&format!("CREATE TABLE IF NOT EXISTS \"{}\" (\n", table.name));
+        sql.push_str(&format!(
+            "CREATE TABLE IF NOT EXISTS \"{}\" (\n",
+            table.name
+        ));
 
         let mut columns_sql = Vec::new();
         let mut primary_keys = Vec::new();
@@ -193,17 +202,24 @@ pub fn generate_migration(schema: &DrizzleSchema) -> String {
             if col.is_unique {
                 col_sql.push_str(" UNIQUE");
             }
-            if col.has_default {
-                if let Some(ref default) = col.default_value {
-                    col_sql.push_str(&format!(" DEFAULT {}", default));
-                }
+            if col.has_default
+                && let Some(ref default) = col.default_value
+            {
+                col_sql.push_str(&format!(" DEFAULT {}", default));
             }
 
             columns_sql.push(col_sql);
         }
 
         if !primary_keys.is_empty() {
-            columns_sql.push(format!("  PRIMARY KEY ({})", primary_keys.iter().map(|k| format!("\"{}\"", k)).collect::<Vec<_>>().join(", ")));
+            columns_sql.push(format!(
+                "  PRIMARY KEY ({})",
+                primary_keys
+                    .iter()
+                    .map(|k| format!("\"{}\"", k))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
 
         sql.push_str(&columns_sql.join(",\n"));
@@ -240,13 +256,17 @@ fn drizzle_type_to_sql(type_name: &str) -> &'static str {
 /// Diff two schemas and generate ALTER TABLE statements
 pub fn diff_schemas(old: &DrizzleSchema, new: &DrizzleSchema) -> String {
     let mut sql = String::new();
-    let old_tables: HashMap<&str, &DrizzleTable> = old.tables.iter().map(|t| (t.name.as_str(), t)).collect();
-    let new_tables: HashMap<&str, &DrizzleTable> = new.tables.iter().map(|t| (t.name.as_str(), t)).collect();
+    let old_tables: HashMap<&str, &DrizzleTable> =
+        old.tables.iter().map(|t| (t.name.as_str(), t)).collect();
+    let new_tables: HashMap<&str, &DrizzleTable> =
+        new.tables.iter().map(|t| (t.name.as_str(), t)).collect();
 
     // New tables
     for table in &new.tables {
         if !old_tables.contains_key(table.name.as_str()) {
-            sql.push_str(&generate_migration(&DrizzleSchema { tables: vec![table.clone()] }));
+            sql.push_str(&generate_migration(&DrizzleSchema {
+                tables: vec![table.clone()],
+            }));
         }
     }
 
@@ -260,13 +280,20 @@ pub fn diff_schemas(old: &DrizzleSchema, new: &DrizzleSchema) -> String {
     // Modified tables
     for new_table in &new.tables {
         if let Some(old_table) = old_tables.get(new_table.name.as_str()) {
-            let old_cols: HashMap<&str, &DrizzleColumn> = old_table.columns.iter().map(|c| (c.name.as_str(), c)).collect();
+            let old_cols: HashMap<&str, &DrizzleColumn> = old_table
+                .columns
+                .iter()
+                .map(|c| (c.name.as_str(), c))
+                .collect();
 
             // Added columns
             for col in &new_table.columns {
                 if !old_cols.contains_key(col.name.as_str()) {
                     let sql_type = drizzle_type_to_sql(&col.type_name);
-                    let mut col_def = format!("ALTER TABLE \"{}\" ADD COLUMN \"{}\" {}", new_table.name, col.name, sql_type);
+                    let mut col_def = format!(
+                        "ALTER TABLE \"{}\" ADD COLUMN \"{}\" {}",
+                        new_table.name, col.name, sql_type
+                    );
                     if !col.is_nullable {
                         col_def.push_str(" NOT NULL");
                     }
@@ -282,7 +309,10 @@ pub fn diff_schemas(old: &DrizzleSchema, new: &DrizzleSchema) -> String {
             // Dropped columns
             for old_col in &old_table.columns {
                 if !new_table.columns.iter().any(|c| c.name == old_col.name) {
-                    sql.push_str(&format!("ALTER TABLE \"{}\" DROP COLUMN \"{}\";\n", new_table.name, old_col.name));
+                    sql.push_str(&format!(
+                        "ALTER TABLE \"{}\" DROP COLUMN \"{}\";\n",
+                        new_table.name, old_col.name
+                    ));
                 }
             }
         }
@@ -330,8 +360,20 @@ export const users = pgTable('users', {
             tables: vec![DrizzleTable {
                 name: "users".to_string(),
                 columns: vec![
-                    DrizzleColumn { name: "id".to_string(), type_name: "serial".to_string(), is_primary_key: true, is_nullable: false, ..Default::default() },
-                    DrizzleColumn { name: "email".to_string(), type_name: "varchar".to_string(), is_nullable: false, is_unique: true, ..Default::default() },
+                    DrizzleColumn {
+                        name: "id".to_string(),
+                        type_name: "serial".to_string(),
+                        is_primary_key: true,
+                        is_nullable: false,
+                        ..Default::default()
+                    },
+                    DrizzleColumn {
+                        name: "email".to_string(),
+                        type_name: "varchar".to_string(),
+                        is_nullable: false,
+                        is_unique: true,
+                        ..Default::default()
+                    },
                 ],
             }],
         };
@@ -349,8 +391,19 @@ export const users = pgTable('users', {
             tables: vec![DrizzleTable {
                 name: "users".to_string(),
                 columns: vec![
-                    DrizzleColumn { name: "id".to_string(), type_name: "serial".to_string(), is_primary_key: true, is_nullable: false, ..Default::default() },
-                    DrizzleColumn { name: "email".to_string(), type_name: "varchar".to_string(), is_nullable: false, ..Default::default() },
+                    DrizzleColumn {
+                        name: "id".to_string(),
+                        type_name: "serial".to_string(),
+                        is_primary_key: true,
+                        is_nullable: false,
+                        ..Default::default()
+                    },
+                    DrizzleColumn {
+                        name: "email".to_string(),
+                        type_name: "varchar".to_string(),
+                        is_nullable: false,
+                        ..Default::default()
+                    },
                 ],
             }],
         };
@@ -359,9 +412,25 @@ export const users = pgTable('users', {
             tables: vec![DrizzleTable {
                 name: "users".to_string(),
                 columns: vec![
-                    DrizzleColumn { name: "id".to_string(), type_name: "serial".to_string(), is_primary_key: true, is_nullable: false, ..Default::default() },
-                    DrizzleColumn { name: "email".to_string(), type_name: "varchar".to_string(), is_nullable: false, ..Default::default() },
-                    DrizzleColumn { name: "name".to_string(), type_name: "text".to_string(), is_nullable: true, ..Default::default() },
+                    DrizzleColumn {
+                        name: "id".to_string(),
+                        type_name: "serial".to_string(),
+                        is_primary_key: true,
+                        is_nullable: false,
+                        ..Default::default()
+                    },
+                    DrizzleColumn {
+                        name: "email".to_string(),
+                        type_name: "varchar".to_string(),
+                        is_nullable: false,
+                        ..Default::default()
+                    },
+                    DrizzleColumn {
+                        name: "name".to_string(),
+                        type_name: "text".to_string(),
+                        is_nullable: true,
+                        ..Default::default()
+                    },
                 ],
             }],
         };

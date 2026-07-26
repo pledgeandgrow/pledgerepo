@@ -9,8 +9,8 @@
 //   - Tree shaking sees the full dependency picture
 
 use anyhow::Result;
-use pledgepack_core::module::{ModuleId, ResolvedModule};
 use pledgepack_core::config::BuildConfig;
+use pledgepack_core::module::{ModuleId, ResolvedModule};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -36,6 +36,12 @@ pub enum ChunkType {
     Async,
     Shared,
     Route,
+}
+
+impl Default for Optimizer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Optimizer {
@@ -99,10 +105,7 @@ impl Optimizer {
     }
 
     /// Mark modules with side effects (parallelized using rayon)
-    fn mark_side_effects(
-        &mut self,
-        modules: &HashMap<ModuleId, ResolvedModule>,
-    ) {
+    fn mark_side_effects(&mut self, modules: &HashMap<ModuleId, ResolvedModule>) {
         // Process modules in parallel — each module's side-effect analysis is independent
         let side_effects: Mutex<HashSet<ModuleId>> = Mutex::new(HashSet::new());
 
@@ -112,47 +115,43 @@ impl Optimizer {
             // Heuristic: modules with top-level statements that perform
             // actual side effects (function calls, assignments, etc.)
             // Declarations (function, const, let, var, class) are NOT side effects.
-            let has_side_effects = source
-                .lines()
-                .any(|line| {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty()
-                        || trimmed.starts_with("import ")
-                        || trimmed.starts_with("export ")
-                        || trimmed.starts_with("//")
-                        || trimmed.starts_with("/*")
-                        || trimmed.starts_with("*")
-                        || trimmed.starts_with("function ")
-                        || trimmed.starts_with("const ")
-                        || trimmed.starts_with("let ")
-                        || trimmed.starts_with("var ")
-                        || trimmed.starts_with("class ")
-                        || trimmed.starts_with("interface ")
-                        || trimmed.starts_with("type ")
-                        || trimmed.starts_with("enum ")
-                        || trimmed.starts_with("}")
-                        || trimmed.starts_with(")")
-                        || trimmed.starts_with("async function")
-                        || trimmed.starts_with("export default function")
-                        || trimmed.starts_with("export function")
-                        || trimmed.starts_with("export const")
-                        || trimmed.starts_with("export class")
-                        || trimmed.starts_with("export async function")
-                        || trimmed.starts_with("export type")
-                        || trimmed.starts_with("export interface")
-                        || trimmed.starts_with("export enum")
-                        || trimmed.starts_with("export *")
-                    {
-                        return false;
-                    }
-                    // Actual side effects: top-level function calls, assignments, console.*, etc.
-                    !trimmed.is_empty()
-                });
-
-            if has_side_effects {
-                if let Ok(mut sx) = side_effects.lock() {
-                    sx.insert(*id);
+            let has_side_effects = source.lines().any(|line| {
+                let trimmed = line.trim();
+                if trimmed.is_empty()
+                    || trimmed.starts_with("import ")
+                    || trimmed.starts_with("export ")
+                    || trimmed.starts_with("//")
+                    || trimmed.starts_with("/*")
+                    || trimmed.starts_with("*")
+                    || trimmed.starts_with("function ")
+                    || trimmed.starts_with("const ")
+                    || trimmed.starts_with("let ")
+                    || trimmed.starts_with("var ")
+                    || trimmed.starts_with("class ")
+                    || trimmed.starts_with("interface ")
+                    || trimmed.starts_with("type ")
+                    || trimmed.starts_with("enum ")
+                    || trimmed.starts_with("}")
+                    || trimmed.starts_with(")")
+                    || trimmed.starts_with("async function")
+                    || trimmed.starts_with("export default function")
+                    || trimmed.starts_with("export function")
+                    || trimmed.starts_with("export const")
+                    || trimmed.starts_with("export class")
+                    || trimmed.starts_with("export async function")
+                    || trimmed.starts_with("export type")
+                    || trimmed.starts_with("export interface")
+                    || trimmed.starts_with("export enum")
+                    || trimmed.starts_with("export *")
+                {
+                    return false;
                 }
+                // Actual side effects: top-level function calls, assignments, console.*, etc.
+                !trimmed.is_empty()
+            });
+
+            if has_side_effects && let Ok(mut sx) = side_effects.lock() {
+                sx.insert(*id);
             }
         });
 
@@ -240,23 +239,26 @@ impl Optimizer {
                 }
 
                 // Check if shared between entries
-                if let Some(users) = module_users.get(id) {
-                    if users.len() > 1 {
-                        return rayon::iter::Either::Right(*id);
-                    }
+                if let Some(users) = module_users.get(id)
+                    && users.len() > 1
+                {
+                    return rayon::iter::Either::Right(*id);
                 }
 
                 rayon::iter::Either::Left(*id) // default to vendor if not shared
             });
 
         // Filter out non-vendor, non-shared from vendor_modules (fix partition logic)
-        let vendor_modules: Vec<ModuleId> = vendor_modules.into_iter().filter(|id| {
-            if let Some(module) = modules.get(id) {
-                module.path.to_string_lossy().contains("node_modules")
-            } else {
-                false
-            }
-        }).collect();
+        let vendor_modules: Vec<ModuleId> = vendor_modules
+            .into_iter()
+            .filter(|id| {
+                if let Some(module) = modules.get(id) {
+                    module.path.to_string_lossy().contains("node_modules")
+                } else {
+                    false
+                }
+            })
+            .collect();
 
         // Entry chunk: entry module + its exclusive deps (parallelized)
         let entry_chunks: Vec<Chunk> = entry_modules
@@ -272,13 +274,12 @@ impl Optimizer {
                         continue;
                     }
                     visited.insert(id);
-                    if id != *entry {
-                        if !vendor_modules.contains(&id)
-                            && !shared_modules.contains(&id)
-                            && !entry_module_set.contains(&id)
-                        {
-                            chunk_modules.push(id);
-                        }
+                    if id != *entry
+                        && !vendor_modules.contains(&id)
+                        && !shared_modules.contains(&id)
+                        && !entry_module_set.contains(&id)
+                    {
+                        chunk_modules.push(id);
                     }
                     for dep in graph.get_dependencies(id, 256) {
                         queue.push(dep);
@@ -336,9 +337,11 @@ impl Optimizer {
             for &id in reachable {
                 if let Some(module) = modules.get(&id) {
                     let path_str = module.path.to_string_lossy();
-                    if glob_set.is_match(path_str.as_ref()) || patterns.iter().any(|pattern| {
-                        path_str.contains(pattern) || path_str.as_ref() == pattern.as_str()
-                    }) {
+                    if glob_set.is_match(path_str.as_ref())
+                        || patterns.iter().any(|pattern| {
+                            path_str.contains(pattern) || path_str.as_ref() == pattern.as_str()
+                        })
+                    {
                         chunk_modules.push(id);
                     }
                 }
@@ -355,8 +358,11 @@ impl Optimizer {
                     modules: chunk_modules,
                     chunk_type: ChunkType::Shared,
                 });
-                tracing::info!("Manual chunk '{}': {} modules", chunk_name, 
-                    self.chunks.last().map(|c| c.modules.len()).unwrap_or(0));
+                tracing::info!(
+                    "Manual chunk '{}': {} modules",
+                    chunk_name,
+                    self.chunks.last().map(|c| c.modules.len()).unwrap_or(0)
+                );
             }
         }
     }
@@ -364,7 +370,9 @@ impl Optimizer {
     /// Inline dynamic imports — merge all async chunks into their parent entry chunks
     fn inline_dynamic_imports(&mut self) {
         // Find all async chunks
-        let async_chunks: Vec<(usize, Vec<ModuleId>)> = self.chunks.iter()
+        let async_chunks: Vec<(usize, Vec<ModuleId>)> = self
+            .chunks
+            .iter()
             .enumerate()
             .filter(|(_, c)| c.chunk_type == ChunkType::Async)
             .map(|(i, c)| (i, c.modules.clone()))
@@ -375,7 +383,9 @@ impl Optimizer {
         }
 
         // Merge async chunk modules into entry chunks
-        let entry_indices: Vec<usize> = self.chunks.iter()
+        let entry_indices: Vec<usize> = self
+            .chunks
+            .iter()
             .enumerate()
             .filter(|(_, c)| c.chunk_type == ChunkType::Entry)
             .map(|(i, _)| i)
@@ -396,7 +406,10 @@ impl Optimizer {
         // Remove async chunks
         self.chunks.retain(|c| c.chunk_type != ChunkType::Async);
 
-        tracing::info!("Inlined dynamic imports: merged {} async chunks into entry chunks", async_chunks.len());
+        tracing::info!(
+            "Inlined dynamic imports: merged {} async chunks into entry chunks",
+            async_chunks.len()
+        );
     }
 
     /// Get all chunk IDs

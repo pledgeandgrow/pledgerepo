@@ -19,26 +19,26 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 use anyhow::Result;
+use camino::Utf8PathBuf;
 use clap::{Parser, Subcommand};
-use pledgepack_core::{BuildEngine, PledgeConfig};
-use pledgepack_core::config::BuildMode;
-use pledgepack_core::env::EnvVars;
-use pledgepack_core::edge;
+use pledgepack_adapter_next::NextAdapter;
+use pledgepack_adapter_pledgestack::PledgeStackAdapter;
+use pledgepack_adapter_react::ReactAdapter;
+use pledgepack_adapter_solid::SolidAdapter;
+use pledgepack_adapter_tanstack::TanStackAdapter;
 use pledgepack_core::compression;
-use pledgepack_core::html;
+use pledgepack_core::config::BuildMode;
+use pledgepack_core::config::Framework;
+use pledgepack_core::config_validate;
 use pledgepack_core::dep_bundler::DepBundler;
 use pledgepack_core::detect;
 use pledgepack_core::doctor;
+use pledgepack_core::edge;
+use pledgepack_core::env::EnvVars;
+use pledgepack_core::html;
 use pledgepack_core::migrate;
-use pledgepack_core::config_validate;
-use pledgepack_core::config::Framework;
+use pledgepack_core::{BuildEngine, PledgeConfig};
 use pledgepack_js_plugin_host::JsPluginHost;
-use pledgepack_adapter_react::ReactAdapter;
-use pledgepack_adapter_solid::SolidAdapter;
-use pledgepack_adapter_next::NextAdapter;
-use pledgepack_adapter_tanstack::TanStackAdapter;
-use pledgepack_adapter_pledgestack::PledgeStackAdapter;
-use camino::Utf8PathBuf;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
@@ -338,7 +338,8 @@ async fn main() -> Result<()> {
     // Install miette's graphical error handler for rich diagnostics
     miette::set_hook(Box::new(|_| {
         Box::new(miette::MietteHandlerOpts::new().build())
-    })).ok();
+    }))
+    .ok();
 
     // Initialize logging
     tracing_subscriber::fmt()
@@ -367,24 +368,31 @@ async fn main() -> Result<()> {
     }
 
     // Feature 98: Detect workspace for monorepo support
-    if let Some(ref ws_config) = config.workspaces {
-        if ws_config.enabled {
-            if let Some(ws) = pledgepack_core::ecosystem::detect_workspace(&config.root) {
-                tracing::info!("Workspace detected: {} packages ({})",
-                    ws.packages.len(), ws.package_manager);
+    if let Some(ref ws_config) = config.workspaces
+        && ws_config.enabled
+        && let Some(ws) = pledgepack_core::ecosystem::detect_workspace(&config.root)
+    {
+        tracing::info!(
+            "Workspace detected: {} packages ({})",
+            ws.packages.len(),
+            ws.package_manager
+        );
 
-                // Feature 100: Shared cache at workspace root
-                if ws_config.shared_cache {
-                    let shared_cache = pledgepack_core::ecosystem::resolve_shared_cache_dir(&ws, ws_config);
-                    config.cache.dir = shared_cache;
-                    tracing::info!("Shared cache: {}", config.cache.dir.display());
-                }
-            }
+        // Feature 100: Shared cache at workspace root
+        if ws_config.shared_cache {
+            let shared_cache = pledgepack_core::ecosystem::resolve_shared_cache_dir(&ws, ws_config);
+            config.cache.dir = shared_cache;
+            tracing::info!("Shared cache: {}", config.cache.dir.display());
         }
     }
 
     match cli.command {
-        Commands::Dev { port, host, open, https } => {
+        Commands::Dev {
+            port,
+            host,
+            open,
+            https,
+        } => {
             if let Some(p) = port {
                 config.dev_server.port = p;
             }
@@ -404,7 +412,11 @@ async fn main() -> Result<()> {
             }
             config.mode = pledgepack_core::config::BuildMode::Development;
 
-            let protocol = if config.https.is_some() { "https" } else { "http" };
+            let protocol = if config.https.is_some() {
+                "https"
+            } else {
+                "http"
+            };
             println!(
                 "\n  \x1b[36mpledge\x1b[0m dev server starting...\n  \x1b[90m→\x1b[0m {}://{}:{}\n",
                 protocol, config.dev_server.host, config.dev_server.port
@@ -414,7 +426,17 @@ async fn main() -> Result<()> {
             pledgepack_dev_server::serve(engine, &config).await?;
         }
 
-        Commands::Build { out_dir, no_sourcemap, profile, watch, verify, check_budgets, env, codegen, type_check } => {
+        Commands::Build {
+            out_dir,
+            no_sourcemap,
+            profile,
+            watch,
+            verify,
+            check_budgets,
+            env,
+            codegen,
+            type_check,
+        } => {
             if let Some(out) = out_dir {
                 config.out_dir = out.into_std_path_buf();
             }
@@ -439,13 +461,15 @@ async fn main() -> Result<()> {
             if let Some(ref env_name) = env {
                 let env_vars = pledgepack_core::advanced::load_env_file(&config.root, env_name);
                 let node_env = pledgepack_core::advanced::resolve_node_env(&env_vars, true);
-                println!("  \x1b[90m→\x1b[0m Environment: {} (NODE_ENV={})", env_name, node_env);
+                println!(
+                    "  \x1b[90m→\x1b[0m Environment: {} (NODE_ENV={})",
+                    env_name, node_env
+                );
                 // Apply env vars to config define
                 for (key, val) in &env_vars {
-                    config.define.insert(
-                        format!("process.env.{}", key),
-                        format!("\"{}\"", val),
-                    );
+                    config
+                        .define
+                        .insert(format!("process.env.{}", key), format!("\"{}\"", val));
                 }
                 config.define.insert(
                     "process.env.NODE_ENV".to_string(),
@@ -466,41 +490,59 @@ async fn main() -> Result<()> {
                                 typescript: true,
                                 react_hooks: gql_cfg.react_hooks,
                             };
-                            let types = pledgepack_core::advanced::generate_graphql_types(&schema_source, &codegen_cfg)?;
+                            let types = pledgepack_core::advanced::generate_graphql_types(
+                                &schema_source,
+                                &codegen_cfg,
+                            )?;
                             let out_dir = config.root.join(&gql_cfg.output);
                             std::fs::create_dir_all(&out_dir)?;
                             std::fs::write(out_dir.join("graphql-types.ts"), &types)?;
-                            println!("  \x1b[32m✓\x1b[0m GraphQL types generated → {}/graphql-types.ts", gql_cfg.output);
+                            println!(
+                                "  \x1b[32m✓\x1b[0m GraphQL types generated → {}/graphql-types.ts",
+                                gql_cfg.output
+                            );
                         } else {
-                            println!("  \x1b[33m⚠\x1b[0m GraphQL schema not found: {}", schema_path.display());
+                            println!(
+                                "  \x1b[33m⚠\x1b[0m GraphQL schema not found: {}",
+                                schema_path.display()
+                            );
                         }
                     } else {
                         println!("  \x1b[33m⚠\x1b[0m GraphQL schema path not configured");
                     }
                 } else {
-                    println!("  \x1b[33m⚠\x1b[0m GraphQL config not set — add `graphql: {{ schema: 'schema.graphql' }}` to pledge.config.ts");
+                    println!(
+                        "  \x1b[33m⚠\x1b[0m GraphQL config not set — add `graphql: {{ schema: 'schema.graphql' }}` to pledge.config.ts"
+                    );
                 }
             }
 
             // Feature 115: Module federation bootstrap
-            if let Some(ref fed_cfg) = config.federation {
-                if let Some(parsed) = pledgepack_core::advanced::parse_federation_config(fed_cfg) {
-                    let bootstrap = pledgepack_core::advanced::generate_federation_host_bootstrap(&parsed);
-                    let bootstrap_path = config.out_dir.join("__pledge_federation__.js");
-                    // Write after build — store for now
-                    std::fs::create_dir_all(&config.out_dir)?;
-                    std::fs::write(&bootstrap_path, &bootstrap)?;
-                    tracing::info!("Module federation: host '{}' with {} remotes", parsed.name, parsed.remotes.len());
-                }
+            if let Some(ref fed_cfg) = config.federation
+                && let Some(parsed) = pledgepack_core::advanced::parse_federation_config(fed_cfg)
+            {
+                let bootstrap =
+                    pledgepack_core::advanced::generate_federation_host_bootstrap(&parsed);
+                let bootstrap_path = config.out_dir.join("__pledge_federation__.js");
+                // Write after build — store for now
+                std::fs::create_dir_all(&config.out_dir)?;
+                std::fs::write(&bootstrap_path, &bootstrap)?;
+                tracing::info!(
+                    "Module federation: host '{}' with {} remotes",
+                    parsed.name,
+                    parsed.remotes.len()
+                );
             }
 
             println!("\n  \x1b[36mpledge\x1b[0m building for production...\n");
 
             use indicatif::{ProgressBar, ProgressStyle};
             let pb = ProgressBar::new(4);
-            let style = ProgressStyle::with_template("  {spinner:.green} {msg} [{bar:30.cyan/blue}] {pos}/{len}")
-                .unwrap_or_else(|_| ProgressStyle::default_bar())
-                .progress_chars("█░");
+            let style = ProgressStyle::with_template(
+                "  {spinner:.green} {msg} [{bar:30.cyan/blue}] {pos}/{len}",
+            )
+            .unwrap_or_else(|_| ProgressStyle::default_bar())
+            .progress_chars("█░");
             pb.set_style(style);
 
             let profile_start = std::time::Instant::now();
@@ -517,10 +559,16 @@ async fn main() -> Result<()> {
                 if !tc_result.success {
                     pb.finish_and_clear();
                     println!("\n  \x1b[31m✗ Type check failed:\x1b[0m\n");
-                    print!("{}", pledgepack_core::type_check::format_type_check_result(&tc_result));
+                    print!(
+                        "{}",
+                        pledgepack_core::type_check::format_type_check_result(&tc_result)
+                    );
                     anyhow::bail!("Type check failed with {} error(s)", tc_result.errors.len());
                 } else {
-                    println!("  \x1b[32m✓\x1b[0m {}", pledgepack_core::type_check::format_type_check_result(&tc_result));
+                    println!(
+                        "  \x1b[32m✓\x1b[0m {}",
+                        pledgepack_core::type_check::format_type_check_result(&tc_result)
+                    );
                 }
             }
 
@@ -561,7 +609,10 @@ async fn main() -> Result<()> {
                     let ssr_manifest = next_adapter.generate_ssr_manifest();
                     let manifest_path = out_dir_full.join("__pledge_next_ssr_manifest.json");
                     std::fs::write(&manifest_path, &ssr_manifest)?;
-                    tracing::info!("Next.js adapter: {} routes, SSR manifest generated", next_adapter.routes.len());
+                    tracing::info!(
+                        "Next.js adapter: {} routes, SSR manifest generated",
+                        next_adapter.routes.len()
+                    );
                     pb.inc(1);
                 }
                 Framework::TanStack => {
@@ -575,7 +626,10 @@ async fn main() -> Result<()> {
                     let route_manifest = tanstack_adapter.generate_route_manifest();
                     let manifest_path = out_dir_full.join("__pledge_tanstack_manifest.json");
                     std::fs::write(&manifest_path, &route_manifest)?;
-                    tracing::info!("TanStack adapter: {} routes, manifest generated", tanstack_adapter.routes.len());
+                    tracing::info!(
+                        "TanStack adapter: {} routes, manifest generated",
+                        tanstack_adapter.routes.len()
+                    );
                     pb.inc(1);
                 }
                 Framework::PledgeStack => {
@@ -589,11 +643,18 @@ async fn main() -> Result<()> {
                     // Prepare .psx files for Rust compilation
                     let copied = ps_adapter.prepare_psx_files(&out_dir_full)?;
                     if !copied.is_empty() {
-                        tracing::info!("PledgeStack: copied {} .psx files for compilation", copied.len());
+                        tracing::info!(
+                            "PledgeStack: copied {} .psx files for compilation",
+                            copied.len()
+                        );
                     }
                     let manifest = ps_adapter.manifest();
-                    tracing::info!("PledgeStack adapter: {} frontend routes, {} API routes, {} backend routes",
-                        manifest.frontend.len(), manifest.api.len(), manifest.backend.len());
+                    tracing::info!(
+                        "PledgeStack adapter: {} frontend routes, {} API routes, {} backend routes",
+                        manifest.frontend.len(),
+                        manifest.api.len(),
+                        manifest.backend.len()
+                    );
                     pb.inc(1);
                 }
                 Framework::Solid => {
@@ -630,24 +691,29 @@ async fn main() -> Result<()> {
             };
             if html_path.exists() {
                 let html_entry = html::process_html(&html_path)?;
-                tracing::info!("HTML entry: {} scripts, {} stylesheets, {} preloads",
-                    html_entry.scripts.len(), html_entry.stylesheets.len(), html_entry.module_preloads.len());
+                tracing::info!(
+                    "HTML entry: {} scripts, {} stylesheets, {} preloads",
+                    html_entry.scripts.len(),
+                    html_entry.stylesheets.len(),
+                    html_entry.module_preloads.len()
+                );
 
                 // Add HTML script entries to config so the engine processes them
                 for script in &html_entry.scripts {
                     let script_path = script.trim_start_matches("./").trim_start_matches("/");
                     // Resolve relative to the HTML file's directory
-                    let resolved = if script_path.starts_with("http") || script_path.starts_with("//") {
-                        continue; // Skip external URLs
-                    } else {
-                        let base = config.resolve_base_dir().unwrap_or_default();
-                        let full = if base.is_empty() {
-                            script_path.to_string()
+                    let resolved =
+                        if script_path.starts_with("http") || script_path.starts_with("//") {
+                            continue; // Skip external URLs
                         } else {
-                            format!("{}/{}", base, script_path)
+                            let base = config.resolve_base_dir().unwrap_or_default();
+
+                            if base.is_empty() {
+                                script_path.to_string()
+                            } else {
+                                format!("{}/{}", base, script_path)
+                            }
                         };
-                        full
-                    };
                     if !config.entry.contains(&resolved) {
                         config.entry.push(resolved);
                     }
@@ -660,7 +726,11 @@ async fn main() -> Result<()> {
             if let Some(app_dir) = config.resolve_app_dir() {
                 let route_table = pledgepack_core::router::scan_app_dir(&config.root, &app_dir)?;
                 if !route_table.routes.is_empty() {
-                    tracing::info!("App router: {} routes from {}/", route_table.routes.len(), app_dir);
+                    tracing::info!(
+                        "App router: {} routes from {}/",
+                        route_table.routes.len(),
+                        app_dir
+                    );
                     for route in &route_table.routes {
                         tracing::info!("  {} → {}", route.pattern, route.file);
                     }
@@ -694,12 +764,12 @@ async fn main() -> Result<()> {
             }
 
             // Generate edge bundle if configured
-            if let Some(ref edge_target) = config.edge_target {
-                if let Some(target) = edge::EdgeTarget::from_str(edge_target) {
-                    let out_dir = config.root.join(&config.out_dir);
-                    let bundle_code = engine.collect_bundle_code();
-                    edge::generate_edge_bundle(target, &bundle_code, None, &out_dir)?;
-                }
+            if let Some(ref edge_target) = config.edge_target
+                && let Some(target) = edge::EdgeTarget::parse_target(edge_target)
+            {
+                let out_dir = config.root.join(&config.out_dir);
+                let bundle_code = engine.collect_bundle_code();
+                edge::generate_edge_bundle(target, &bundle_code, None, &out_dir)?;
             }
 
             // Generate compressed output if configured
@@ -708,10 +778,13 @@ async fn main() -> Result<()> {
                 let out_dir = config.root.join(&config.out_dir);
                 if out_dir.exists() {
                     let stats = compression::compress_directory(
-                        &out_dir, config.compress_gzip, config.compress_brotli,
+                        &out_dir,
+                        config.compress_gzip,
+                        config.compress_brotli,
                     )?;
                     if stats.files_compressed > 0 {
-                        println!("  \x1b[32m✓\x1b[0m Compressed {} files (gzip: {:.1}KB, brotli: {:.1}KB)",
+                        println!(
+                            "  \x1b[32m✓\x1b[0m Compressed {} files (gzip: {:.1}KB, brotli: {:.1}KB)",
                             stats.files_compressed,
                             stats.gzipped_bytes as f64 / 1024.0,
                             stats.brotli_bytes as f64 / 1024.0,
@@ -730,13 +803,16 @@ async fn main() -> Result<()> {
                 std::fs::read_dir(&out_dir_full)
                     .ok()
                     .map(|entries| {
-                        entries.filter_map(|e| e.ok())
+                        entries
+                            .filter_map(|e| e.ok())
                             .filter_map(|e| e.metadata().ok())
                             .map(|m| m.len())
                             .sum()
                     })
                     .unwrap_or(0)
-            } else { 0 };
+            } else {
+                0
+            };
             let _ = pledgepack_core::telemetry::record_build(
                 &config.root,
                 total_ms,
@@ -770,9 +846,12 @@ async fn main() -> Result<()> {
 
             // Check bundle size budgets (#102)
             if config.budgets.enabled {
-                let chunk_sizes: Vec<(String, usize)> = chunks.iter()
+                let chunk_sizes: Vec<(String, usize)> = chunks
+                    .iter()
                     .map(|c| {
-                        let size: usize = c.modules.iter()
+                        let size: usize = c
+                            .modules
+                            .iter()
                             .filter_map(|mid| engine.modules().get(mid))
                             .map(|m| m.source.len())
                             .sum();
@@ -788,7 +867,10 @@ async fn main() -> Result<()> {
                 if !violations.is_empty() {
                     // GitHub Actions annotation format
                     if std::env::var("GITHUB_ACTIONS").is_ok() {
-                        print!("{}", pledgepack_core::budgets::format_github_annotations(&violations));
+                        print!(
+                            "{}",
+                            pledgepack_core::budgets::format_github_annotations(&violations)
+                        );
                     }
                     // Print violations
                     for v in &violations {
@@ -808,7 +890,11 @@ async fn main() -> Result<()> {
                     let violations = pledgepack_core::a11y::lint_html(&html_content, &config.a11y)?;
                     if !violations.is_empty() {
                         print!("{}", pledgepack_core::a11y::format_violations(&violations));
-                        if config.a11y.fail_on_error && violations.iter().any(|v| v.severity == pledgepack_core::a11y::Severity::Error) {
+                        if config.a11y.fail_on_error
+                            && violations
+                                .iter()
+                                .any(|v| v.severity == pledgepack_core::a11y::Severity::Error)
+                        {
                             anyhow::bail!("a11y linting failed with {} error(s)", violations.iter().filter(|v| v.severity == pledgepack_core::a11y::Severity::Error).count());
                         }
                     } else {
@@ -824,7 +910,11 @@ async fn main() -> Result<()> {
                 let chunk_names: Vec<String> = chunks.iter().map(|c| c.id.clone()).collect();
                 let ctx = pledgepack_core::advanced::PostBuildContext {
                     out_dir: out_dir_full.clone(),
-                    html_path: if html_path.exists() { Some(html_path) } else { None },
+                    html_path: if html_path.exists() {
+                        Some(html_path)
+                    } else {
+                        None
+                    },
                     chunks: chunk_names,
                     assets: vec![],
                 };
@@ -833,7 +923,10 @@ async fn main() -> Result<()> {
                     println!("  \x1b[32m✓ post-build\x1b[0m sitemap.xml generated");
                 }
                 if pb_result.html_modified {
-                    println!("  \x1b[32m✓ post-build\x1b[0m HTML meta tags injected: {} tag(s)", pb_result.meta_tags_added.len());
+                    println!(
+                        "  \x1b[32m✓ post-build\x1b[0m HTML meta tags injected: {} tag(s)",
+                        pb_result.meta_tags_added.len()
+                    );
                 }
                 for warning in &pb_result.warnings {
                     println!("  \x1b[33m⚠ post-build\x1b[0m {}", warning);
@@ -841,34 +934,49 @@ async fn main() -> Result<()> {
             }
 
             // Feature 113: Service worker caching strategies
-            if let Some(ref sw_cfg) = config.sw {
-                if !sw_cfg.caching.is_empty() {
-                    let runtime_rules: Vec<pledgepack_core::service_worker::RuntimeCacheRule> = sw_cfg.caching.iter()
-                        .map(|r| pledgepack_core::service_worker::RuntimeCacheRule {
-                            pattern: r.pattern.clone(),
-                            strategy: match r.strategy.as_str() {
-                                "cache-first" => pledgepack_core::service_worker::CacheStrategy::CacheFirst,
-                                "network-first" => pledgepack_core::service_worker::CacheStrategy::NetworkFirst,
-                                "stale-while-revalidate" => pledgepack_core::service_worker::CacheStrategy::StaleWhileRevalidate,
-                                "network-only" => pledgepack_core::service_worker::CacheStrategy::NetworkOnly,
-                                "cache-only" => pledgepack_core::service_worker::CacheStrategy::CacheOnly,
-                                _ => pledgepack_core::service_worker::CacheStrategy::NetworkFirst,
-                            },
-                        })
-                        .collect();
-                    let sw_config = pledgepack_core::service_worker::ServiceWorkerConfig {
-                        cache_name: sw_cfg.cache_name.clone(),
-                        precache: vec![],
-                        runtime_caching: runtime_rules,
-                        offline_fallback: sw_cfg.offline_fallback.clone(),
-                        skip_waiting: true,
-                        clients_claim: true,
-                    };
-                    let sw_code = pledgepack_core::service_worker::generate_service_worker(&sw_config);
-                    let sw_path = config.root.join(&config.out_dir).join("sw.js");
-                    std::fs::write(&sw_path, &sw_code)?;
-                    println!("  \x1b[32m✓ service worker\x1b[0m {} caching rule(s) → sw.js", sw_cfg.caching.len());
-                }
+            if let Some(ref sw_cfg) = config.sw
+                && !sw_cfg.caching.is_empty()
+            {
+                let runtime_rules: Vec<pledgepack_core::service_worker::RuntimeCacheRule> = sw_cfg
+                    .caching
+                    .iter()
+                    .map(|r| pledgepack_core::service_worker::RuntimeCacheRule {
+                        pattern: r.pattern.clone(),
+                        strategy: match r.strategy.as_str() {
+                            "cache-first" => {
+                                pledgepack_core::service_worker::CacheStrategy::CacheFirst
+                            }
+                            "network-first" => {
+                                pledgepack_core::service_worker::CacheStrategy::NetworkFirst
+                            }
+                            "stale-while-revalidate" => {
+                                pledgepack_core::service_worker::CacheStrategy::StaleWhileRevalidate
+                            }
+                            "network-only" => {
+                                pledgepack_core::service_worker::CacheStrategy::NetworkOnly
+                            }
+                            "cache-only" => {
+                                pledgepack_core::service_worker::CacheStrategy::CacheOnly
+                            }
+                            _ => pledgepack_core::service_worker::CacheStrategy::NetworkFirst,
+                        },
+                    })
+                    .collect();
+                let sw_config = pledgepack_core::service_worker::ServiceWorkerConfig {
+                    cache_name: sw_cfg.cache_name.clone(),
+                    precache: vec![],
+                    runtime_caching: runtime_rules,
+                    offline_fallback: sw_cfg.offline_fallback.clone(),
+                    skip_waiting: true,
+                    clients_claim: true,
+                };
+                let sw_code = pledgepack_core::service_worker::generate_service_worker(&sw_config);
+                let sw_path = config.root.join(&config.out_dir).join("sw.js");
+                std::fs::write(&sw_path, &sw_code)?;
+                println!(
+                    "  \x1b[32m✓ service worker\x1b[0m {} caching rule(s) → sw.js",
+                    sw_cfg.caching.len()
+                );
             }
 
             // #81: SRI (Subresource Integrity) hashes
@@ -879,18 +987,18 @@ async fn main() -> Result<()> {
 
                 if sec_cfg.sri && html_path.exists() {
                     let html = std::fs::read_to_string(&html_path)?;
-                    let html_with_sri = pledgepack_core::security::inject_sri_into_html(&html, &out_dir_full);
+                    let html_with_sri =
+                        pledgepack_core::security::inject_sri_into_html(&html, &out_dir_full);
                     std::fs::write(&html_path, &html_with_sri)?;
                     println!("  \x1b[32m✓ SRI\x1b[0m integrity hashes injected into HTML");
                 }
 
-                if sec_cfg.csp == "auto" {
-                    if html_path.exists() {
-                        let html = std::fs::read_to_string(&html_path)?;
-                        let csp = pledgepack_core::security::generate_csp_from_build(&html, &out_dir_full);
-                        tracing::info!("CSP generated: {}", csp);
-                        println!("  \x1b[32m✓ CSP\x1b[0m _headers file generated");
-                    }
+                if sec_cfg.csp == "auto" && html_path.exists() {
+                    let html = std::fs::read_to_string(&html_path)?;
+                    let csp =
+                        pledgepack_core::security::generate_csp_from_build(&html, &out_dir_full);
+                    tracing::info!("CSP generated: {}", csp);
+                    println!("  \x1b[32m✓ CSP\x1b[0m _headers file generated");
                 }
             }
 
@@ -919,15 +1027,16 @@ async fn main() -> Result<()> {
             // Watch mode: monitor files and rebuild on change with debounce
             if watch {
                 println!("  \x1b[90mWatching for changes... (Ctrl+C to exit)\x1b[0m\n");
-                use notify::{Watcher, RecursiveMode, EventKind, recommended_watcher};
+                use notify::{EventKind, RecursiveMode, Watcher, recommended_watcher};
+                use std::collections::HashSet;
                 use std::sync::mpsc::channel;
                 use std::time::{Duration, Instant};
-                use std::collections::HashSet;
 
                 let (tx, rx) = channel::<notify::Result<notify::Event>>();
-                let mut watcher = recommended_watcher(move |res: notify::Result<notify::Event>| {
-                    let _ = tx.send(res);
-                })?;
+                let mut watcher =
+                    recommended_watcher(move |res: notify::Result<notify::Event>| {
+                        let _ = tx.send(res);
+                    })?;
 
                 watcher.watch(&config.root, RecursiveMode::Recursive)?;
 
@@ -942,7 +1051,9 @@ async fn main() -> Result<()> {
                                 event.kind,
                                 EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
                             );
-                            if !is_relevant { continue; }
+                            if !is_relevant {
+                                continue;
+                            }
 
                             for path in &event.paths {
                                 let path_str = path.to_string_lossy();
@@ -954,7 +1065,19 @@ async fn main() -> Result<()> {
                                     continue;
                                 }
                                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                                if !matches!(ext, "ts" | "tsx" | "js" | "jsx" | "css" | "scss" | "less" | "vue" | "svelte" | "html" | "json") {
+                                if !matches!(
+                                    ext,
+                                    "ts" | "tsx"
+                                        | "js"
+                                        | "jsx"
+                                        | "css"
+                                        | "scss"
+                                        | "less"
+                                        | "vue"
+                                        | "svelte"
+                                        | "html"
+                                        | "json"
+                                ) {
                                     continue;
                                 }
                                 pending_paths.insert(path.clone());
@@ -966,34 +1089,39 @@ async fn main() -> Result<()> {
                             tracing::warn!("Watch error: {}", e);
                         }
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            if let Some(last) = last_rebuild {
-                                if last.elapsed() >= debounce_ms && !pending_paths.is_empty() {
-                                    let changed: Vec<_> = pending_paths.drain().collect();
-                                    let changed_count = changed.len();
+                            if let Some(last) = last_rebuild
+                                && last.elapsed() >= debounce_ms
+                                && !pending_paths.is_empty()
+                            {
+                                let changed: Vec<_> = pending_paths.drain().collect();
+                                let changed_count = changed.len();
 
-                                    for path in &changed {
-                                        let rel = path.strip_prefix(&config.root)
-                                            .unwrap_or(path)
-                                            .to_string_lossy()
-                                            .replace('\\', "/");
-                                        println!("  \x1b[33mchanged:\x1b[0m {}", rel);
-                                    }
-
-                                    println!("  \x1b[36mrebuilding...\x1b[0m");
-                                    let rebuild_start = std::time::Instant::now();
-
-                                    match engine.build().await {
-                                        Ok(_result) => {
-                                            let elapsed = rebuild_start.elapsed();
-                                            println!("  \x1b[32m✓ rebuilt\x1b[0m {} file(s) in {:.0?}\n", changed_count, elapsed);
-                                        }
-                                        Err(e) => {
-                                            println!("  \x1b[31m✗ rebuild failed:\x1b[0m {}\n", e);
-                                        }
-                                    }
-
-                                    last_rebuild = None;
+                                for path in &changed {
+                                    let rel = path
+                                        .strip_prefix(&config.root)
+                                        .unwrap_or(path)
+                                        .to_string_lossy()
+                                        .replace('\\', "/");
+                                    println!("  \x1b[33mchanged:\x1b[0m {}", rel);
                                 }
+
+                                println!("  \x1b[36mrebuilding...\x1b[0m");
+                                let rebuild_start = std::time::Instant::now();
+
+                                match engine.build().await {
+                                    Ok(_result) => {
+                                        let elapsed = rebuild_start.elapsed();
+                                        println!(
+                                            "  \x1b[32m✓ rebuilt\x1b[0m {} file(s) in {:.0?}\n",
+                                            changed_count, elapsed
+                                        );
+                                    }
+                                    Err(e) => {
+                                        println!("  \x1b[31m✗ rebuild failed:\x1b[0m {}\n", e);
+                                    }
+                                }
+
+                                last_rebuild = None;
                             }
                         }
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -1010,24 +1138,31 @@ async fn main() -> Result<()> {
             let out_dir = config.out_dir.clone();
 
             if !out_dir.exists() {
-                println!("\n  \x1b[33mpledge preview\x1b[0m — .pledge/ not found. Run `pledge build` first.\n");
+                println!(
+                    "\n  \x1b[33mpledge preview\x1b[0m — .pledge/ not found. Run `pledge build` first.\n"
+                );
                 return Ok(());
             }
 
             println!(
                 "\n  \x1b[36mpledge preview\x1b[0m — serving {} on http://localhost:{}\n",
-                out_dir.display(), port
+                out_dir.display(),
+                port
             );
 
-            let app = axum::Router::new()
-                .fallback_service(tower_http::services::ServeDir::new(&out_dir));
+            let app =
+                axum::Router::new().fallback_service(tower_http::services::ServeDir::new(&out_dir));
 
             let addr = format!("127.0.0.1:{}", port);
             let listener = tokio::net::TcpListener::bind(&addr).await?;
             axum::serve(listener, app).await?;
         }
 
-        Commands::Create { template, name, flash } => {
+        Commands::Create {
+            template,
+            name,
+            flash,
+        } => {
             use console::style;
 
             // CSS framework and package manager choices from wizard
@@ -1040,9 +1175,12 @@ async fn main() -> Result<()> {
                 let template = template.unwrap_or_else(|| "pledgestack".to_string());
                 (template, project_name)
             } else if template.is_none() && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-                use dialoguer::{Select, Input, Confirm};
+                use dialoguer::{Confirm, Input, Select};
 
-                println!("\n  {} Pledgepack Create Wizard\n", style("pledge create").cyan().bold());
+                println!(
+                    "\n  {} Pledgepack Create Wizard\n",
+                    style("pledge create").cyan().bold()
+                );
 
                 // Project name
                 let default_name = name.clone().unwrap_or_else(|| "my-app".to_string());
@@ -1077,7 +1215,8 @@ async fn main() -> Result<()> {
                     5 => "next",
                     6 => "tanstack",
                     _ => "vanilla",
-                }.to_string();
+                }
+                .to_string();
 
                 // TypeScript toggle
                 let typescript = Confirm::new()
@@ -1120,7 +1259,10 @@ async fn main() -> Result<()> {
                 pm_choice = Some(pm.to_string());
 
                 // Summary
-                println!("\n  {} Project will be created with:", style("Summary").dim());
+                println!(
+                    "\n  {} Project will be created with:",
+                    style("Summary").dim()
+                );
                 println!("    Name:       {}", project_name);
                 println!("    Framework:  {}", template);
                 println!("    TypeScript: {}", if typescript { "yes" } else { "no" });
@@ -1154,7 +1296,10 @@ async fn main() -> Result<()> {
             let project_dir = std::path::Path::new(&project_name);
 
             if project_dir.exists() {
-                println!("\n  \x1b[31mError\x1b[0m Directory '{}' already exists\n", project_name);
+                println!(
+                    "\n  \x1b[31mError\x1b[0m Directory '{}' already exists\n",
+                    project_name
+                );
                 return Ok(());
             }
 
@@ -1177,32 +1322,35 @@ async fn main() -> Result<()> {
 
                 // Update package.json with actual project name
                 let pkg_path = project_dir.join("package.json");
-                let mut pkg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&pkg_path)?)?;
+                let mut pkg: serde_json::Value =
+                    serde_json::from_str(&std::fs::read_to_string(&pkg_path)?)?;
                 if let Some(obj) = pkg.as_object_mut() {
-                    obj.insert("name".to_string(), serde_json::Value::String(project_name.clone()));
+                    obj.insert(
+                        "name".to_string(),
+                        serde_json::Value::String(project_name.clone()),
+                    );
                 }
                 std::fs::write(pkg_path, serde_json::to_string_pretty(&pkg)?)?;
 
                 // Regenerate index.html with actual project name
-                std::fs::write(project_dir.join("index.html"), &html::generate_default_html(
-                    "src/index.tsx",
-                    &project_name,
-                ))?;
+                std::fs::write(
+                    project_dir.join("index.html"),
+                    html::generate_default_html("src/index.tsx", &project_name),
+                )?;
 
                 // Update entry file project name for vue/svelte/solid templates
                 let entry_path = project_dir.join("src/index.tsx");
                 let entry_content = std::fs::read_to_string(&entry_path).unwrap_or_default();
                 // Replace any previous project name placeholder with the new one
-                let updated_entry = entry_content
-                    .replace("__PLEDGE_PROJECT_NAME__", &project_name);
+                let updated_entry = entry_content.replace("__PLEDGE_PROJECT_NAME__", &project_name);
                 std::fs::write(entry_path, updated_entry)?;
 
                 // Also replace placeholder in app/page.tsx for PledgeStack
                 let page_path = project_dir.join("app/page.tsx");
                 if page_path.exists() {
                     let page_content = std::fs::read_to_string(&page_path).unwrap_or_default();
-                    let updated_page = page_content
-                        .replace("__PLEDGE_PROJECT_NAME__", &project_name);
+                    let updated_page =
+                        page_content.replace("__PLEDGE_PROJECT_NAME__", &project_name);
                     std::fs::write(page_path, updated_page)?;
                 }
             } else {
@@ -1236,17 +1384,21 @@ async fn main() -> Result<()> {
                         "vanilla-extract" => serde_json::json!({
                             "@vanilla-extract/css": "^1.14.0"
                         }),
-                        _ => serde_json::json!({})
+                        _ => serde_json::json!({}),
                     };
                     if let Some(obj) = pkg.as_object_mut() {
                         obj.insert("devDependencies".to_string(), dev_deps);
                     }
                 }
-                std::fs::write(project_dir.join("package.json"), serde_json::to_string_pretty(&pkg)?)?;
+                std::fs::write(
+                    project_dir.join("package.json"),
+                    serde_json::to_string_pretty(&pkg)?,
+                )?;
 
                 // Create pledge.config.ts
                 let pledge_config = match template.as_str() {
-                    "pledgestack" => r#"import { defineConfig } from 'pledgepack';
+                    "pledgestack" => {
+                        r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1256,8 +1408,10 @@ export default defineConfig({
     hmr: true,
   },
 });
-"#,
-                    "vue" => r#"import { defineConfig } from 'pledgepack';
+"#
+                    }
+                    "vue" => {
+                        r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1267,8 +1421,10 @@ export default defineConfig({
     hmr: true,
   },
 });
-"#,
-                    "svelte" => r#"import { defineConfig } from 'pledgepack';
+"#
+                    }
+                    "svelte" => {
+                        r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1278,8 +1434,10 @@ export default defineConfig({
     hmr: true,
   },
 });
-"#,
-                    "solid" => r#"import { defineConfig } from 'pledgepack';
+"#
+                    }
+                    "solid" => {
+                        r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1289,8 +1447,10 @@ export default defineConfig({
     hmr: true,
   },
 });
-"#,
-                    "next" => r#"import { defineConfig } from 'pledgepack';
+"#
+                    }
+                    "next" => {
+                        r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1301,8 +1461,10 @@ export default defineConfig({
   },
   plugins: [],
 });
-"#,
-                    "tanstack" => r#"import { defineConfig } from 'pledgepack';
+"#
+                    }
+                    "tanstack" => {
+                        r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1312,8 +1474,10 @@ export default defineConfig({
     hmr: true,
   },
 });
-"#,
-                    _ => r#"import { defineConfig } from 'pledgepack';
+"#
+                    }
+                    _ => {
+                        r#"import { defineConfig } from 'pledgepack';
 
 export default defineConfig({
   entry: ['src/index.tsx'],
@@ -1323,31 +1487,39 @@ export default defineConfig({
     hmr: true,
   },
 });
-"#,
+"#
+                    }
                 };
                 std::fs::write(project_dir.join("pledge.config.ts"), pledge_config)?;
 
                 // Create .env file
-                std::fs::write(project_dir.join(".env"), r#"# Pledge environment variables
+                std::fs::write(
+                    project_dir.join(".env"),
+                    r#"# Pledge environment variables
 PLEDGE_APP_NAME=My App
 PLEDGE_API_URL=http://localhost:8080
-"#)?;
+"#,
+                )?;
 
                 // Create .env.local (gitignored)
-                std::fs::write(project_dir.join(".env.local"), r#"# Local environment variables (not committed)
+                std::fs::write(
+                    project_dir.join(".env.local"),
+                    r#"# Local environment variables (not committed)
 PLEDGE_API_URL=http://localhost:3000
-"#)?;
+"#,
+                )?;
 
                 // Create index.html
-                std::fs::write(project_dir.join("index.html"), &html::generate_default_html(
-                    "src/index.tsx",
-                    &project_name,
-                ))?;
+                std::fs::write(
+                    project_dir.join("index.html"),
+                    html::generate_default_html("src/index.tsx", &project_name),
+                )?;
 
                 // Create entry file based on template
                 // Use __PLEDGE_PROJECT_NAME__ placeholder for cache-friendly templates
                 let entry = match template.as_str() {
-                    "pledgestack" => r##"// PledgeStack template — React frontend + Rust backend
+                    "pledgestack" => {
+                        r##"// PledgeStack template — React frontend + Rust backend
 function App() {
   return React.createElement("h1", null, "Hello from PledgeStack!");
 }
@@ -1361,36 +1533,46 @@ if (root) {
   root.appendChild(h1);
 }
 export default App;
-"##,
-                    "vue" => r##"// Vue template
+"##
+                    }
+                    "vue" => {
+                        r##"// Vue template
 const root = document.getElementById("root");
 if (root) {
   root.innerHTML = `<h1 style="color:#6366f1;">__PLEDGE_PROJECT_NAME__</h1>`;
 }
 export default {};
-"##,
-                    "svelte" => r##"// Svelte template
+"##
+                    }
+                    "svelte" => {
+                        r##"// Svelte template
 const root = document.getElementById("root");
 if (root) {
   root.innerHTML = `<h1 style="color:#ff3e00;">__PLEDGE_PROJECT_NAME__</h1>`;
 }
 export default {};
-"##,
-                    "solid" => r##"// Solid template
+"##
+                    }
+                    "solid" => {
+                        r##"// Solid template
 const root = document.getElementById("root");
 if (root) {
   root.innerHTML = `<h1 style="color:#2c4f7c;">__PLEDGE_PROJECT_NAME__</h1>`;
 }
 export default {};
-"##,
-                    "vanilla" => r#"// Vanilla template
+"##
+                    }
+                    "vanilla" => {
+                        r#"// Vanilla template
 const root = document.getElementById("root");
 if (root) {
   root.innerHTML = `<h1>__PLEDGE_PROJECT_NAME__</h1>`;
 }
 export default {};
-"#,
-                    _ => r##"// React template
+"#
+                    }
+                    _ => {
+                        r##"// React template
 function App() {
   return React.createElement("h1", null, "Hello from Pledge!");
 }
@@ -1404,7 +1586,8 @@ if (root) {
   root.appendChild(h1);
 }
 export default App;
-"##,
+"##
+                    }
                 };
 
                 let entry_content = entry.replace("__PLEDGE_PROJECT_NAME__", &project_name);
@@ -1412,7 +1595,8 @@ export default App;
 
                 // PledgeStack app/page.tsx content (declared here so it's accessible in cache block)
                 let page_content: Option<&str> = if template == "pledgestack" {
-                    Some(r##"export default function Home() {
+                    Some(
+                        r##"export default function Home() {
   return (
     <div style={{ padding: "2rem", fontFamily: "system-ui" }}>
       <h1 style={{ color: "#6366f1" }}>__PLEDGE_PROJECT_NAME__</h1>
@@ -1420,7 +1604,8 @@ export default App;
     </div>
   );
 }
-"##)
+"##,
+                    )
                 } else {
                     None
                 };
@@ -1429,83 +1614,116 @@ export default App;
                 if template == "pledgestack" {
                     std::fs::create_dir_all(project_dir.join("app"))?;
                     // Root layout
-                    std::fs::write(project_dir.join("app/layout.tsx"), r#"export default function RootLayout({ children }: { children: React.ReactNode }) {
+                    std::fs::write(
+                        project_dir.join("app/layout.tsx"),
+                        r#"export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>{children}</body>
     </html>
   );
 }
-"#)?;
+"#,
+                    )?;
                     // Home page
                     if let Some(page) = page_content {
-                        std::fs::write(project_dir.join("app/page.tsx"), page.replace("__PLEDGE_PROJECT_NAME__", &project_name))?;
+                        std::fs::write(
+                            project_dir.join("app/page.tsx"),
+                            page.replace("__PLEDGE_PROJECT_NAME__", &project_name),
+                        )?;
                     }
                     // API route example
                     std::fs::create_dir_all(project_dir.join("app/api/hello"))?;
-                    std::fs::write(project_dir.join("app/api/hello/route.ts"), r#"export async function GET() {
+                    std::fs::write(
+                        project_dir.join("app/api/hello/route.ts"),
+                        r#"export async function GET() {
   return Response.json({ message: "Hello from PledgeStack API!" });
 }
-"#)?;
+"#,
+                    )?;
                     // Server entry point (Rust backend)
                     std::fs::create_dir_all(project_dir.join("server"))?;
-                    std::fs::write(project_dir.join("server/main.rs"), r#"// PledgeStack server entry point
+                    std::fs::write(
+                        project_dir.join("server/main.rs"),
+                        r#"// PledgeStack server entry point
 // This file is compiled with cargo and runs the Rust backend
 
 fn main() {
     println!("PledgeStack server starting...");
     // Add your server logic here
 }
-"#)?;
+"#,
+                    )?;
                     // Cargo.toml for the server
-                    std::fs::write(project_dir.join("server/Cargo.toml"), r#"[package]
+                    std::fs::write(
+                        project_dir.join("server/Cargo.toml"),
+                        r#"[package]
 name = "pledgestack-server"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-"#)?;
+"#,
+                    )?;
                     // Update .gitignore for PledgeStack
-                    std::fs::write(project_dir.join(".gitignore"), ".pledge/\ntarget/\nnode_modules/\n.env.local\npledge-env.d.ts\nserver/target/\n")?;
+                    std::fs::write(
+                        project_dir.join(".gitignore"),
+                        ".pledge/\ntarget/\nnode_modules/\n.env.local\npledge-env.d.ts\nserver/target/\n",
+                    )?;
                 }
 
                 // Create utils.ts
-                std::fs::write(project_dir.join("src/utils.ts"), r#"export function greet(name: string): string {
+                std::fs::write(
+                    project_dir.join("src/utils.ts"),
+                    r#"export function greet(name: string): string {
   return `Hello, ${name}!`;
 }
-"#)?;
+"#,
+                )?;
 
                 // Create .gitignore (skip if already created for pledgestack)
                 if template != "pledgestack" {
-                    std::fs::write(project_dir.join(".gitignore"), ".pledge/\ntarget/\nnode_modules/\n.env.local\npledge-env.d.ts\n")?;
+                    std::fs::write(
+                        project_dir.join(".gitignore"),
+                        ".pledge/\ntarget/\nnode_modules/\n.env.local\npledge-env.d.ts\n",
+                    )?;
                 }
 
                 // Create CSS framework config files based on wizard selection
                 if let Some(ref css) = css_choice {
                     match css.as_str() {
                         "tailwind" => {
-                            std::fs::write(project_dir.join("tailwind.config.js"), r#"/** @type {import('tailwindcss').Config} */
+                            std::fs::write(
+                                project_dir.join("tailwind.config.js"),
+                                r#"/** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx,js,jsx}'],
   theme: { extend: {} },
   plugins: [],
 };
-"#)?;
-                            std::fs::write(project_dir.join("postcss.config.js"), r#"export default {
+"#,
+                            )?;
+                            std::fs::write(
+                                project_dir.join("postcss.config.js"),
+                                r#"export default {
   plugins: {
     tailwindcss: {},
     autoprefixer: {},
   },
 };
-"#)?;
+"#,
+                            )?;
                         }
                         "unocss" => {
-                            std::fs::write(project_dir.join("uno.config.ts"), r#"import { defineConfig } from 'unocss';
+                            std::fs::write(
+                                project_dir.join("uno.config.ts"),
+                                r#"import { defineConfig } from 'unocss';
 
 export default defineConfig({
   presets: [],
 });
-"#)?;
+"#,
+                            )?;
                         }
                         _ => {}
                     }
@@ -1534,7 +1752,10 @@ export default defineConfig({
                 println!("\n  \x1b[32m✓\x1b[0m {} — {}\n", template, project_name);
                 println!("  \x1b[90mcd {} && pledge dev\x1b[0m\n", project_name);
             } else {
-                println!("\n  \x1b[32m✓\x1b[0m Created {} project: {}\n", template, project_name);
+                println!(
+                    "\n  \x1b[32m✓\x1b[0m Created {} project: {}\n",
+                    template, project_name
+                );
                 if let Some(ref pm) = pm_choice {
                     let install_cmd = match pm.as_str() {
                         "yarn" => "yarn",
@@ -1548,7 +1769,10 @@ export default defineConfig({
                         "bun" => "bun",
                         _ => "npx",
                     };
-                    println!("  \x1b[90mcd {}\n  {}  # install dependencies\n  {} pledge dev\x1b[0m\n", project_name, install_cmd, run_cmd);
+                    println!(
+                        "  \x1b[90mcd {}\n  {}  # install dependencies\n  {} pledge dev\x1b[0m\n",
+                        project_name, install_cmd, run_cmd
+                    );
                 } else {
                     println!("  \x1b[90mcd {} && pledge dev\x1b[0m\n", project_name);
                 }
@@ -1573,13 +1797,20 @@ export default defineConfig({
             // Detect project framework
             let detection = detect::detect_project(root);
 
-            let framework_name = framework.unwrap_or_else(|| detection.framework.as_str().to_string());
+            let framework_name =
+                framework.unwrap_or_else(|| detection.framework.as_str().to_string());
 
             println!("\n  \x1b[36mpledge init\x1b[0m — adding Pledgepack to your project\n");
             println!("  \x1b[90mDetected:\x1b[0m");
             println!("    Framework:      {}", framework_name);
-            println!("    TypeScript:     {}", if detection.typescript { "yes" } else { "no" });
-            println!("    CSS:            {}", detection.css_preprocessor.as_str());
+            println!(
+                "    TypeScript:     {}",
+                if detection.typescript { "yes" } else { "no" }
+            );
+            println!(
+                "    CSS:            {}",
+                detection.css_preprocessor.as_str()
+            );
             println!("    Package mgr:    {}", detection.package_manager.as_str());
             println!("    Build tool:     {}", detection.build_tool.as_str());
             println!("    Entry:          {}", detection.entry_file);
@@ -1612,9 +1843,18 @@ export default defineConfig({
                 let pkg_content = std::fs::read_to_string(&pkg_path)?;
                 if let Ok(mut pkg) = serde_json::from_str::<serde_json::Value>(&pkg_content) {
                     if let Some(scripts) = pkg.get_mut("scripts").and_then(|s| s.as_object_mut()) {
-                        scripts.insert("dev".to_string(), serde_json::Value::String("pledge dev".to_string()));
-                        scripts.insert("build".to_string(), serde_json::Value::String("pledge build".to_string()));
-                        scripts.insert("preview".to_string(), serde_json::Value::String("pledge preview".to_string()));
+                        scripts.insert(
+                            "dev".to_string(),
+                            serde_json::Value::String("pledge dev".to_string()),
+                        );
+                        scripts.insert(
+                            "build".to_string(),
+                            serde_json::Value::String("pledge build".to_string()),
+                        );
+                        scripts.insert(
+                            "preview".to_string(),
+                            serde_json::Value::String("pledge preview".to_string()),
+                        );
                     }
                     let new_pkg = serde_json::to_string_pretty(&pkg)?;
                     std::fs::write(&pkg_path, new_pkg)?;
@@ -1648,7 +1888,10 @@ export default defineConfig({
             // Create .env if it doesn't exist
             let env_path = root.join(".env");
             if !env_path.exists() {
-                std::fs::write(&env_path, "# Pledge environment variables\nPLEDGE_APP_NAME=My App\n")?;
+                std::fs::write(
+                    &env_path,
+                    "# Pledge environment variables\nPLEDGE_APP_NAME=My App\n",
+                )?;
                 println!("  \x1b[32m✓\x1b[0m Created .env");
             }
 
@@ -1660,7 +1903,10 @@ export default defineConfig({
                     .ok()
                     .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
                     .unwrap_or_else(|| "My App".to_string());
-                std::fs::write(&html_path, html::generate_default_html(&detection.entry_file, &project_name))?;
+                std::fs::write(
+                    &html_path,
+                    html::generate_default_html(&detection.entry_file, &project_name),
+                )?;
                 println!("  \x1b[32m✓\x1b[0m Created index.html");
             }
 
@@ -1685,7 +1931,9 @@ export default defineConfig({
             ];
 
             for category in &categories {
-                let checks: Vec<&doctor::DiagnosticCheck> = report.checks.iter()
+                let checks: Vec<&doctor::DiagnosticCheck> = report
+                    .checks
+                    .iter()
                     .filter(|c| &c.category == category)
                     .collect();
 
@@ -1710,7 +1958,8 @@ export default defineConfig({
 
             // Summary
             println!("  \x1b[1mSummary\x1b[0m");
-            println!("    {} passed, {} warnings, {} failed, {} info",
+            println!(
+                "    {} passed, {} warnings, {} failed, {} info",
                 report.summary.passed,
                 report.summary.warnings,
                 report.summary.failed,
@@ -1718,9 +1967,15 @@ export default defineConfig({
             );
 
             if report.summary.failed > 0 {
-                println!("\n  \x1b[31m{} issue(s) need attention\x1b[0m\n", report.summary.failed);
+                println!(
+                    "\n  \x1b[31m{} issue(s) need attention\x1b[0m\n",
+                    report.summary.failed
+                );
             } else if report.summary.warnings > 0 {
-                println!("\n  \x1b[33m{} warning(s) — project should work but consider fixing\x1b[0m\n", report.summary.warnings);
+                println!(
+                    "\n  \x1b[33m{} warning(s) — project should work but consider fixing\x1b[0m\n",
+                    report.summary.warnings
+                );
             } else {
                 println!("\n  \x1b[32mAll checks passed!\x1b[0m\n");
             }
@@ -1728,7 +1983,10 @@ export default defineConfig({
             // #83: Dependency vulnerability scanning
             println!("  \x1b[1mSecurity Audit\x1b[0m");
             let vulns = pledgepack_core::security::scan_vulnerabilities(root);
-            println!("{}", pledgepack_core::security::format_vulnerability_report(&vulns));
+            println!(
+                "{}",
+                pledgepack_core::security::format_vulnerability_report(&vulns)
+            );
             println!();
 
             // #84: License compliance checking
@@ -1739,10 +1997,13 @@ export default defineConfig({
             } else {
                 let result = pledgepack_core::security::check_license_compliance(
                     &licenses,
-                    &[], // no whitelist by default
+                    &[],                      // no whitelist by default
                     &["GPL-3.0", "AGPL-3.0"], // blacklist copyleft by default
                 );
-                println!("{}", pledgepack_core::security::format_license_report(&result));
+                println!(
+                    "{}",
+                    pledgepack_core::security::format_license_report(&result)
+                );
             }
             println!();
         }
@@ -1777,12 +2038,16 @@ export default defineConfig({
                         let out_path = root.join("pledge.config.ts");
                         std::fs::write(&out_path, &result.config_content)?;
                         println!("\n  \x1b[32m✓\x1b[0m Written to pledge.config.ts\n");
-                        println!("  \x1b[90mNext: update package.json scripts to use `pledge dev` / `pledge build`\x1b[0m\n");
+                        println!(
+                            "  \x1b[90mNext: update package.json scripts to use `pledge dev` / `pledge build`\x1b[0m\n"
+                        );
                     }
                 }
                 Err(e) => {
                     println!("\n  \x1b[31m✗\x1b[0m {}\n", e);
-                    println!("  \x1b[90mSupported: vite.config.{{ts,js,mjs}}, webpack.config.{{ts,js,cjs,mjs}}, config-overrides.js, next.config.{{ts,js,mjs}}\x1b[0m\n");
+                    println!(
+                        "  \x1b[90mSupported: vite.config.{{ts,js,mjs}}, webpack.config.{{ts,js,cjs,mjs}}, config-overrides.js, next.config.{{ts,js,mjs}}\x1b[0m\n"
+                    );
                 }
             }
         }
@@ -1807,11 +2072,16 @@ export default defineConfig({
                     let content = std::fs::read_to_string(config_path)?;
 
                     // Try to parse as JSON (for .json files)
-                    let config_json = if config_path.extension().map(|e| e == "json").unwrap_or(false) {
+                    let config_json = if config_path
+                        .extension()
+                        .map(|e| e == "json")
+                        .unwrap_or(false)
+                    {
                         serde_json::from_str(&content).ok()
                     } else {
                         // For TS/JS files, try to extract the config object
-                        pledgepack_core::config::PledgeConfig::parse_ts_config(&content).ok()
+                        pledgepack_core::config::PledgeConfig::parse_ts_config(&content)
+                            .ok()
                             .and_then(|c| serde_json::to_value(&c).ok())
                     };
 
@@ -1820,11 +2090,16 @@ export default defineConfig({
                         if errors.is_empty() {
                             println!("  \x1b[32m✓\x1b[0m Config is valid — no issues found\n");
                         } else {
-                            println!("  \x1b[33m{} validation issue(s) found:\x1b[0m\n", errors.len());
+                            println!(
+                                "  \x1b[33m{} validation issue(s) found:\x1b[0m\n",
+                                errors.len()
+                            );
                             print!("{}", config_validate::format_errors(&errors));
                         }
                     } else {
-                        println!("  \x1b[33m⚠\x1b[0m Could not parse config for validation — check syntax\n");
+                        println!(
+                            "  \x1b[33m⚠\x1b[0m Could not parse config for validation — check syntax\n"
+                        );
                     }
                     break;
                 }
@@ -1840,10 +2115,35 @@ export default defineConfig({
             println!("    Entry:          {:?}", config.entry);
             println!("    Framework:      {:?}", config.framework);
             println!("    Out dir:        {:?}", config.out_dir);
-            println!("    Dev server:     {}:{}", config.dev_server.host, config.dev_server.port);
-            println!("    HMR:            {}", if config.dev_server.hmr { "enabled" } else { "disabled" });
-            println!("    Source maps:    {}", if config.source_maps { "enabled" } else { "disabled" });
-            println!("    Cache:          {} ({:?})", if config.cache.enabled { "enabled" } else { "disabled" }, config.cache.dir);
+            println!(
+                "    Dev server:     {}:{}",
+                config.dev_server.host, config.dev_server.port
+            );
+            println!(
+                "    HMR:            {}",
+                if config.dev_server.hmr {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            );
+            println!(
+                "    Source maps:    {}",
+                if config.source_maps {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            );
+            println!(
+                "    Cache:          {} ({:?})",
+                if config.cache.enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                },
+                config.cache.dir
+            );
             println!("    Env prefix:     {:?}", config.env_prefix);
             println!("    Plugins:        {} configured", config.plugins.len());
             if let Some(ref edge) = config.edge_target {
@@ -1857,17 +2157,20 @@ export default defineConfig({
             let out_dir = config.out_dir.clone();
 
             if !out_dir.exists() {
-                println!("\n  \x1b[33mpledge serve\x1b[0m — .pledge/ not found. Run `pledge build` first.\n");
+                println!(
+                    "\n  \x1b[33mpledge serve\x1b[0m — .pledge/ not found. Run `pledge build` first.\n"
+                );
                 return Ok(());
             }
 
             println!(
                 "\n  \x1b[36mpledge serve\x1b[0m — serving {} on http://localhost:{}\n",
-                out_dir.display(), port
+                out_dir.display(),
+                port
             );
 
-            let app = axum::Router::new()
-                .fallback_service(tower_http::services::ServeDir::new(&out_dir));
+            let app =
+                axum::Router::new().fallback_service(tower_http::services::ServeDir::new(&out_dir));
 
             let addr = format!("127.0.0.1:{}", port);
             let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -1897,7 +2200,10 @@ export default defineConfig({
             }
         },
 
-        Commands::Bench { baseline, threshold } => {
+        Commands::Bench {
+            baseline,
+            threshold,
+        } => {
             println!("\n  \x1b[36mpledge bench\x1b[0m — benchmarking build performance\n");
 
             config.mode = pledgepack_core::config::BuildMode::Production;
@@ -1916,7 +2222,11 @@ export default defineConfig({
 
                 println!(
                     "  Run {}/{}: {} modules ({} cached) in {}ms",
-                    i + 1, runs, result.modules_built, result.modules_cached, ms
+                    i + 1,
+                    runs,
+                    result.modules_built,
+                    result.modules_cached,
+                    ms
                 );
             }
 
@@ -1956,7 +2266,10 @@ export default defineConfig({
                 if let Some(ref r) = report {
                     println!("{}", r.format());
                 } else {
-                    println!("  \x1b[32m✓ No regression\x1b[0m baseline={} median={}ms", baseline_ref, median);
+                    println!(
+                        "  \x1b[32m✓ No regression\x1b[0m baseline={} median={}ms",
+                        baseline_ref, median
+                    );
                 }
             }
 
@@ -1991,7 +2304,10 @@ export default defineConfig({
                 // Generate interactive dependency graph (#104)
                 let cycles = pledgepack_core::analyzer::detect_circular_deps(&analysis);
                 if !cycles.is_empty() {
-                    println!("  \x1b[33m⚠ {} circular dependency(s) detected:\x1b[0m", cycles.len());
+                    println!(
+                        "  \x1b[33m⚠ {} circular dependency(s) detected:\x1b[0m",
+                        cycles.len()
+                    );
                     for cycle in &cycles {
                         println!("    \x1b[31m{}\x1b[0m", cycle.join(" → "));
                     }
@@ -2004,21 +2320,35 @@ export default defineConfig({
 
             let port = port.unwrap_or(4200);
 
-            println!("  \x1b[32m✓\x1b[0m {} modules, {:.1}KB total", analysis.total_modules,
-                analysis.total_transformed_size as f64 / 1024.0);
-            println!("\n  \x1b[90mAnalysis server: http://localhost:{}\x1b[0m\n", port);
+            println!(
+                "  \x1b[32m✓\x1b[0m {} modules, {:.1}KB total",
+                analysis.total_modules,
+                analysis.total_transformed_size as f64 / 1024.0
+            );
+            println!(
+                "\n  \x1b[90mAnalysis server: http://localhost:{}\x1b[0m\n",
+                port
+            );
 
-            let app = axum::Router::new()
-                .route("/", axum::routing::get(move || async move {
-                    axum::response::Html(html_output.clone())
-                }));
+            let app = axum::Router::new().route(
+                "/",
+                axum::routing::get(
+                    move || async move { axum::response::Html(html_output.clone()) },
+                ),
+            );
 
             let addr = format!("127.0.0.1:{}", port);
             let listener = tokio::net::TcpListener::bind(&addr).await?;
             axum::serve(listener, app).await?;
         }
 
-        Commands::Test { pattern, watch, ui, visual, update_baselines } => {
+        Commands::Test {
+            pattern,
+            watch,
+            ui,
+            visual,
+            update_baselines,
+        } => {
             println!("\n  \x1b[36mpledge test\x1b[0m — running tests...\n");
 
             let pattern = pattern.unwrap_or_else(|| {
@@ -2035,35 +2365,43 @@ export default defineConfig({
             collect_test_files(&test_dir, &pattern, &mut test_files)?;
 
             if test_files.is_empty() {
-                println!("  \x1b[33mNo test files found matching: {}\x1b[0m\n", pattern);
+                println!(
+                    "  \x1b[33mNo test files found matching: {}\x1b[0m\n",
+                    pattern
+                );
                 return Ok(());
             }
 
             println!("  Found {} test file(s)\n", test_files.len());
 
-            let mut all_summaries: Vec<(String, pledgepack_js_plugin_host::test_runner::TestSummary)> = Vec::new();
+            let mut all_summaries: Vec<(
+                String,
+                pledgepack_js_plugin_host::test_runner::TestSummary,
+            )> = Vec::new();
             let mut total_passed = 0;
             let mut total_failed = 0;
             let mut total_skipped = 0;
 
             for test_file in &test_files {
-                let rel = test_file.strip_prefix(&config.root)
+                let rel = test_file
+                    .strip_prefix(&config.root)
                     .unwrap_or(test_file)
                     .to_string_lossy()
                     .replace('\\', "/");
 
-                let summary = match pledgepack_js_plugin_host::test_runner::run_test_file_with_config(
-                    test_file,
-                    &config.test,
-                    &config.root,
-                ) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        println!("  \x1b[31m✗\x1b[0m {} — error: {}", rel, e);
-                        total_failed += 1;
-                        continue;
-                    }
-                };
+                let summary =
+                    match pledgepack_js_plugin_host::test_runner::run_test_file_with_config(
+                        test_file,
+                        &config.test,
+                        &config.root,
+                    ) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            println!("  \x1b[31m✗\x1b[0m {} — error: {}", rel, e);
+                            total_failed += 1;
+                            continue;
+                        }
+                    };
 
                 if summary.results.is_empty() {
                     println!("  \x1b[90m○ {} (no tests)\x1b[0m", rel);
@@ -2085,8 +2423,10 @@ export default defineConfig({
 
                     match result.status {
                         pledgepack_js_plugin_host::test_runner::TestStatus::Passed => {
-                            println!("    \x1b[32m✓\x1b[0m{} {} \x1b[90m({}ms)\x1b[0m",
-                                suite_label, result.name, result.duration_ms);
+                            println!(
+                                "    \x1b[32m✓\x1b[0m{} {} \x1b[90m({}ms)\x1b[0m",
+                                suite_label, result.name, result.duration_ms
+                            );
                         }
                         pledgepack_js_plugin_host::test_runner::TestStatus::Failed => {
                             println!("    \x1b[31m✗\x1b[0m{} {}", suite_label, result.name);
@@ -2095,8 +2435,10 @@ export default defineConfig({
                             }
                         }
                         pledgepack_js_plugin_host::test_runner::TestStatus::Skipped => {
-                            println!("    \x1b[90m○\x1b[0m{} {} \x1b[90m(skipped)\x1b[0m",
-                                suite_label, result.name);
+                            println!(
+                                "    \x1b[90m○\x1b[0m{} {} \x1b[90m(skipped)\x1b[0m",
+                                suite_label, result.name
+                            );
                         }
                     }
                 }
@@ -2107,40 +2449,63 @@ export default defineConfig({
                 all_summaries.push((rel, summary));
             }
 
-            println!("\n  \x1b[32mTests:\x1b[0m  {} passed, {} skipped, {} failed\n",
-                total_passed, total_skipped, total_failed);
+            println!(
+                "\n  \x1b[32mTests:\x1b[0m  {} passed, {} skipped, {} failed\n",
+                total_passed, total_skipped, total_failed
+            );
 
             // Coverage report
             if config.test.coverage {
-                println!("  \x1b[90mCoverage report ({}):\x1b[0m", config.test.coverage_reporter);
-                println!("  \x1b[90m  Coverage data collected from {} file(s)\x1b[0m\n", all_summaries.len());
+                println!(
+                    "  \x1b[90mCoverage report ({}):\x1b[0m",
+                    config.test.coverage_reporter
+                );
+                println!(
+                    "  \x1b[90m  Coverage data collected from {} file(s)\x1b[0m\n",
+                    all_summaries.len()
+                );
             }
 
             // #75: Visual regression testing
             if visual {
                 println!("  \x1b[36mVisual regression testing\x1b[0m — screenshot comparison\n");
 
-                let mut vr_config = pledgepack_core::visual_regression::VisualRegressionConfig::default();
-                vr_config.enabled = true;
-                vr_config.update_baselines = update_baselines;
+                let vr_config = pledgepack_core::visual_regression::VisualRegressionConfig {
+                    enabled: true,
+                    update_baselines,
+                    ..Default::default()
+                };
 
                 // Use dev server port for capturing screenshots
                 let port = config.dev_server.port;
 
                 match pledgepack_core::visual_regression::run_visual_tests(&vr_config, port) {
                     Ok(report) => {
-                        print!("\n{}", pledgepack_core::visual_regression::format_visual_report(&report));
+                        print!(
+                            "\n{}",
+                            pledgepack_core::visual_regression::format_visual_report(&report)
+                        );
 
                         if report.failed > 0 {
                             // Generate HTML report
-                            let html = pledgepack_core::visual_regression::generate_visual_html_report(&report);
-                            let report_path = config.root.join(".pledge").join("visual-report.html");
+                            let html =
+                                pledgepack_core::visual_regression::generate_visual_html_report(
+                                    &report,
+                                );
+                            let report_path =
+                                config.root.join(".pledge").join("visual-report.html");
                             std::fs::create_dir_all(report_path.parent().unwrap_or(&config.root))?;
                             std::fs::write(&report_path, &html)?;
-                            println!("  \x1b[90mVisual report: {}\x1b[0m\n", report_path.display());
+                            println!(
+                                "  \x1b[90mVisual report: {}\x1b[0m\n",
+                                report_path.display()
+                            );
 
                             if !update_baselines {
-                                anyhow::bail!("Visual regression: {} page(s) failed", report.failed);
+                                anyhow::bail!(
+                                    "Visual regression: {} page(s) failed",
+                                    report.failed
+                                );
                             }
                         }
                     }
@@ -2152,14 +2517,15 @@ export default defineConfig({
 
             if watch {
                 println!("  \x1b[90mWatch mode — press Ctrl+C to exit\x1b[0m\n");
-                use notify::{Watcher, RecursiveMode, EventKind, recommended_watcher};
+                use notify::{EventKind, RecursiveMode, Watcher, recommended_watcher};
                 use std::sync::mpsc::channel;
                 use std::time::{Duration, Instant};
 
                 let (tx, rx) = channel::<notify::Result<notify::Event>>();
-                let mut watcher = recommended_watcher(move |res: notify::Result<notify::Event>| {
-                    let _ = tx.send(res);
-                })?;
+                let mut watcher =
+                    recommended_watcher(move |res: notify::Result<notify::Event>| {
+                        let _ = tx.send(res);
+                    })?;
                 watcher.watch(&test_dir, RecursiveMode::Recursive)?;
 
                 let debounce_ms = Duration::from_millis(300);
@@ -2172,10 +2538,14 @@ export default defineConfig({
                                 event.kind,
                                 EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
                             );
-                            if !is_relevant { continue; }
+                            if !is_relevant {
+                                continue;
+                            }
                             let has_src = event.paths.iter().any(|p| {
                                 let s = p.to_string_lossy();
-                                !s.contains("node_modules") && !s.contains(".pledge") && !s.contains("target")
+                                !s.contains("node_modules")
+                                    && !s.contains(".pledge")
+                                    && !s.contains("target")
                             });
                             if has_src {
                                 last_change = Some(Instant::now());
@@ -2185,18 +2555,20 @@ export default defineConfig({
                             tracing::warn!("Watch error: {}", e);
                         }
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            if let Some(last) = last_change {
-                                if last.elapsed() >= debounce_ms {
-                                    println!("\n  \x1b[36mpledge test\x1b[0m — re-running tests...\n");
-                                    total_passed = 0;
-                                    total_failed = 0;
-                                    total_skipped = 0;
-                                    for test_file in &test_files {
-                                        let rel = test_file.strip_prefix(&config.root)
-                                            .unwrap_or(test_file)
-                                            .to_string_lossy()
-                                            .replace('\\', "/");
-                                        let summary = match pledgepack_js_plugin_host::test_runner::run_test_file_with_config(
+                            if let Some(last) = last_change
+                                && last.elapsed() >= debounce_ms
+                            {
+                                println!("\n  \x1b[36mpledge test\x1b[0m — re-running tests...\n");
+                                total_passed = 0;
+                                total_failed = 0;
+                                total_skipped = 0;
+                                for test_file in &test_files {
+                                    let rel = test_file
+                                        .strip_prefix(&config.root)
+                                        .unwrap_or(test_file)
+                                        .to_string_lossy()
+                                        .replace('\\', "/");
+                                    let summary = match pledgepack_js_plugin_host::test_runner::run_test_file_with_config(
                                             test_file,
                                             &config.test,
                                             &config.root,
@@ -2208,8 +2580,8 @@ export default defineConfig({
                                                 continue;
                                             }
                                         };
-                                        for result in &summary.results {
-                                            match result.status {
+                                    for result in &summary.results {
+                                        match result.status {
                                                 pledgepack_js_plugin_host::test_runner::TestStatus::Passed => {
                                                     println!("  \x1b[32m✓\x1b[0m {} › {}", result.suite, result.name);
                                                 }
@@ -2223,15 +2595,16 @@ export default defineConfig({
                                                     println!("  \x1b[90m○\x1b[0m {} › {} (skipped)", result.suite, result.name);
                                                 }
                                             }
-                                        }
-                                        total_passed += summary.passed;
-                                        total_failed += summary.failed;
-                                        total_skipped += summary.skipped;
                                     }
-                                    println!("\n  \x1b[32mTests:\x1b[0m  {} passed, {} skipped, {} failed\n",
-                                        total_passed, total_skipped, total_failed);
-                                    last_change = None;
+                                    total_passed += summary.passed;
+                                    total_failed += summary.failed;
+                                    total_skipped += summary.skipped;
                                 }
+                                println!(
+                                    "\n  \x1b[32mTests:\x1b[0m  {} passed, {} skipped, {} failed\n",
+                                    total_passed, total_skipped, total_failed
+                                );
+                                last_change = None;
                             }
                         }
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -2244,27 +2617,36 @@ export default defineConfig({
             if ui {
                 println!("  \x1b[36mUI mode\x1b[0m — generating test report...\n");
 
-                let html = pledgepack_js_plugin_host::test_runner::generate_html_report(&all_summaries);
+                let html =
+                    pledgepack_js_plugin_host::test_runner::generate_html_report(&all_summaries);
                 let report_path = config.root.join(".pledge").join("test-report.html");
                 std::fs::create_dir_all(report_path.parent().unwrap_or(&config.root))?;
                 std::fs::write(&report_path, &html)?;
 
-                println!("  \x1b[32m✓\x1b[0m Test report written to {}\n", report_path.display());
+                println!(
+                    "  \x1b[32m✓\x1b[0m Test report written to {}\n",
+                    report_path.display()
+                );
 
                 // Serve the report on a local server
                 let ui_port = 5174;
                 let html_output = html.clone();
-                let app = axum::Router::new()
-                    .route("/", axum::routing::get(move || async move {
-                        axum::response::Html(html_output.clone())
-                    }));
+                let app = axum::Router::new().route(
+                    "/",
+                    axum::routing::get(
+                        move || async move { axum::response::Html(html_output.clone()) },
+                    ),
+                );
 
                 let addr = format!("127.0.0.1:{}", ui_port);
                 println!("  \x1b[90mTest UI running at http://{}\x1b[0m\n", addr);
 
                 // Auto-open browser
                 #[cfg(target_os = "windows")]
-                std::process::Command::new("cmd").args(["/C", "start", "", &format!("http://{}", addr)]).spawn().ok();
+                std::process::Command::new("cmd")
+                    .args(["/C", "start", "", &format!("http://{}", addr)])
+                    .spawn()
+                    .ok();
 
                 let listener = tokio::net::TcpListener::bind(&addr).await?;
                 axum::serve(listener, app).await?;
@@ -2283,11 +2665,21 @@ export default defineConfig({
             }
 
             let recent = history.recent(10);
-            println!("  \x1b[90m{} build(s) recorded\x1b[0m\n", history.builds.len());
+            println!(
+                "  \x1b[90m{} build(s) recorded\x1b[0m\n",
+                history.builds.len()
+            );
             for r in recent.iter().rev() {
-                let status = if r.success { "\x1b[32m✓\x1b[0m" } else { "\x1b[31m✗\x1b[0m" };
-                println!("    {} {}ms — {} modules, {:.0}% cache hit",
-                    status, r.duration_ms, r.modules_built + r.modules_cached,
+                let status = if r.success {
+                    "\x1b[32m✓\x1b[0m"
+                } else {
+                    "\x1b[31m✗\x1b[0m"
+                };
+                println!(
+                    "    {} {}ms — {} modules, {:.0}% cache hit",
+                    status,
+                    r.duration_ms,
+                    r.modules_built + r.modules_cached,
                     r.cache_hit_rate * 100.0,
                 );
             }
@@ -2295,10 +2687,12 @@ export default defineConfig({
             let html_output = pledgepack_core::telemetry::generate_dashboard_html(&history);
             println!("\n  \x1b[90mDashboard: http://localhost:{}\x1b[0m\n", port);
 
-            let app = axum::Router::new()
-                .route("/", axum::routing::get(move || async move {
-                    axum::response::Html(html_output.clone())
-                }));
+            let app = axum::Router::new().route(
+                "/",
+                axum::routing::get(
+                    move || async move { axum::response::Html(html_output.clone()) },
+                ),
+            );
 
             let addr = format!("127.0.0.1:{}", port);
             let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -2306,7 +2700,9 @@ export default defineConfig({
         }
 
         Commands::GenerateEnvTypes => {
-            println!("\n  \x1b[36mpledge generate-env-types\x1b[0m — generating .d.ts for import.meta.env\n");
+            println!(
+                "\n  \x1b[36mpledge generate-env-types\x1b[0m — generating .d.ts for import.meta.env\n"
+            );
 
             let env = EnvVars::load(&config.root, config.mode, &config.env_prefix);
             let dts = env.generate_dts(&config.env_prefix);
@@ -2318,8 +2714,8 @@ export default defineConfig({
         }
 
         Commands::Completions { shell } => {
-            use clap_complete::Shell;
             use clap::CommandFactory;
+            use clap_complete::Shell;
 
             let shell_name = match shell {
                 Some(s) => s,
@@ -2351,9 +2747,14 @@ export default defineConfig({
 
             let mut cmd = Cli::command();
             let bin_name = "pledge";
-            println!("\n  \x1b[36mpledge completions\x1b[0m — generating {} completions\n", shell_name);
+            println!(
+                "\n  \x1b[36mpledge completions\x1b[0m — generating {} completions\n",
+                shell_name
+            );
             clap_complete::generate(shell_enum, &mut cmd, bin_name, &mut std::io::stdout());
-            println!("\n  \x1b[32m✓\x1b[0m Add the output to your shell's completion directory or source it in your rc file.\n");
+            println!(
+                "\n  \x1b[32m✓\x1b[0m Add the output to your shell's completion directory or source it in your rc file.\n"
+            );
         }
 
         Commands::Manpages { output } => {
@@ -2365,7 +2766,10 @@ export default defineConfig({
             let cmd = Cli::command();
             let bin_name = "pledge";
 
-            println!("\n  \x1b[36mpledge manpages\x1b[0m — generating man pages in {}\n", out_dir.display());
+            println!(
+                "\n  \x1b[36mpledge manpages\x1b[0m — generating man pages in {}\n",
+                out_dir.display()
+            );
 
             // Generate main man page
             let man = clap_mangen::Man::new(cmd.clone());
@@ -2388,7 +2792,9 @@ export default defineConfig({
                 }
             }
 
-            println!("\n  \x1b[32m✓\x1b[0m Man pages generated. Install to /usr/local/share/man/man1/\n");
+            println!(
+                "\n  \x1b[32m✓\x1b[0m Man pages generated. Install to /usr/local/share/man/man1/\n"
+            );
         }
 
         Commands::Schema { output } => {
@@ -2397,7 +2803,10 @@ export default defineConfig({
 
             if let Some(path) = output {
                 std::fs::write(&path, &pretty)?;
-                println!("  \x1b[32m✓\x1b[0m JSON Schema written to {}", path.display());
+                println!(
+                    "  \x1b[32m✓\x1b[0m JSON Schema written to {}",
+                    path.display()
+                );
             } else {
                 println!("{}", pretty);
             }
@@ -2419,7 +2828,10 @@ export default defineConfig({
                             println!("  \x1b[33mNo plugins found\x1b[0m\n");
                         } else {
                             println!("  \x1b[32mFound {} plugin(s):\x1b[0m\n", plugins.len());
-                            print!("{}", pledgepack_core::plugin_registry::format_plugin_list(&plugins));
+                            print!(
+                                "{}",
+                                pledgepack_core::plugin_registry::format_plugin_list(&plugins)
+                            );
                         }
                     }
                     Err(e) => {
@@ -2441,7 +2853,10 @@ export default defineConfig({
                         if plugins.is_empty() {
                             println!("  \x1b[90mNo plugins installed\x1b[0m\n");
                         } else {
-                            print!("{}", pledgepack_core::plugin_registry::format_plugin_list(&plugins));
+                            print!(
+                                "{}",
+                                pledgepack_core::plugin_registry::format_plugin_list(&plugins)
+                            );
                         }
                     }
                     Err(e) => {
@@ -2449,12 +2864,17 @@ export default defineConfig({
                     }
                 }
             }
-            PluginAction::Create { name, description, author } => {
+            PluginAction::Create {
+                name,
+                description,
+                author,
+            } => {
                 println!("\n  \x1b[36mpledge plugin create\x1b[0m — scaffolding new plugin\n");
 
                 let opts = pledgepack_core::plugin_template::PluginTemplateOptions {
                     name: name.clone(),
-                    description: description.unwrap_or_else(|| format!("PledgePack plugin: {}", name)),
+                    description: description
+                        .unwrap_or_else(|| format!("PledgePack plugin: {}", name)),
                     author: author.unwrap_or_else(|| "Your Name".to_string()),
                     hooks: pledgepack_core::plugin_template::PluginHook::all(),
                 };
@@ -2462,7 +2882,10 @@ export default defineConfig({
                 let out_dir = std::path::PathBuf::from(&name);
                 match pledgepack_core::plugin_template::scaffold_plugin(&opts, &out_dir) {
                     Ok(()) => {
-                        println!("  \x1b[32m✓\x1b[0m Plugin scaffolded: {}\n", out_dir.display());
+                        println!(
+                            "  \x1b[32m✓\x1b[0m Plugin scaffolded: {}\n",
+                            out_dir.display()
+                        );
                         println!("  \x1b[90mcd {} && pledge dev\x1b[0m\n", name);
                     }
                     Err(e) => {
@@ -2486,7 +2909,10 @@ export default defineConfig({
                         let markdown = pledgepack_core::plugin_docs::render_markdown(&docs);
                         if let Some(out_path) = output {
                             std::fs::write(&out_path, &markdown)?;
-                            println!("  \x1b[32m✓\x1b[0m Docs written to {}\n", out_path.display());
+                            println!(
+                                "  \x1b[32m✓\x1b[0m Docs written to {}\n",
+                                out_path.display()
+                            );
                         } else {
                             println!("{}", markdown);
                         }
@@ -2499,7 +2925,10 @@ export default defineConfig({
         },
 
         Commands::Why { module } => {
-            println!("\n  \x1b[36mpledge why\x1b[0m — analyzing why '{}' is in the bundle\n", module);
+            println!(
+                "\n  \x1b[36mpledge why\x1b[0m — analyzing why '{}' is in the bundle\n",
+                module
+            );
 
             let mut engine = BuildEngine::new(Arc::new(config.clone()));
             let _ = engine.build().await?;
@@ -2538,10 +2967,10 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
         let dest_path = dst.join(entry.file_name());
         if path.is_dir() {
             // Skip node_modules and .pledge dirs in cache
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name == "node_modules" || name == ".pledge" || name == ".git" {
-                    continue;
-                }
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && (name == "node_modules" || name == ".pledge" || name == ".git")
+            {
+                continue;
             }
             copy_dir_recursive(&path, &dest_path)?;
         } else if path.is_file() {
@@ -2555,22 +2984,44 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
 fn prewarm_module_graph(project_dir: &std::path::Path, pledge_dir: &std::path::Path) {
     let mut modules: Vec<serde_json::Value> = Vec::new();
 
-    fn scan_dir(dir: &std::path::Path, root: &std::path::Path, modules: &mut Vec<serde_json::Value>) {
+    fn scan_dir(
+        dir: &std::path::Path,
+        root: &std::path::Path,
+        modules: &mut Vec<serde_json::Value>,
+    ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if name == "node_modules" || name.starts_with('.') {
-                            continue;
-                        }
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                        && (name == "node_modules" || name.starts_with('.'))
+                    {
+                        continue;
                     }
                     scan_dir(&path, root, modules);
                 } else if path.is_file() {
                     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if matches!(ext, "ts" | "tsx" | "js" | "jsx" | "css" | "json" | "vue" | "svelte" | "scss" | "sass") {
-                        let rel = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
-                        let kind = pledgepack_core::module::ModuleKind::from_extension(&format!(".{}", ext));
+                    if matches!(
+                        ext,
+                        "ts" | "tsx"
+                            | "js"
+                            | "jsx"
+                            | "css"
+                            | "json"
+                            | "vue"
+                            | "svelte"
+                            | "scss"
+                            | "sass"
+                    ) {
+                        let rel = path
+                            .strip_prefix(root)
+                            .unwrap_or(&path)
+                            .to_string_lossy()
+                            .replace('\\', "/");
+                        let kind = pledgepack_core::module::ModuleKind::from_extension(&format!(
+                            ".{}",
+                            ext
+                        ));
                         modules.push(serde_json::json!({
                             "path": rel,
                             "kind": format!("{:?}", kind),
@@ -2588,11 +3039,18 @@ fn prewarm_module_graph(project_dir: &std::path::Path, pledge_dir: &std::path::P
         "modules": modules,
     });
 
-    let _ = std::fs::write(pledge_dir.join("module-graph.json"), serde_json::to_string_pretty(&graph).unwrap_or_default());
+    let _ = std::fs::write(
+        pledge_dir.join("module-graph.json"),
+        serde_json::to_string_pretty(&graph).unwrap_or_default(),
+    );
 }
 
 /// Recursively collect test files matching a pattern using globset
-fn collect_test_files(dir: &std::path::Path, pattern: &str, files: &mut Vec<PathBuf>) -> Result<()> {
+fn collect_test_files(
+    dir: &std::path::Path,
+    pattern: &str,
+    files: &mut Vec<PathBuf>,
+) -> Result<()> {
     if !dir.is_dir() {
         return Ok(());
     }
@@ -2613,7 +3071,8 @@ fn collect_test_files(dir: &std::path::Path, pattern: &str, files: &mut Vec<Path
                 let path = entry.path();
 
                 if path.is_dir() {
-                    if path.file_name()
+                    if path
+                        .file_name()
                         .and_then(|n| n.to_str())
                         .map(|n| n == "node_modules" || n.starts_with('.'))
                         .unwrap_or(false)
@@ -2640,7 +3099,11 @@ fn collect_test_files(dir: &std::path::Path, pattern: &str, files: &mut Vec<Path
 }
 
 /// Fallback test file collection using simple string matching
-fn collect_test_files_fallback(dir: &std::path::Path, _pattern: &str, files: &mut Vec<PathBuf>) -> Result<()> {
+fn collect_test_files_fallback(
+    dir: &std::path::Path,
+    _pattern: &str,
+    files: &mut Vec<PathBuf>,
+) -> Result<()> {
     if !dir.is_dir() {
         return Ok(());
     }
@@ -2650,7 +3113,8 @@ fn collect_test_files_fallback(dir: &std::path::Path, _pattern: &str, files: &mu
         let path = entry.path();
 
         if path.is_dir() {
-            if path.file_name()
+            if path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .map(|n| n == "node_modules" || n.starts_with('.'))
                 .unwrap_or(false)

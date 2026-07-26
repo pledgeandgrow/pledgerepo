@@ -219,12 +219,42 @@ impl PledgeStackAdapter {
         }
 
         // Detect root-level files
-        self.root_layout = find_convention_file(&app_dir, &["layout.tsx", "layout.ts", "layout.jsx", "layout.js", "layout.psx", "layout.ps"])
-            .map(|p| relative_path(&self.root, &p));
-        self.not_found = find_convention_file(&app_dir, &["not-found.tsx", "not-found.ts", "not-found.jsx", "not-found.js", "not-found.psx", "not-found.ps"])
-            .map(|p| relative_path(&self.root, &p));
-        self.global_error = find_convention_file(&app_dir, &["global-error.tsx", "global-error.ts", "global-error.jsx", "global-error.js", "global-error.psx", "global-error.ps"])
-            .map(|p| relative_path(&self.root, &p));
+        self.root_layout = find_convention_file(
+            &app_dir,
+            &[
+                "layout.tsx",
+                "layout.ts",
+                "layout.jsx",
+                "layout.js",
+                "layout.psx",
+                "layout.ps",
+            ],
+        )
+        .map(|p| relative_path(&self.root, &p));
+        self.not_found = find_convention_file(
+            &app_dir,
+            &[
+                "not-found.tsx",
+                "not-found.ts",
+                "not-found.jsx",
+                "not-found.js",
+                "not-found.psx",
+                "not-found.ps",
+            ],
+        )
+        .map(|p| relative_path(&self.root, &p));
+        self.global_error = find_convention_file(
+            &app_dir,
+            &[
+                "global-error.tsx",
+                "global-error.ts",
+                "global-error.jsx",
+                "global-error.js",
+                "global-error.psx",
+                "global-error.ps",
+            ],
+        )
+        .map(|p| relative_path(&self.root, &p));
 
         self.scan_app_directory(&app_dir, &app_dir, "")?;
         Ok(())
@@ -265,10 +295,12 @@ impl PledgeStackAdapter {
                 };
                 self.scan_app_directory(app_dir, &path, &new_prefix)?;
             } else if path.is_file() {
-                let is_page = matches!(name.as_str(),
+                let is_page = matches!(
+                    name.as_str(),
                     "page.tsx" | "page.ts" | "page.jsx" | "page.js" | "page.psx" | "page.ps"
                 );
-                let is_route = matches!(name.as_str(),
+                let is_route = matches!(
+                    name.as_str(),
                     "route.tsx" | "route.ts" | "route.jsx" | "route.js" | "route.psx" | "route.ps"
                 );
 
@@ -285,14 +317,49 @@ impl PledgeStackAdapter {
                     // Find layout, template, loading, error, head for this route
                     let route_dir = path.parent().unwrap_or(app_dir);
                     let layout = self.find_nearest_layout(app_dir, route_dir);
-                    let template = find_convention_file(route_dir, &["template.tsx", "template.ts", "template.jsx", "template.js", "template.psx", "template.ps"])
-                        .map(|p| relative_path(&self.root, &p));
-                    let loading = find_convention_file(route_dir, &["loading.tsx", "loading.ts", "loading.jsx", "loading.js", "loading.psx", "loading.ps"])
-                        .map(|p| relative_path(&self.root, &p));
-                    let error_boundary = find_convention_file(route_dir, &["error.tsx", "error.ts", "error.jsx", "error.js", "error.psx", "error.ps"])
-                        .map(|p| relative_path(&self.root, &p));
-                    let head = find_convention_file(route_dir, &["head.tsx", "head.ts", "head.jsx", "head.js", "head.psx", "head.ps"])
-                        .map(|p| relative_path(&self.root, &p));
+                    let template = find_convention_file(
+                        route_dir,
+                        &[
+                            "template.tsx",
+                            "template.ts",
+                            "template.jsx",
+                            "template.js",
+                            "template.psx",
+                            "template.ps",
+                        ],
+                    )
+                    .map(|p| relative_path(&self.root, &p));
+                    let loading = find_convention_file(
+                        route_dir,
+                        &[
+                            "loading.tsx",
+                            "loading.ts",
+                            "loading.jsx",
+                            "loading.js",
+                            "loading.psx",
+                            "loading.ps",
+                        ],
+                    )
+                    .map(|p| relative_path(&self.root, &p));
+                    let error_boundary = find_convention_file(
+                        route_dir,
+                        &[
+                            "error.tsx",
+                            "error.ts",
+                            "error.jsx",
+                            "error.js",
+                            "error.psx",
+                            "error.ps",
+                        ],
+                    )
+                    .map(|p| relative_path(&self.root, &p));
+                    let head = find_convention_file(
+                        route_dir,
+                        &[
+                            "head.tsx", "head.ts", "head.jsx", "head.js", "head.psx", "head.ps",
+                        ],
+                    )
+                    .map(|p| relative_path(&self.root, &p));
 
                     self.frontend_routes.push(FrontendRoute {
                         path: route_path,
@@ -335,7 +402,17 @@ impl PledgeStackAdapter {
     fn find_nearest_layout(&self, app_dir: &Path, route_dir: &Path) -> Option<String> {
         let mut current = route_dir;
         loop {
-            if let Some(layout_path) = find_convention_file(current, &["layout.tsx", "layout.ts", "layout.jsx", "layout.js", "layout.psx", "layout.ps"]) {
+            if let Some(layout_path) = find_convention_file(
+                current,
+                &[
+                    "layout.tsx",
+                    "layout.ts",
+                    "layout.jsx",
+                    "layout.js",
+                    "layout.psx",
+                    "layout.ps",
+                ],
+            ) {
                 return Some(relative_path(&self.root, &layout_path));
             }
             if current == app_dir {
@@ -357,9 +434,14 @@ impl PledgeStackAdapter {
     }
 
     /// Recursively scan app/ for route.ts files (API handlers)
+    #[allow(clippy::only_used_in_recursion)]
     fn scan_api_routes_in_app(&mut self, app_dir: &Path, dir: &Path, prefix: &str) -> Result<()> {
-        let entries = std::fs::read_dir(dir)
-            .with_context(|| format!("Failed to read app directory for API routes: {}", dir.display()))?;
+        let entries = std::fs::read_dir(dir).with_context(|| {
+            format!(
+                "Failed to read app directory for API routes: {}",
+                dir.display()
+            )
+        })?;
 
         for entry in entries.flatten() {
             let path = entry.path();
@@ -387,26 +469,29 @@ impl PledgeStackAdapter {
                     format!("{}/{}", prefix, route_segment)
                 };
                 self.scan_api_routes_in_app(app_dir, &path, &new_prefix)?;
-            } else if path.is_file() {
-                if matches!(name.as_str(), "route.tsx" | "route.ts" | "route.jsx" | "route.js" | "route.psx" | "route.ps") {
-                    let route_path = if prefix.is_empty() {
-                        "/".to_string()
-                    } else {
-                        prefix.to_string()
-                    };
-                    let params = extract_params(&route_path);
-                    let rel_file = relative_path(&self.root, &path);
-                    let methods = detect_route_methods(&path);
+            } else if path.is_file()
+                && matches!(
+                    name.as_str(),
+                    "route.tsx" | "route.ts" | "route.jsx" | "route.js" | "route.psx" | "route.ps"
+                )
+            {
+                let route_path = if prefix.is_empty() {
+                    "/".to_string()
+                } else {
+                    prefix.to_string()
+                };
+                let params = extract_params(&route_path);
+                let rel_file = relative_path(&self.root, &path);
+                let methods = detect_route_methods(&path);
 
-                    // Only add if not already discovered by scan_app_directory
-                    if !self.api_routes.iter().any(|r| r.file == rel_file) {
-                        self.api_routes.push(ApiRoute {
-                            path: route_path,
-                            file: rel_file,
-                            params,
-                            methods,
-                        });
-                    }
+                // Only add if not already discovered by scan_app_directory
+                if !self.api_routes.iter().any(|r| r.file == rel_file) {
+                    self.api_routes.push(ApiRoute {
+                        path: route_path,
+                        file: rel_file,
+                        params,
+                        methods,
+                    });
                 }
             }
         }
@@ -440,10 +525,7 @@ impl PledgeStackAdapter {
                 let new_prefix = format!("{}/{}", prefix, route_segment);
                 self.scan_api_directory(&path, &new_prefix)?;
             } else if path.is_file() {
-                let ext = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 if let Some(backend_ext) = BackendExt::from_ext(ext) {
                     let routes = extract_backend_routes(&path, prefix, backend_ext, &self.root)?;
                     self.backend_routes.extend(routes);
@@ -457,7 +539,12 @@ impl PledgeStackAdapter {
     fn discover_middleware(&mut self) -> Result<()> {
         // Check root-level middleware.ts (PledgeStack convention)
         let root_mw_candidates = [
-            "middleware.ts", "middleware.tsx", "middleware.js", "middleware.jsx", "middleware.psx", "middleware.ps",
+            "middleware.ts",
+            "middleware.tsx",
+            "middleware.js",
+            "middleware.jsx",
+            "middleware.psx",
+            "middleware.ps",
         ];
         for candidate in &root_mw_candidates {
             let path = self.root.join(candidate);
@@ -476,7 +563,12 @@ impl PledgeStackAdapter {
 
         // Check app/middleware.ts (PledgeStack convention)
         let app_mw_candidates = [
-            "middleware.ts", "middleware.tsx", "middleware.js", "middleware.jsx", "middleware.psx", "middleware.ps",
+            "middleware.ts",
+            "middleware.tsx",
+            "middleware.js",
+            "middleware.jsx",
+            "middleware.psx",
+            "middleware.ps",
         ];
         for candidate in &app_mw_candidates {
             let path = self.root.join("app").join(candidate);
@@ -528,7 +620,9 @@ impl PledgeStackAdapter {
         if !server_dir.exists() || !server_dir.is_dir() {
             return Ok(());
         }
-        for candidate in &["lib.rs", "lib.psx", "lib.ps", "main.rs", "main.psx", "main.ps"] {
+        for candidate in &[
+            "lib.rs", "lib.psx", "lib.ps", "main.rs", "main.psx", "main.ps",
+        ] {
             let path = server_dir.join(candidate);
             if path.exists() {
                 self.server_entry = Some(path);
@@ -563,7 +657,8 @@ impl PledgeStackAdapter {
         for route in &self.backend_routes {
             if route.ext == BackendExt::Psx || route.ext == BackendExt::Ps {
                 let src = self.root.join(&route.file);
-                let rel = route.file
+                let rel = route
+                    .file
                     .strip_suffix(".psx")
                     .or_else(|| route.file.strip_suffix(".ps"))
                     .unwrap_or(&route.file);
@@ -579,7 +674,8 @@ impl PledgeStackAdapter {
         for mw in &self.middleware {
             if mw.ext == BackendExt::Psx || mw.ext == BackendExt::Ps {
                 let src = self.root.join(&mw.file);
-                let rel = mw.file
+                let rel = mw
+                    .file
                     .strip_suffix(".psx")
                     .or_else(|| mw.file.strip_suffix(".ps"))
                     .unwrap_or(&mw.file);
@@ -632,13 +728,9 @@ impl PledgeStackAdapter {
 fn extract_params(path: &str) -> Vec<String> {
     path.split('/')
         .filter_map(|seg| {
-            if seg.starts_with(':') {
-                Some(seg[1..].to_string())
-            } else if seg.starts_with('*') {
-                Some(seg[1..].to_string())
-            } else {
-                None
-            }
+            seg.strip_prefix(':')
+                .or_else(|| seg.strip_prefix('*'))
+                .map(|rest| rest.to_string())
         })
         .collect()
 }
@@ -649,16 +741,16 @@ fn parse_route_segment(name: &str) -> String {
     if name.starts_with("[[") && name.ends_with("]]") {
         // Optional catch-all: [[...slug]]
         let inner = &name[2..name.len() - 2];
-        if inner.starts_with("...") {
-            return format!("*{}", &inner[3..]);
+        if let Some(rest) = inner.strip_prefix("...") {
+            return format!("*{}", rest);
         }
         return name.to_string();
     }
     if name.starts_with('[') && name.ends_with(']') {
         let inner = &name[1..name.len() - 1];
-        if inner.starts_with("...") {
+        if let Some(rest) = inner.strip_prefix("...") {
             // Catch-all: [...slug]
-            return format!("*{}", &inner[3..]);
+            return format!("*{}", rest);
         }
         // Dynamic param: [slug]
         return format!(":{}", inner);
@@ -689,20 +781,21 @@ fn relative_path(root: &Path, path: &Path) -> String {
 fn detect_route_methods(path: &Path) -> Vec<String> {
     let content = std::fs::read_to_string(path).unwrap_or_default();
     let mut methods = Vec::new();
-    
+
     for method in &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"] {
         // Check for export const GET = ... or export function GET() ...
         let export_const = format!("export const {}", method);
         let export_fn = format!("export function {}", method);
         let export_async = format!("export async function {}", method);
-        
-        if content.contains(&export_const) 
-            || content.contains(&export_fn) 
-            || content.contains(&export_async) {
+
+        if content.contains(&export_const)
+            || content.contains(&export_fn)
+            || content.contains(&export_async)
+        {
             methods.push(method.to_string());
         }
     }
-    
+
     if methods.is_empty() {
         methods.push("GET".to_string());
     }
@@ -743,35 +836,35 @@ fn extract_backend_routes(
     for line in content.lines() {
         let trimmed = line.trim();
 
-        if trimmed.starts_with("#[route(") || trimmed.starts_with("#[pledge::route(") {
-            if let Some((method, route_path)) = parse_route_attr(trimmed) {
-                // Combine directory prefix with route path
-                let full_path = if route_path.starts_with('/') {
-                    if prefix.is_empty() {
-                        route_path.clone()
-                    } else {
-                        format!("{}{}", prefix, route_path)
-                    }
+        if (trimmed.starts_with("#[route(") || trimmed.starts_with("#[pledge::route("))
+            && let Some((method, route_path)) = parse_route_attr(trimmed)
+        {
+            // Combine directory prefix with route path
+            let full_path = if route_path.starts_with('/') {
+                if prefix.is_empty() {
+                    route_path.clone()
                 } else {
-                    format!("{}/{}", prefix, route_path)
-                };
-                pending = Some((method, full_path));
-            }
+                    format!("{}{}", prefix, route_path)
+                }
+            } else {
+                format!("{}/{}", prefix, route_path)
+            };
+            pending = Some((method, full_path));
         }
 
-        if let Some((method, route_path)) = &pending {
-            if let Some(fn_name) = extract_fn_name(trimmed) {
-                let params = extract_params(route_path);
-                routes.push(BackendRoute {
-                    method: method.clone(),
-                    path: route_path.clone(),
-                    file: rel_file.clone(),
-                    handler: fn_name,
-                    ext,
-                    params,
-                });
-                pending = None;
-            }
+        if let Some((method, route_path)) = &pending
+            && let Some(fn_name) = extract_fn_name(trimmed)
+        {
+            let params = extract_params(route_path);
+            routes.push(BackendRoute {
+                method: method.clone(),
+                path: route_path.clone(),
+                file: rel_file.clone(),
+                handler: fn_name,
+                ext,
+                params,
+            });
+            pending = None;
         }
     }
 
@@ -852,7 +945,10 @@ mod tests {
     #[test]
     fn test_extract_params() {
         assert_eq!(extract_params("/blog/:slug"), vec!["slug"]);
-        assert_eq!(extract_params("/api/users/:id/posts/:post_id"), vec!["id", "post_id"]);
+        assert_eq!(
+            extract_params("/api/users/:id/posts/:post_id"),
+            vec!["id", "post_id"]
+        );
         assert_eq!(extract_params("/"), Vec::<String>::new());
     }
 
@@ -871,13 +967,22 @@ mod tests {
     #[test]
     fn test_parse_route_attr_kv() {
         let result = parse_route_attr(r#"#[route(method = "DELETE", path = "/api/users/:id")]"#);
-        assert_eq!(result, Some(("DELETE".to_string(), "/api/users/:id".to_string())));
+        assert_eq!(
+            result,
+            Some(("DELETE".to_string(), "/api/users/:id".to_string()))
+        );
     }
 
     #[test]
     fn test_extract_fn_name() {
-        assert_eq!(extract_fn_name("pub async fn list_users("), Some("list_users".to_string()));
-        assert_eq!(extract_fn_name("pub fn handler("), Some("handler".to_string()));
+        assert_eq!(
+            extract_fn_name("pub async fn list_users("),
+            Some("list_users".to_string())
+        );
+        assert_eq!(
+            extract_fn_name("pub fn handler("),
+            Some("handler".to_string())
+        );
         assert_eq!(extract_fn_name("fn not_pub("), Some("not_pub".to_string()));
         assert_eq!(extract_fn_name("not a function"), None);
     }

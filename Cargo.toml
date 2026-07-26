@@ -39,17 +39,17 @@ tower-http = { version = "0.6", features = ["fs", "cors"] }
 tokio-tungstenite = "0.26"
 
 # Oxc for JS/TS/JSX compilation
-oxc = { version = "0.36", features = ["parser", "transformer", "codegen", "minifier", "semantic"] }
+oxc = { version = "0.141", features = ["transformer", "codegen", "minifier", "semantic", "ast_visit"] }
 
 # Lightning CSS
-lightningcss = "1.0.0-alpha.71"
+lightningcss = "1.0.0-alpha.72"
 
 # Hashing (for cache keys and SRI)
 blake3 = "1"
 sha2 = "0.10"
 
 # Base64 encoding for inline assets
-base64 = "0.22"
+base64 = "0.23"
 
 # Image processing (decode, resize, encode WebP/JPEG/PNG)
 image = { version = "0.25", features = ["jpeg", "png", "webp", "gif"] }
@@ -68,7 +68,7 @@ clap = { version = "4", features = ["derive"] }
 # CLI UX
 clap_complete = "4"
 indicatif = "0.18"
-inquire = "0.7"
+inquire = "0.9"
 
 # File watching
 notify = "8"
@@ -86,7 +86,7 @@ dashmap = "6"
 
 # Global allocator (performance)
 mimalloc = "0.1"
-tikv-jemallocator = { version = "0.6" }
+tikv-jemallocator = { version = "0.7" }
 
 # Typed UTF-8 paths
 camino = "1"
@@ -104,13 +104,13 @@ memmap2 = "0.9"
 comfy-table = "7"
 
 # YAML parsing
-serde_yml = "0.0.12"
+serde_yml = "0.0.13"
 
 # Source-context error diagnostics
 miette = { version = "7", features = ["fancy"] }
 
 # Man page generation
-clap_mangen = "0.2"
+clap_mangen = "0.3"
 
 # Human-readable file sizes
 humansize = "2"
@@ -119,7 +119,7 @@ humansize = "2"
 similar = { version = "2", features = ["text"] }
 
 # Cross-platform browser opening
-opener = "0.7"
+opener = "0.8"
 
 # Local IP address detection for network URL display
 local-ip-address = "0.6"
@@ -131,10 +131,10 @@ schemars = "1"
 grass = "0.13"
 
 # TOML parsing
-toml = "0.8"
+toml = "1.1"
 
 # HTTP client for plugin registry
-ureq = { version = "2", features = ["json"] }
+ureq = { version = "3", features = ["json"] }
 
 # Internal crates
 pledgepack-core = { path = "crates/core" }

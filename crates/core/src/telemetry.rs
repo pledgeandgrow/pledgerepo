@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::Path;
 use tracing::info;
 
 /// A single build history entry
@@ -41,7 +41,7 @@ pub struct BuildHistory {
 
 impl BuildHistory {
     /// Load history from .pledge/history.json
-    pub fn load(root: &PathBuf) -> Result<Self> {
+    pub fn load(root: &Path) -> Result<Self> {
         let path = root.join(".pledge").join("history.json");
         if path.exists() {
             let content = std::fs::read_to_string(&path)?;
@@ -52,7 +52,7 @@ impl BuildHistory {
     }
 
     /// Save history to .pledge/history.json
-    pub fn save(&self, root: &PathBuf) -> Result<()> {
+    pub fn save(&self, root: &Path) -> Result<()> {
         let dir = root.join(".pledge");
         std::fs::create_dir_all(&dir)?;
         let path = dir.join("history.json");
@@ -95,8 +95,9 @@ impl BuildHistory {
 }
 
 /// Record a build result into history
+#[allow(clippy::too_many_arguments)]
 pub fn record_build(
-    root: &PathBuf,
+    root: &Path,
     duration_ms: u128,
     modules_built: usize,
     modules_cached: usize,
@@ -134,7 +135,10 @@ pub fn record_build(
     });
 
     history.save(root)?;
-    info!("Telemetry: build recorded ({}ms, {} modules)", duration_ms, total_modules);
+    info!(
+        "Telemetry: build recorded ({}ms, {} modules)",
+        duration_ms, total_modules
+    );
     Ok(())
 }
 
@@ -146,7 +150,9 @@ pub fn generate_dashboard_html(history: &BuildHistory) -> String {
 
     let recent: Vec<&BuildRecord> = history.builds.iter().rev().take(20).collect();
 
-    let chart_data: String = recent.iter().rev()
+    let chart_data: String = recent
+        .iter()
+        .rev()
         .map(|r| format!("{{\"x\":{},\"y\":{}}}", r.timestamp, r.duration_ms))
         .collect::<Vec<_>>()
         .join(",");
@@ -226,6 +232,10 @@ pub fn generate_dashboard_html(history: &BuildHistory) -> String {
     </script>
 </body>
 </html>"#,
-        total_builds, avg_ms, avg_cache * 100.0, table_rows, chart_data,
+        total_builds,
+        avg_ms,
+        avg_cache * 100.0,
+        table_rows,
+        chart_data,
     )
 }

@@ -7,17 +7,23 @@
 //   - HMR accept code injection
 
 use anyhow::Result;
-use pledgepack_core::module::ModuleKind;
 use oxc::allocator::Allocator;
+use oxc::codegen::{Codegen, CodegenOptions};
 use oxc::parser::{Parser, ParserReturn};
 use oxc::span::SourceType;
-use oxc::transformer::{Transformer, TransformOptions, JsxRuntime};
-use oxc::codegen::{Codegen, CodegenOptions};
+use oxc::transformer::{JsxRuntime, TransformOptions, Transformer};
+use pledgepack_core::module::ModuleKind;
 use std::path::Path;
 
 pub struct ReactAdapter {
     /// Use automatic JSX runtime (React 17+)
     automatic_runtime: bool,
+}
+
+impl Default for ReactAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ReactAdapter {
@@ -38,23 +44,29 @@ impl ReactAdapter {
         let allocator = Allocator::default();
         let path = Path::new(file_path);
 
-        let source_type = SourceType::from_path(path).unwrap_or_else(|_| {
-            match kind {
-                ModuleKind::Tsx | ModuleKind::Psx => SourceType::tsx(),
-                ModuleKind::TypeScript => SourceType::ts(),
-                ModuleKind::Jsx => SourceType::jsx(),
-                _ => SourceType::mjs(),
-            }
+        let source_type = SourceType::from_path(path).unwrap_or_else(|_| match kind {
+            ModuleKind::Tsx | ModuleKind::Psx => SourceType::tsx(),
+            ModuleKind::TypeScript => SourceType::ts(),
+            ModuleKind::Jsx => SourceType::jsx(),
+            _ => SourceType::mjs(),
         });
 
-        let ParserReturn { mut program, errors: parser_errors, panicked, .. } =
-            Parser::new(&allocator, source, source_type).parse();
+        let ParserReturn {
+            mut program,
+            diagnostics: parser_errors,
+            panicked,
+            ..
+        } = Parser::new(&allocator, source, source_type).parse();
 
-        if panicked || !parser_errors.is_empty() {
-            if panicked {
-                anyhow::bail!("Failed to parse {}: {}", file_path,
-                    parser_errors.first().map(|e| e.to_string()).unwrap_or("unknown".into()));
-            }
+        if (panicked || !parser_errors.is_empty()) && panicked {
+            anyhow::bail!(
+                "Failed to parse {}: {}",
+                file_path,
+                parser_errors
+                    .first()
+                    .map(|e| e.to_string())
+                    .unwrap_or("unknown".into())
+            );
         }
 
         let mut options = TransformOptions::default();
@@ -72,12 +84,12 @@ impl ReactAdapter {
             .with_check_syntax_error(false)
             .build(&program);
 
+        let scoping = semantic_result.semantic.into_scoping();
         let transformer = Transformer::new(&allocator, path, &options);
-        let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
-        let transform_result = transformer.build_with_symbols_and_scopes(symbols, scopes, &mut program);
+        let transform_result = transformer.build_with_scoping(scoping, &mut program);
 
-        if !transform_result.errors.is_empty() {
-            for err in &transform_result.errors {
+        if !transform_result.diagnostics.is_empty() {
+            for err in &transform_result.diagnostics {
                 tracing::warn!("Transform error in {}: {:?}", file_path, err);
             }
         }
@@ -149,7 +161,7 @@ fn extract_function_name(line: &str) -> Option<String> {
 
 fn extract_const_name(line: &str) -> Option<String> {
     let after_const = line.strip_prefix("const ")?;
-    let end = after_const.find(|c: char| c == '=' || c == ' ' || c == ':')?;
+    let end = after_const.find(['=', ' ', ':'])?;
     Some(after_const[..end].trim().to_string())
 }
 
@@ -171,31 +183,30 @@ fn detect_react_components(code: &str) -> Vec<String> {
     for line in code.lines() {
         let trimmed = line.trim();
 
-        if trimmed.starts_with("function ") && trimmed.contains('(') && !trimmed.starts_with("function use") {
-            if let Some(name) = extract_function_name(trimmed) {
-                if is_component_name(&name) {
-                    components.push(name);
-                }
-            }
+        if trimmed.starts_with("function ")
+            && trimmed.contains('(')
+            && !trimmed.starts_with("function use")
+            && let Some(name) = extract_function_name(trimmed)
+            && is_component_name(&name)
+        {
+            components.push(name);
         }
 
         if (trimmed.starts_with("const ") || trimmed.starts_with("export const "))
             && (trimmed.contains("= (") || trimmed.contains("= function"))
             && !trimmed.contains("=> {}")
+            && let Some(name) = extract_const_name(trimmed)
+            && is_component_name(&name)
         {
-            if let Some(name) = extract_const_name(trimmed) {
-                if is_component_name(&name) {
-                    components.push(name);
-                }
-            }
+            components.push(name);
         }
 
-        if trimmed.starts_with("export default function ") {
-            if let Some(name) = extract_function_name(trimmed.strip_prefix("export default ").unwrap_or(trimmed)) {
-                if is_component_name(&name) {
-                    components.push(name);
-                }
-            }
+        if trimmed.starts_with("export default function ")
+            && let Some(name) =
+                extract_function_name(trimmed.strip_prefix("export default ").unwrap_or(trimmed))
+            && is_component_name(&name)
+        {
+            components.push(name);
         }
     }
     components

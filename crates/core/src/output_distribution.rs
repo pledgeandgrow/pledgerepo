@@ -13,9 +13,7 @@ use std::collections::HashMap;
 /// Compile asset budget patterns into a GlobSet for efficient matching.
 /// Returns (globset, fallback_map) so callers can match asset paths against
 /// both glob patterns and plain string keys.
-pub fn compile_asset_budget_globset(
-    asset_budgets: &HashMap<String, usize>,
-) -> globset::GlobSet {
+pub fn compile_asset_budget_globset(asset_budgets: &HashMap<String, usize>) -> globset::GlobSet {
     let mut builder = globset::GlobSetBuilder::new();
     for key in asset_budgets.keys() {
         if let Ok(glob) = globset::Glob::new(key) {
@@ -48,9 +46,9 @@ impl Default for PerformanceBudget {
     fn default() -> Self {
         Self {
             max_total_size: Some(2 * 1024 * 1024), // 2MB
-            max_entry_size: Some(500 * 1024),       // 500KB
-            max_chunk_size: Some(300 * 1024),       // 300KB
-            max_initial_size: Some(1 * 1024 * 1024), // 1MB
+            max_entry_size: Some(500 * 1024),      // 500KB
+            max_chunk_size: Some(300 * 1024),      // 300KB
+            max_initial_size: Some(1024 * 1024),   // 1MB
             asset_budgets: HashMap::new(),
             max_warnings: 0,
         }
@@ -97,8 +95,8 @@ pub struct BudgetCheckResult {
 
 /// Check bundle sizes against performance budget
 pub fn check_budget(
-    entries: &[(String, usize)],  // (entry name, size in bytes)
-    chunks: &[(String, usize)],   // (chunk name, size in bytes)
+    entries: &[(String, usize)],        // (entry name, size in bytes)
+    chunks: &[(String, usize)],         // (chunk name, size in bytes)
     assets: &[(String, String, usize)], // (asset name, type, size in bytes)
     budget: &PerformanceBudget,
 ) -> BudgetCheckResult {
@@ -108,19 +106,19 @@ pub fn check_budget(
     // Check total size
     let total: usize = entries.iter().map(|(_, s)| s).sum::<usize>()
         + chunks.iter().map(|(_, s)| s).sum::<usize>();
-    if let Some(max_total) = budget.max_total_size {
-        if total > max_total {
-            violations.push(BudgetViolation {
-                category: BudgetCategory::Total,
-                actual: total,
-                limit: max_total,
-                message: format!(
-                    "Total bundle size {} exceeds budget {}",
-                    format_bytes(total),
-                    format_bytes(max_total)
-                ),
-            });
-        }
+    if let Some(max_total) = budget.max_total_size
+        && total > max_total
+    {
+        violations.push(BudgetViolation {
+            category: BudgetCategory::Total,
+            actual: total,
+            limit: max_total,
+            message: format!(
+                "Total bundle size {} exceeds budget {}",
+                format_bytes(total),
+                format_bytes(max_total)
+            ),
+        });
     }
 
     // Check entry sizes
@@ -162,41 +160,41 @@ pub fn check_budget(
     }
 
     // Check initial load size (first entry + its chunks)
-    if let Some(max_initial) = budget.max_initial_size {
-        if let Some((_, entry_size)) = entries.first() {
-            let initial_total = entry_size + chunks.iter().map(|(_, s)| s).sum::<usize>();
-            if initial_total > max_initial {
-                violations.push(BudgetViolation {
-                    category: BudgetCategory::Initial,
-                    actual: initial_total,
-                    limit: max_initial,
-                    message: format!(
-                        "Initial load size {} exceeds budget {}",
-                        format_bytes(initial_total),
-                        format_bytes(max_initial)
-                    ),
-                });
-            }
+    if let Some(max_initial) = budget.max_initial_size
+        && let Some((_, entry_size)) = entries.first()
+    {
+        let initial_total = entry_size + chunks.iter().map(|(_, s)| s).sum::<usize>();
+        if initial_total > max_initial {
+            violations.push(BudgetViolation {
+                category: BudgetCategory::Initial,
+                actual: initial_total,
+                limit: max_initial,
+                message: format!(
+                    "Initial load size {} exceeds budget {}",
+                    format_bytes(initial_total),
+                    format_bytes(max_initial)
+                ),
+            });
         }
     }
 
     // Check asset-type budgets
     for (name, asset_type, size) in assets {
-        if let Some(max_asset) = budget.asset_budgets.get(asset_type) {
-            if *size > *max_asset {
-                violations.push(BudgetViolation {
-                    category: BudgetCategory::Asset,
-                    actual: *size,
-                    limit: *max_asset,
-                    message: format!(
-                        "Asset '{}' ({}) size {} exceeds budget {}",
-                        name,
-                        asset_type,
-                        format_bytes(*size),
-                        format_bytes(*max_asset)
-                    ),
-                });
-            }
+        if let Some(max_asset) = budget.asset_budgets.get(asset_type)
+            && *size > *max_asset
+        {
+            violations.push(BudgetViolation {
+                category: BudgetCategory::Asset,
+                actual: *size,
+                limit: *max_asset,
+                message: format!(
+                    "Asset '{}' ({}) size {} exceeds budget {}",
+                    name,
+                    asset_type,
+                    format_bytes(*size),
+                    format_bytes(*max_asset)
+                ),
+            });
         }
     }
 
@@ -260,16 +258,10 @@ pub fn diff_snapshots(
     new: &BundleSizeSnapshot,
     regression_threshold: usize, // bytes
 ) -> BundleSizeDiff {
-    let old_map: HashMap<&str, &BundleEntry> = old
-        .entries
-        .iter()
-        .map(|e| (e.name.as_str(), e))
-        .collect();
-    let new_map: HashMap<&str, &BundleEntry> = new
-        .entries
-        .iter()
-        .map(|e| (e.name.as_str(), e))
-        .collect();
+    let old_map: HashMap<&str, &BundleEntry> =
+        old.entries.iter().map(|e| (e.name.as_str(), e)).collect();
+    let new_map: HashMap<&str, &BundleEntry> =
+        new.entries.iter().map(|e| (e.name.as_str(), e)).collect();
 
     let mut added = Vec::new();
     let mut removed = Vec::new();
@@ -305,7 +297,8 @@ pub fn diff_snapshots(
 
     let total_size_delta = new.total_size as i64 - old.total_size as i64;
     let total_gzip_delta = new.total_gzip_size as i64 - old.total_gzip_size as i64;
-    let has_regressions = changed.iter().any(|c| c.is_regression) || total_size_delta > regression_threshold as i64;
+    let has_regressions =
+        changed.iter().any(|c| c.is_regression) || total_size_delta > regression_threshold as i64;
 
     BundleSizeDiff {
         added,
@@ -326,13 +319,15 @@ pub fn format_diff_report(diff: &BundleSizeDiff) -> String {
     report.push_str("# Bundle Size Diff\n\n");
 
     if diff.total_size_delta != 0 {
-        let pct = if diff.old_total_size > 0 { diff.total_size_delta as f64 / diff.old_total_size as f64 * 100.0 } else { 0.0 };
+        let pct = if diff.old_total_size > 0 {
+            diff.total_size_delta as f64 / diff.old_total_size as f64 * 100.0
+        } else {
+            0.0
+        };
         let sign = if diff.total_size_delta > 0 { "+" } else { "" };
         report.push_str(&format!(
             "**Total size:** {}{} bytes ({:+.2}%)\n\n",
-            sign,
-            diff.total_size_delta,
-            pct
+            sign, diff.total_size_delta, pct
         ));
     }
 
@@ -359,12 +354,7 @@ pub fn format_diff_report(diff: &BundleSizeDiff) -> String {
             let marker = if entry.is_regression { " ⚠️" } else { "" };
             report.push_str(&format!(
                 "- **{}**: {} → {} bytes ({}{}){}\n",
-                entry.name,
-                entry.old_size,
-                entry.new_size,
-                sign,
-                entry.size_delta,
-                marker
+                entry.name, entry.old_size, entry.new_size, sign, entry.size_delta, marker
             ));
         }
     }
@@ -441,7 +431,11 @@ fn insert_into_tree(node: &mut ModuleContribution, parts: &[&str], full_path: &s
         None => {
             let mut child = ModuleContribution {
                 module_id: first.to_string(),
-                file_path: if parts.len() == 1 { full_path.to_string() } else { first.to_string() },
+                file_path: if parts.len() == 1 {
+                    full_path.to_string()
+                } else {
+                    first.to_string()
+                },
                 size: 0,
                 source_map_size: 0,
                 children: Vec::new(),
@@ -646,7 +640,10 @@ fn convert_esm_to_cjs(source: &str, _module_name: &str) -> String {
 
         // Convert: export const foo = ... → const foo = ...; exports.foo = foo
         if let Some(rest) = trimmed.strip_prefix("export const ") {
-            let name = rest.split(|c: char| c == '=' || c.is_whitespace()).next().unwrap_or("");
+            let name = rest
+                .split(|c: char| c == '=' || c.is_whitespace())
+                .next()
+                .unwrap_or("");
             if !name.is_empty() {
                 export_names.push(name.to_string());
             }
@@ -657,7 +654,10 @@ fn convert_esm_to_cjs(source: &str, _module_name: &str) -> String {
 
         // Convert: export function foo() → function foo(); exports.foo = foo
         if let Some(rest) = trimmed.strip_prefix("export function ") {
-            let name = rest.split(|c: char| c == '(' || c.is_whitespace()).next().unwrap_or("");
+            let name = rest
+                .split(|c: char| c == '(' || c.is_whitespace())
+                .next()
+                .unwrap_or("");
             if !name.is_empty() {
                 export_names.push(name.to_string());
             }
@@ -668,7 +668,10 @@ fn convert_esm_to_cjs(source: &str, _module_name: &str) -> String {
 
         // Convert: export class Foo → class Foo; exports.Foo = Foo
         if let Some(rest) = trimmed.strip_prefix("export class ") {
-            let name = rest.split(|c: char| c == '{' || c.is_whitespace()).next().unwrap_or("");
+            let name = rest
+                .split(|c: char| c == '{' || c.is_whitespace())
+                .next()
+                .unwrap_or("");
             if !name.is_empty() {
                 export_names.push(name.to_string());
             }
@@ -701,7 +704,7 @@ fn convert_esm_to_cjs(source: &str, _module_name: &str) -> String {
 
     // Add exports assignments
     if !export_names.is_empty() {
-        result.push_str("\n");
+        result.push('\n');
         for name in &export_names {
             result.push_str(&format!("exports.{} = {};\n", name, name));
         }
@@ -786,17 +789,27 @@ mod tests {
 
         let result = check_budget(&entries, &chunks, &assets, &budget);
         assert!(!result.passed);
-        assert!(result.violations.iter().any(|v| v.category == BudgetCategory::Entry));
+        assert!(
+            result
+                .violations
+                .iter()
+                .any(|v| v.category == BudgetCategory::Entry)
+        );
     }
 
     #[test]
     fn test_budget_check_total() {
         let entries = vec![("a.js".to_string(), 2 * 1024 * 1024)];
-        let chunks = vec![("b.js".to_string(), 1 * 1024 * 1024)];
+        let chunks = vec![("b.js".to_string(), 1024 * 1024)];
         let budget = PerformanceBudget::default();
 
         let result = check_budget(&entries, &chunks, &[], &budget);
-        assert!(result.violations.iter().any(|v| v.category == BudgetCategory::Total));
+        assert!(
+            result
+                .violations
+                .iter()
+                .any(|v| v.category == BudgetCategory::Total)
+        );
     }
 
     #[test]

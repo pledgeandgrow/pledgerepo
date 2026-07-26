@@ -108,7 +108,12 @@ impl RemoteCache {
 
     fn build_url(&self, key: &str) -> String {
         let endpoint = self.config.endpoint.trim_end_matches('/');
-        let ns = self.config.namespace.as_deref().map(|n| n.trim_start_matches('/')).unwrap_or("");
+        let ns = self
+            .config
+            .namespace
+            .as_deref()
+            .map(|n| n.trim_start_matches('/'))
+            .unwrap_or("");
         if ns.is_empty() {
             format!("{}/cache/{}", endpoint, key)
         } else {
@@ -121,12 +126,21 @@ impl RemoteCache {
         debug!("Remote cache GET: {}", url);
 
         let output = std::process::Command::new("curl")
-            .args(["-s", "-f", "--max-time", &self.config.timeout_secs.to_string(), &url])
+            .args([
+                "-s",
+                "-f",
+                "--max-time",
+                &self.config.timeout_secs.to_string(),
+                &url,
+            ])
             .output();
 
         match output {
             Ok(result) if result.status.success() && !result.stdout.is_empty() => {
-                match bincode::serde::decode_from_slice::<RemoteCacheEntry, _>(&result.stdout, bincode::config::standard()) {
+                match bincode::serde::decode_from_slice::<RemoteCacheEntry, _>(
+                    &result.stdout,
+                    bincode::config::standard(),
+                ) {
                     Ok((entry, _)) => {
                         info!("Remote cache hit: {}", key);
                         Ok(Some(entry))
@@ -156,10 +170,16 @@ impl RemoteCache {
 
         let output = std::process::Command::new("curl")
             .args([
-                "-s", "-f", "--max-time", &self.config.timeout_secs.to_string(),
-                "-X", "PUT",
-                "-H", "Content-Type: application/octet-stream",
-                "--data-binary", &format!("@{}", temp_file.to_string_lossy()),
+                "-s",
+                "-f",
+                "--max-time",
+                &self.config.timeout_secs.to_string(),
+                "-X",
+                "PUT",
+                "-H",
+                "Content-Type: application/octet-stream",
+                "--data-binary",
+                &format!("@{}", temp_file.to_string_lossy()),
                 &url,
             ])
             .output();
@@ -182,15 +202,29 @@ impl RemoteCache {
         let bucket = self.config.bucket.as_deref().unwrap_or("pledgepack-cache");
         let region = self.config.region.as_deref().unwrap_or("us-east-1");
         let ns = self.config.namespace.as_deref().unwrap_or("");
-        let object_key = if ns.is_empty() { key.to_string() } else { format!("{}/{}", ns, key) };
+        let object_key = if ns.is_empty() {
+            key.to_string()
+        } else {
+            format!("{}/{}", ns, key)
+        };
 
         let output = std::process::Command::new("aws")
-            .args(["s3", "cp", &format!("s3://{}/{}", bucket, object_key), "-", "--region", region])
+            .args([
+                "s3",
+                "cp",
+                &format!("s3://{}/{}", bucket, object_key),
+                "-",
+                "--region",
+                region,
+            ])
             .output();
 
         match output {
             Ok(result) if result.status.success() && !result.stdout.is_empty() => {
-                match bincode::serde::decode_from_slice::<RemoteCacheEntry, _>(&result.stdout, bincode::config::standard()) {
+                match bincode::serde::decode_from_slice::<RemoteCacheEntry, _>(
+                    &result.stdout,
+                    bincode::config::standard(),
+                ) {
                     Ok((entry, _)) => {
                         info!("S3 cache hit: {}/{}", bucket, object_key);
                         Ok(Some(entry))
@@ -212,14 +246,26 @@ impl RemoteCache {
         let bucket = self.config.bucket.as_deref().unwrap_or("pledgepack-cache");
         let region = self.config.region.as_deref().unwrap_or("us-east-1");
         let ns = self.config.namespace.as_deref().unwrap_or("");
-        let object_key = if ns.is_empty() { key.to_string() } else { format!("{}/{}", ns, key) };
+        let object_key = if ns.is_empty() {
+            key.to_string()
+        } else {
+            format!("{}/{}", ns, key)
+        };
 
         let data = bincode::serde::encode_to_vec(entry, bincode::config::standard())?;
-        let temp_file = std::env::temp_dir().join(format!("pledgepack_s3_{}", blake3::hash(&data).to_hex()));
+        let temp_file =
+            std::env::temp_dir().join(format!("pledgepack_s3_{}", blake3::hash(&data).to_hex()));
         std::fs::write(&temp_file, &data)?;
 
         let output = std::process::Command::new("aws")
-            .args(["s3", "cp", &temp_file.to_string_lossy(), &format!("s3://{}/{}", bucket, object_key), "--region", region])
+            .args([
+                "s3",
+                "cp",
+                &temp_file.to_string_lossy(),
+                &format!("s3://{}/{}", bucket, object_key),
+                "--region",
+                region,
+            ])
             .output();
 
         let _ = std::fs::remove_file(&temp_file);
@@ -239,7 +285,11 @@ impl RemoteCache {
     fn gcs_get(&self, key: &str) -> Result<Option<RemoteCacheEntry>> {
         let bucket = self.config.bucket.as_deref().unwrap_or("pledgepack-cache");
         let ns = self.config.namespace.as_deref().unwrap_or("");
-        let object_key = if ns.is_empty() { key.to_string() } else { format!("{}/{}", ns, key) };
+        let object_key = if ns.is_empty() {
+            key.to_string()
+        } else {
+            format!("{}/{}", ns, key)
+        };
 
         let output = std::process::Command::new("gsutil")
             .args(["cp", &format!("gs://{}/{}", bucket, object_key), "-"])
@@ -247,7 +297,10 @@ impl RemoteCache {
 
         match output {
             Ok(result) if result.status.success() && !result.stdout.is_empty() => {
-                match bincode::serde::decode_from_slice::<RemoteCacheEntry, _>(&result.stdout, bincode::config::standard()) {
+                match bincode::serde::decode_from_slice::<RemoteCacheEntry, _>(
+                    &result.stdout,
+                    bincode::config::standard(),
+                ) {
                     Ok((entry, _)) => {
                         info!("GCS cache hit: {}/{}", bucket, object_key);
                         Ok(Some(entry))
@@ -268,14 +321,23 @@ impl RemoteCache {
     fn gcs_set(&self, key: &str, entry: &RemoteCacheEntry) -> Result<()> {
         let bucket = self.config.bucket.as_deref().unwrap_or("pledgepack-cache");
         let ns = self.config.namespace.as_deref().unwrap_or("");
-        let object_key = if ns.is_empty() { key.to_string() } else { format!("{}/{}", ns, key) };
+        let object_key = if ns.is_empty() {
+            key.to_string()
+        } else {
+            format!("{}/{}", ns, key)
+        };
 
         let data = bincode::serde::encode_to_vec(entry, bincode::config::standard())?;
-        let temp_file = std::env::temp_dir().join(format!("pledgepack_gcs_{}", blake3::hash(&data).to_hex()));
+        let temp_file =
+            std::env::temp_dir().join(format!("pledgepack_gcs_{}", blake3::hash(&data).to_hex()));
         std::fs::write(&temp_file, &data)?;
 
         let output = std::process::Command::new("gsutil")
-            .args(["cp", &temp_file.to_string_lossy(), &format!("gs://{}/{}", bucket, object_key)])
+            .args([
+                "cp",
+                &temp_file.to_string_lossy(),
+                &format!("gs://{}/{}", bucket, object_key),
+            ])
             .output();
 
         let _ = std::fs::remove_file(&temp_file);

@@ -66,25 +66,23 @@ impl TailwindV4Theme {
 
         for candidate in &candidates {
             let path = root.join(candidate);
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if content.contains("@import \"tailwindcss\"")
+            if let Ok(content) = std::fs::read_to_string(&path)
+                && (content.contains("@import \"tailwindcss\"")
                     || content.contains("@import 'tailwindcss'")
-                    || content.contains("@theme")
-                {
-                    return true;
-                }
+                    || content.contains("@theme"))
+            {
+                return true;
             }
         }
 
         // Also check for @tailwindcss/vite or @tailwindcss/postcss in package.json
         let pkg_path = root.join("package.json");
-        if let Ok(content) = std::fs::read_to_string(&pkg_path) {
-            if content.contains("@tailwindcss/vite")
+        if let Ok(content) = std::fs::read_to_string(&pkg_path)
+            && (content.contains("@tailwindcss/vite")
                 || content.contains("@tailwindcss/postcss")
-                || content.contains("\"tailwindcss\": \"^4")
-            {
-                return true;
-            }
+                || content.contains("\"tailwindcss\": \"^4"))
+        {
+            return true;
         }
 
         false
@@ -150,19 +148,19 @@ fn parse_theme_block(css: &str) -> HashMap<String, String> {
             // Parse CSS custom properties: --name: value;
             for line in block.lines() {
                 let trimmed = line.trim();
-                if trimmed.starts_with("--") {
-                    if let Some(colon) = trimmed.find(':') {
-                        let name = trimmed[..colon].trim().to_string();
-                        let value = trimmed[colon + 1..]
-                            .trim()
-                            .trim_end_matches(';')
-                            .trim()
-                            .to_string();
-                        if !name.is_empty() && !value.is_empty() {
-                            // Strip the leading -- for the key
-                            let clean_name = name.strip_prefix("--").unwrap_or(&name).to_string();
-                            props.insert(clean_name, value);
-                        }
+                if trimmed.starts_with("--")
+                    && let Some(colon) = trimmed.find(':')
+                {
+                    let name = trimmed[..colon].trim().to_string();
+                    let value = trimmed[colon + 1..]
+                        .trim()
+                        .trim_end_matches(';')
+                        .trim()
+                        .to_string();
+                    if !name.is_empty() && !value.is_empty() {
+                        // Strip the leading -- for the key
+                        let clean_name = name.strip_prefix("--").unwrap_or(&name).to_string();
+                        props.insert(clean_name, value);
                     }
                 }
             }
@@ -235,11 +233,20 @@ fn generate_theme_utilities(theme: &TailwindV4Theme) -> String {
     // Color utilities: bg-{name}, text-{name}, border-{name}
     for (name, value) in theme.colors() {
         let color_name = name.strip_prefix("color-").unwrap_or(name);
-        css.push_str(&format!(".bg-{} {{ background-color: {}; }}\n", color_name, value));
+        css.push_str(&format!(
+            ".bg-{} {{ background-color: {}; }}\n",
+            color_name, value
+        ));
         css.push_str(&format!(".text-{} {{ color: {}; }}\n", color_name, value));
-        css.push_str(&format!(".border-{} {{ border-color: {}; }}\n", color_name, value));
+        css.push_str(&format!(
+            ".border-{} {{ border-color: {}; }}\n",
+            color_name, value
+        ));
         css.push_str(&format!(".fill-{} {{ fill: {}; }}\n", color_name, value));
-        css.push_str(&format!(".stroke-{} {{ stroke: {}; }}\n", color_name, value));
+        css.push_str(&format!(
+            ".stroke-{} {{ stroke: {}; }}\n",
+            color_name, value
+        ));
     }
 
     // Spacing utilities: p-{n}, m-{n}, gap-{n}, w-{n}, h-{n}
@@ -398,7 +405,7 @@ fn process_theme_to_root(css: &str) -> String {
                     root_css.push_str(&format!("  {};\n", trimmed.trim_end_matches(';')));
                 }
             }
-            root_css.push_str("}");
+            root_css.push('}');
 
             result.replace_range(theme_start..end, &root_css);
         }
@@ -487,8 +494,12 @@ mod tests {
     #[test]
     fn test_generate_theme_utilities() {
         let mut theme = TailwindV4Theme::default();
-        theme.properties.insert("color-primary".to_string(), "#3b82f6".to_string());
-        theme.properties.insert("spacing-4".to_string(), "1rem".to_string());
+        theme
+            .properties
+            .insert("color-primary".to_string(), "#3b82f6".to_string());
+        theme
+            .properties
+            .insert("spacing-4".to_string(), "1rem".to_string());
         let utils = generate_theme_utilities(&theme);
         assert!(utils.contains(".bg-primary { background-color: #3b82f6; }"));
         assert!(utils.contains(".text-primary { color: #3b82f6; }"));

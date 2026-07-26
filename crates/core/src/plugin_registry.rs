@@ -72,11 +72,14 @@ pub fn search_plugins(query: Option<&str>) -> Result<Vec<PluginInfo>> {
         urlencode(&search_term)
     );
 
-    let response = ureq::get(&url)
-        .timeout(std::time::Duration::from_secs(10))
-        .call()?;
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
+        .build()
+        .into();
 
-    let body = response.into_string()?;
+    let mut response = agent.get(&url).call()?;
+
+    let body = response.body_mut().read_to_string()?;
     let result: NpmSearchResult = serde_json::from_str(&body)?;
 
     let plugins: Vec<PluginInfo> = result
@@ -110,11 +113,12 @@ pub fn install_plugin(plugin_name: &str, dev: bool) -> Result<()> {
     }
     cmd_args.push(plugin_name.to_string());
 
-    println!("  \x1b[36m→\x1b[0m Installing {} via {}...", plugin_name, pm);
+    println!(
+        "  \x1b[36m→\x1b[0m Installing {} via {}...",
+        plugin_name, pm
+    );
 
-    let status = Command::new(&pm)
-        .args(&cmd_args)
-        .status()?;
+    let status = Command::new(&pm).args(&cmd_args).status()?;
 
     if !status.success() {
         anyhow::bail!("Failed to install {} with {}", plugin_name, pm);
@@ -140,15 +144,15 @@ pub fn list_installed_plugins(root: &std::path::Path) -> Result<Vec<PluginInfo>>
 
     // Check @pledgepack scope
     let scoped = node_modules.join("@pledgepack");
-    if scoped.exists() {
-        if let Ok(entries) = std::fs::read_dir(&scoped) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("plugin-") {
-                    let full_name = format!("@pledgepack/{}", name);
-                    if let Some(info) = read_package_json(&node_modules, &full_name) {
-                        plugins.push(info);
-                    }
+    if scoped.exists()
+        && let Ok(entries) = std::fs::read_dir(&scoped)
+    {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("plugin-") {
+                let full_name = format!("@pledgepack/{}", name);
+                if let Some(info) = read_package_json(&node_modules, &full_name) {
+                    plugins.push(info);
                 }
             }
         }
@@ -158,10 +162,10 @@ pub fn list_installed_plugins(root: &std::path::Path) -> Result<Vec<PluginInfo>>
     if let Ok(entries) = std::fs::read_dir(&node_modules) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with("pledgepack-plugin-") {
-                if let Some(info) = read_package_json(&node_modules, &name) {
-                    plugins.push(info);
-                }
+            if name.starts_with("pledgepack-plugin-")
+                && let Some(info) = read_package_json(&node_modules, &name)
+            {
+                plugins.push(info);
             }
         }
     }
@@ -177,8 +181,16 @@ fn read_package_json(node_modules: &std::path::Path, name: &str) -> Option<Plugi
 
     Some(PluginInfo {
         name: name.to_string(),
-        version: pkg.get("version").and_then(|v| v.as_str()).unwrap_or("unknown").to_string(),
-        description: pkg.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        version: pkg
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        description: pkg
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         score: 0.0,
         url: format!("https://www.npmjs.com/package/{}", name),
     })

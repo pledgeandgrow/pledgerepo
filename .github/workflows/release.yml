@@ -21,7 +21,7 @@ jobs:
       tag: ${{ steps.plan.outputs.tag }}
       app-version: ${{ steps.plan.outputs.app-version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Read version
         id: plan
@@ -58,7 +58,7 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -66,7 +66,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install Zig
-        uses: goto-bus-stop/setup-zig@v2
+        uses: mlugg/setup-zig@v2
         with:
           version: "0.16.0"
 
@@ -78,7 +78,7 @@ jobs:
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -108,7 +108,7 @@ jobs:
           Compress-Archive -Path dist/pledge.exe -DestinationPath pledge-${{ matrix.target }}.zip
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: pledge-${{ matrix.target }}
           path: |
@@ -120,10 +120,10 @@ jobs:
     needs: [plan, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifacts
 
@@ -142,12 +142,12 @@ jobs:
     needs: [plan, build, publish]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
       - name: Publish to npm

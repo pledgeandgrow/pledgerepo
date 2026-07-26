@@ -45,22 +45,28 @@ impl EnvVars {
 
         // Load .env files (later files override earlier)
         for path in &candidates {
-            if path.exists() {
-                if let Ok(content) = std::fs::read_to_string(path) {
-                    Self::parse_env_file(&content, &mut vars);
-                }
+            if path.exists()
+                && let Ok(content) = std::fs::read_to_string(path)
+            {
+                Self::parse_env_file(&content, &mut vars);
             }
         }
 
         // Always inject built-in variables
-        vars.insert("PLEDGE_DEV".to_string(), match mode {
-            BuildMode::Development => "true".to_string(),
-            BuildMode::Production => "false".to_string(),
-        });
-        vars.insert("PLEDGE_PROD".to_string(), match mode {
-            BuildMode::Development => "false".to_string(),
-            BuildMode::Production => "true".to_string(),
-        });
+        vars.insert(
+            "PLEDGE_DEV".to_string(),
+            match mode {
+                BuildMode::Development => "true".to_string(),
+                BuildMode::Production => "false".to_string(),
+            },
+        );
+        vars.insert(
+            "PLEDGE_PROD".to_string(),
+            match mode {
+                BuildMode::Development => "false".to_string(),
+                BuildMode::Production => "true".to_string(),
+            },
+        );
         vars.insert("PLEDGE_MODE".to_string(), mode_str.to_string());
 
         EnvVars { vars }
@@ -105,9 +111,10 @@ impl EnvVars {
             if let Some(end) = result[start..].find('}') {
                 let var_name = &result[start + 2..start + end];
                 let env_val = std::env::var(var_name).ok();
-                let replacement = vars.get(var_name)
+                let replacement = vars
+                    .get(var_name)
                     .map(|s| s.as_str())
-                    .or_else(|| env_val.as_deref())
+                    .or(env_val.as_deref())
                     .unwrap_or("");
                 result.replace_range(start..start + end + 1, replacement);
             } else {
@@ -156,17 +163,22 @@ impl EnvVars {
         // Replace built-in variables
         result = result.replace(
             "import.meta.env.PLEDGE_DEV",
-            if self.get("PLEDGE_DEV").unwrap_or("false") == "true" { "true" } else { "false" },
+            if self.get("PLEDGE_DEV").unwrap_or("false") == "true" {
+                "true"
+            } else {
+                "false"
+            },
         );
         result = result.replace(
             "import.meta.env.PLEDGE_PROD",
-            if self.get("PLEDGE_PROD").unwrap_or("false") == "true" { "true" } else { "false" },
+            if self.get("PLEDGE_PROD").unwrap_or("false") == "true" {
+                "true"
+            } else {
+                "false"
+            },
         );
         if let Some(mode) = self.get("PLEDGE_MODE") {
-            result = result.replace(
-                "import.meta.env.PLEDGE_MODE",
-                &format!("\"{}\"", mode),
-            );
+            result = result.replace("import.meta.env.PLEDGE_MODE", &format!("\"{}\"", mode));
         }
         result = result.replace(
             "import.meta.env.MODE",
@@ -174,11 +186,19 @@ impl EnvVars {
         );
         result = result.replace(
             "import.meta.env.DEV",
-            if self.get("PLEDGE_DEV").unwrap_or("false") == "true" { "true" } else { "false" },
+            if self.get("PLEDGE_DEV").unwrap_or("false") == "true" {
+                "true"
+            } else {
+                "false"
+            },
         );
         result = result.replace(
             "import.meta.env.PROD",
-            if self.get("PLEDGE_PROD").unwrap_or("false") == "true" { "true" } else { "false" },
+            if self.get("PLEDGE_PROD").unwrap_or("false") == "true" {
+                "true"
+            } else {
+                "false"
+            },
         );
 
         // Replace import.meta.env.SSR with false (no SSR by default)

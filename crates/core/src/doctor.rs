@@ -84,14 +84,31 @@ pub fn run_diagnostics(root: &Path, config: &crate::config::PledgeConfig) -> Dia
     // Security checks
     checks.extend(check_security(root));
 
-    let passed = checks.iter().filter(|c| c.status == DiagnosticStatus::Pass).count();
-    let warnings = checks.iter().filter(|c| c.status == DiagnosticStatus::Warn).count();
-    let failed = checks.iter().filter(|c| c.status == DiagnosticStatus::Fail).count();
-    let info = checks.iter().filter(|c| c.status == DiagnosticStatus::Info).count();
+    let passed = checks
+        .iter()
+        .filter(|c| c.status == DiagnosticStatus::Pass)
+        .count();
+    let warnings = checks
+        .iter()
+        .filter(|c| c.status == DiagnosticStatus::Warn)
+        .count();
+    let failed = checks
+        .iter()
+        .filter(|c| c.status == DiagnosticStatus::Fail)
+        .count();
+    let info = checks
+        .iter()
+        .filter(|c| c.status == DiagnosticStatus::Info)
+        .count();
 
     DiagnosticReport {
         checks,
-        summary: DiagnosticSummary { passed, warnings, failed, info },
+        summary: DiagnosticSummary {
+            passed,
+            warnings,
+            failed,
+            info,
+        },
     }
 }
 
@@ -102,8 +119,8 @@ fn check_config(root: &Path, config: &crate::config::PledgeConfig) -> Vec<Diagno
     let has_ts_config = root.join("pledge.config.ts").exists()
         || root.join("pledge.config.js").exists()
         || root.join("pledge.config.mjs").exists();
-    let has_json_config = root.join("pledge.json").exists()
-        || root.join("pledge.config.json").exists();
+    let has_json_config =
+        root.join("pledge.json").exists() || root.join("pledge.config.json").exists();
 
     if has_ts_config {
         checks.push(DiagnosticCheck {
@@ -118,8 +135,11 @@ fn check_config(root: &Path, config: &crate::config::PledgeConfig) -> Vec<Diagno
             category: DiagnosticCategory::Config,
             status: DiagnosticStatus::Info,
             name: "Config file".to_string(),
-            message: "JSON config found — consider using pledge.config.ts for TypeScript support".to_string(),
-            suggestion: Some("Rename to pledge.config.ts for autocompletion and type checking".to_string()),
+            message: "JSON config found — consider using pledge.config.ts for TypeScript support"
+                .to_string(),
+            suggestion: Some(
+                "Rename to pledge.config.ts for autocompletion and type checking".to_string(),
+            ),
         });
     } else {
         checks.push(DiagnosticCheck {
@@ -148,7 +168,10 @@ fn check_config(root: &Path, config: &crate::config::PledgeConfig) -> Vec<Diagno
                 status: DiagnosticStatus::Fail,
                 name: "Entry file".to_string(),
                 message: format!("{} not found", entry),
-                suggestion: Some(format!("Create {} or update `entry` in pledge.config.ts", entry)),
+                suggestion: Some(format!(
+                    "Create {} or update `entry` in pledge.config.ts",
+                    entry
+                )),
             });
         }
     }
@@ -174,15 +197,27 @@ fn check_config(root: &Path, config: &crate::config::PledgeConfig) -> Vec<Diagno
     }
 
     // Check for conflicting build tools
-    let conflicting = ["vite.config.ts", "vite.config.js", "webpack.config.js", "next.config.js", "next.config.ts"];
-    let found: Vec<&str> = conflicting.iter().filter(|c| root.join(c).exists()).copied().collect();
+    let conflicting = [
+        "vite.config.ts",
+        "vite.config.js",
+        "webpack.config.js",
+        "next.config.js",
+        "next.config.ts",
+    ];
+    let found: Vec<&str> = conflicting
+        .iter()
+        .filter(|c| root.join(c).exists())
+        .copied()
+        .collect();
     if !found.is_empty() {
         checks.push(DiagnosticCheck {
             category: DiagnosticCategory::Config,
             status: DiagnosticStatus::Warn,
             name: "Conflicting configs".to_string(),
             message: format!("Found: {} — may conflict with Pledgepack", found.join(", ")),
-            suggestion: Some("Remove or rename conflicting config files after migration".to_string()),
+            suggestion: Some(
+                "Remove or rename conflicting config files after migration".to_string(),
+            ),
         });
     }
 
@@ -195,10 +230,29 @@ fn check_config(root: &Path, config: &crate::config::PledgeConfig) -> Vec<Diagno
 fn validate_config_fields(config: &crate::config::PledgeConfig) -> Vec<DiagnosticCheck> {
     let mut checks = Vec::new();
     let valid_fields = [
-        "entry", "outDir", "root", "mode", "framework", "alias", "extensions",
-        "cache", "devServer", "sourceMaps", "resolveAlias", "proxy", "profile",
-        "outputFormat", "conditions", "envPrefix", "envDts", "htmlEntry",
-        "compressGzip", "compressBrotli", "image", "edgeTarget", "plugins",
+        "entry",
+        "outDir",
+        "root",
+        "mode",
+        "framework",
+        "alias",
+        "extensions",
+        "cache",
+        "devServer",
+        "sourceMaps",
+        "resolveAlias",
+        "proxy",
+        "profile",
+        "outputFormat",
+        "conditions",
+        "envPrefix",
+        "envDts",
+        "htmlEntry",
+        "compressGzip",
+        "compressBrotli",
+        "image",
+        "edgeTarget",
+        "plugins",
     ];
 
     // Check for known misconfigurations
@@ -217,7 +271,10 @@ fn validate_config_fields(config: &crate::config::PledgeConfig) -> Vec<Diagnosti
             category: DiagnosticCategory::Config,
             status: DiagnosticStatus::Warn,
             name: "Dev server port".to_string(),
-            message: format!("Port {} may require elevated privileges", config.dev_server.port),
+            message: format!(
+                "Port {} may require elevated privileges",
+                config.dev_server.port
+            ),
             suggestion: Some("Use a port above 1024 (e.g., 3000)".to_string()),
         });
     }
@@ -289,10 +346,15 @@ fn check_dependencies(root: &Path) -> Vec<DiagnosticCheck> {
             suggestion: None,
         });
     } else {
-        let pm = if root.join("pnpm-lock.yaml").exists() { "pnpm install" }
-            else if root.join("yarn.lock").exists() { "yarn" }
-            else if root.join("bun.lockb").exists() { "bun install" }
-            else { "npm install" };
+        let pm = if root.join("pnpm-lock.yaml").exists() {
+            "pnpm install"
+        } else if root.join("yarn.lock").exists() {
+            "yarn"
+        } else if root.join("bun.lockb").exists() {
+            "bun install"
+        } else {
+            "npm install"
+        };
         checks.push(DiagnosticCheck {
             category: DiagnosticCategory::Dependencies,
             status: DiagnosticStatus::Fail,
@@ -303,7 +365,12 @@ fn check_dependencies(root: &Path) -> Vec<DiagnosticCheck> {
     }
 
     // Check for lock file
-    let lock_files = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb"];
+    let lock_files = [
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "bun.lockb",
+    ];
     let has_lock = lock_files.iter().any(|f| root.join(f).exists());
     if has_lock {
         checks.push(DiagnosticCheck {
@@ -324,37 +391,51 @@ fn check_dependencies(root: &Path) -> Vec<DiagnosticCheck> {
     }
 
     // Check for outdated React/React DOM
-    if let Some(deps) = pkg.get("dependencies") {
-        if let Some(react_ver) = deps.get("react").and_then(|v| v.as_str()) {
-            if react_ver.starts_with("16.") || react_ver.starts_with("17.") {
-                checks.push(DiagnosticCheck {
-                    category: DiagnosticCategory::Dependencies,
-                    status: DiagnosticStatus::Info,
-                    name: "React version".to_string(),
-                    message: format!("React {} — consider upgrading to 18+ for automatic JSX runtime", react_ver),
-                    suggestion: Some("npm install react@18 react-dom@18".to_string()),
-                });
-            }
-        }
+    if let Some(deps) = pkg.get("dependencies")
+        && let Some(react_ver) = deps.get("react").and_then(|v| v.as_str())
+        && (react_ver.starts_with("16.") || react_ver.starts_with("17."))
+    {
+        checks.push(DiagnosticCheck {
+            category: DiagnosticCategory::Dependencies,
+            status: DiagnosticStatus::Info,
+            name: "React version".to_string(),
+            message: format!(
+                "React {} — consider upgrading to 18+ for automatic JSX runtime",
+                react_ver
+            ),
+            suggestion: Some("npm install react@18 react-dom@18".to_string()),
+        });
     }
 
     // Check for duplicate deps (same package in deps and devDeps)
-    let deps_keys: Vec<String> = pkg.get("dependencies")
+    let deps_keys: Vec<String> = pkg
+        .get("dependencies")
         .and_then(|d| d.as_object())
         .map(|o| o.keys().cloned().collect())
         .unwrap_or_default();
-    let dev_deps_keys: Vec<String> = pkg.get("devDependencies")
+    let dev_deps_keys: Vec<String> = pkg
+        .get("devDependencies")
         .and_then(|d| d.as_object())
         .map(|o| o.keys().cloned().collect())
         .unwrap_or_default();
 
-    let duplicates: Vec<&String> = deps_keys.iter().filter(|k| dev_deps_keys.contains(k)).collect();
+    let duplicates: Vec<&String> = deps_keys
+        .iter()
+        .filter(|k| dev_deps_keys.contains(k))
+        .collect();
     if !duplicates.is_empty() {
         checks.push(DiagnosticCheck {
             category: DiagnosticCategory::Dependencies,
             status: DiagnosticStatus::Warn,
             name: "Duplicate deps".to_string(),
-            message: format!("Packages in both deps and devDeps: {}", duplicates.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")),
+            message: format!(
+                "Packages in both deps and devDeps: {}",
+                duplicates
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             suggestion: Some("Remove from devDependencies if already in dependencies".to_string()),
         });
     }
@@ -394,7 +475,9 @@ fn check_performance(root: &Path, config: &crate::config::PledgeConfig) -> Vec<D
             status: DiagnosticStatus::Warn,
             name: "Cache".to_string(),
             message: "Cache disabled — builds will be slower".to_string(),
-            suggestion: Some("Enable cache in pledge.config.ts: cache: { enabled: true }".to_string()),
+            suggestion: Some(
+                "Enable cache in pledge.config.ts: cache: { enabled: true }".to_string(),
+            ),
         });
     }
 
@@ -405,7 +488,9 @@ fn check_performance(root: &Path, config: &crate::config::PledgeConfig) -> Vec<D
             status: DiagnosticStatus::Info,
             name: "Source maps".to_string(),
             message: "Source maps enabled in production — increases build size".to_string(),
-            suggestion: Some("Set sourceMaps: false for production or use hidden source maps".to_string()),
+            suggestion: Some(
+                "Set sourceMaps: false for production or use hidden source maps".to_string(),
+            ),
         });
     }
 
@@ -416,12 +501,18 @@ fn check_performance(root: &Path, config: &crate::config::PledgeConfig) -> Vec<D
             status: DiagnosticStatus::Info,
             name: "Compression".to_string(),
             message: "No compression enabled — consider gzip/brotli for production".to_string(),
-            suggestion: Some("Enable in config: compressGzip: true, compressBrotli: true".to_string()),
+            suggestion: Some(
+                "Enable in config: compressGzip: true, compressBrotli: true".to_string(),
+            ),
         });
     } else {
         let mut types = Vec::new();
-        if config.compress_gzip { types.push("gzip"); }
-        if config.compress_brotli { types.push("brotli"); }
+        if config.compress_gzip {
+            types.push("gzip");
+        }
+        if config.compress_brotli {
+            types.push("brotli");
+        }
         checks.push(DiagnosticCheck {
             category: DiagnosticCategory::Performance,
             status: DiagnosticStatus::Pass,
@@ -432,25 +523,28 @@ fn check_performance(root: &Path, config: &crate::config::PledgeConfig) -> Vec<D
     }
 
     // Check for large node_modules
-    if root.join("node_modules").exists() {
-        if let Ok(entries) = std::fs::read_dir(root.join("node_modules")) {
-            let count = entries.filter_map(|e| e.ok()).count();
-            if count > 500 {
-                checks.push(DiagnosticCheck {
-                    category: DiagnosticCategory::Performance,
-                    status: DiagnosticStatus::Warn,
-                    name: "Dependencies count".to_string(),
-                    message: format!("{} packages in node_modules — consider pruning", count),
-                    suggestion: Some("Run `npm prune` or audit for unused dependencies".to_string()),
-                });
-            }
+    if root.join("node_modules").exists()
+        && let Ok(entries) = std::fs::read_dir(root.join("node_modules"))
+    {
+        let count = entries.filter_map(|e| e.ok()).count();
+        if count > 500 {
+            checks.push(DiagnosticCheck {
+                category: DiagnosticCategory::Performance,
+                status: DiagnosticStatus::Warn,
+                name: "Dependencies count".to_string(),
+                message: format!("{} packages in node_modules — consider pruning", count),
+                suggestion: Some("Run `npm prune` or audit for unused dependencies".to_string()),
+            });
         }
     }
 
     checks
 }
 
-fn check_project_structure(root: &Path, config: &crate::config::PledgeConfig) -> Vec<DiagnosticCheck> {
+fn check_project_structure(
+    root: &Path,
+    config: &crate::config::PledgeConfig,
+) -> Vec<DiagnosticCheck> {
     let mut checks = Vec::new();
 
     // Check for src directory
@@ -480,7 +574,11 @@ fn check_project_structure(root: &Path, config: &crate::config::PledgeConfig) ->
             category: DiagnosticCategory::Project,
             status: DiagnosticStatus::Pass,
             name: "Environment files".to_string(),
-            message: if has_env_local { ".env and .env.local found".to_string() } else { ".env found".to_string() },
+            message: if has_env_local {
+                ".env and .env.local found".to_string()
+            } else {
+                ".env found".to_string()
+            },
             suggestion: None,
         });
     } else {
@@ -488,8 +586,11 @@ fn check_project_structure(root: &Path, config: &crate::config::PledgeConfig) ->
             category: DiagnosticCategory::Project,
             status: DiagnosticStatus::Info,
             name: "Environment files".to_string(),
-            message: "No .env files — environment variables will come from process.env only".to_string(),
-            suggestion: Some("Create .env for default vars and .env.local for local overrides".to_string()),
+            message: "No .env files — environment variables will come from process.env only"
+                .to_string(),
+            suggestion: Some(
+                "Create .env for default vars and .env.local for local overrides".to_string(),
+            ),
         });
     }
 
@@ -508,7 +609,9 @@ fn check_project_structure(root: &Path, config: &crate::config::PledgeConfig) ->
             status: DiagnosticStatus::Warn,
             name: "TypeScript config".to_string(),
             message: "No tsconfig.json — TypeScript path aliases won't be resolved".to_string(),
-            suggestion: Some("Run `pledge create` to generate tsconfig.json or create one manually".to_string()),
+            suggestion: Some(
+                "Run `pledge create` to generate tsconfig.json or create one manually".to_string(),
+            ),
         });
     }
 
@@ -516,11 +619,12 @@ fn check_project_structure(root: &Path, config: &crate::config::PledgeConfig) ->
     let gitignore_path = root.join(".gitignore");
     if gitignore_path.exists() {
         let gitignore = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
-        let missing_entries: Vec<&str> = [".pledge", "node_modules", ".env.local", "pledge-env.d.ts"]
-            .iter()
-            .filter(|entry| !gitignore.contains(*entry))
-            .copied()
-            .collect();
+        let missing_entries: Vec<&str> =
+            [".pledge", "node_modules", ".env.local", "pledge-env.d.ts"]
+                .iter()
+                .filter(|entry| !gitignore.contains(*entry))
+                .copied()
+                .collect();
 
         if missing_entries.is_empty() {
             checks.push(DiagnosticCheck {
@@ -536,7 +640,10 @@ fn check_project_structure(root: &Path, config: &crate::config::PledgeConfig) ->
                 status: DiagnosticStatus::Warn,
                 name: ".gitignore".to_string(),
                 message: format!("Missing entries: {}", missing_entries.join(", ")),
-                suggestion: Some(format!("Add these to .gitignore: {}", missing_entries.join("\n"))),
+                suggestion: Some(format!(
+                    "Add these to .gitignore: {}",
+                    missing_entries.join("\n")
+                )),
             });
         }
     } else {
@@ -545,7 +652,9 @@ fn check_project_structure(root: &Path, config: &crate::config::PledgeConfig) ->
             status: DiagnosticStatus::Warn,
             name: ".gitignore".to_string(),
             message: "No .gitignore found".to_string(),
-            suggestion: Some("Create .gitignore with: .pledge/ node_modules/ .env.local".to_string()),
+            suggestion: Some(
+                "Create .gitignore with: .pledge/ node_modules/ .env.local".to_string(),
+            ),
         });
     }
 
@@ -563,7 +672,9 @@ fn check_security(root: &Path) -> Vec<DiagnosticCheck> {
             status: DiagnosticStatus::Fail,
             name: ".env in git".to_string(),
             message: ".env file exists but is not in .gitignore".to_string(),
-            suggestion: Some("Add .env to .gitignore immediately to prevent committing secrets".to_string()),
+            suggestion: Some(
+                "Add .env to .gitignore immediately to prevent committing secrets".to_string(),
+            ),
         });
     }
 
@@ -579,7 +690,12 @@ fn check_security(root: &Path) -> Vec<DiagnosticCheck> {
     }
 
     // Check for sensitive patterns in config
-    for config_file in ["pledge.config.ts", "pledge.config.js", "pledge.config.json", "pledge.json"] {
+    for config_file in [
+        "pledge.config.ts",
+        "pledge.config.js",
+        "pledge.config.json",
+        "pledge.json",
+    ] {
         let path = root.join(config_file);
         if path.exists() {
             let content = std::fs::read_to_string(&path).unwrap_or_default();
@@ -590,7 +706,10 @@ fn check_security(root: &Path) -> Vec<DiagnosticCheck> {
                         status: DiagnosticStatus::Warn,
                         name: "Secrets in config".to_string(),
                         message: format!("Possible secret '{}' found in {}", pattern, config_file),
-                        suggestion: Some("Move secrets to .env files and reference via import.meta.env".to_string()),
+                        suggestion: Some(
+                            "Move secrets to .env files and reference via import.meta.env"
+                                .to_string(),
+                        ),
                     });
                     break;
                 }

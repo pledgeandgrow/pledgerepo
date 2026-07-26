@@ -122,14 +122,14 @@ cd pledgerepo
 cargo build --release
 ```
 
-Requires [Rust](https://rustup.rs/) (stable, edition 2024) and [Zig](https://ziglang.org/) (0.14.0+).
+Requires [Rust](https://rustup.rs/) (stable, edition 2024) and [Zig](https://ziglang.org/) (0.16.0+).
 
 ## Building
 
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) (stable, edition 2024)
-- [Zig](https://ziglang.org/) (0.14.0+)
+- [Zig](https://ziglang.org/) (0.16.0+)
 
 ### Build
 
@@ -375,7 +375,7 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 
 #### PledgeStack (`crates/adapter-pledgestack/`)
 - **React frontend + Rust backend**: Next.js-like full-stack framework with Rust backend instead of Node.js
-- **Frontend routes**: Scans `app/` for `.tsx` pages (file-based routing, dynamic `[slug]` segments)
+- **Frontend routes**: Scans `app/` for `.tsx` pages (file-based routing, dynamic `[slug]` segments, route groups, parallel routes)
 - **Backend routes**: Scans `server/api/` for `.rs` and `.psx` files with `#[route(GET, "/api/users")]` macros
 - **Middleware**: Scans `server/middleware/` for `.rs` or `.psx` middleware files
 - **Server entry**: Detects `server/lib.rs`, `server/lib.psx`, `server/main.rs`, or `server/main.psx`
@@ -384,6 +384,7 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 - **`.psx` → `.rs` copy**: Copies `.psx` files to `.rs` during build for `cargo build` compatibility
 - **Route manifest**: JSON manifest with all frontend + backend routes + middleware
 - **SSR/SSG detection**: Detects `getServerSideProps` / `getStaticProps` / `revalidate` exports
+- **Note**: Route discovery and manifest generation only. Runtime execution (Rust backend compilation, API route serving, SSR rendering, middleware execution, `.psx` transpilation) is not yet implemented. See [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for details.
 
 ### CSS Processing
 
@@ -692,7 +693,7 @@ pledge generate-env-types  # Creates pledge-env.d.ts
 | **Astro** | ✅ Full | `.astro`, frontmatter, islands-ready |
 | **Next.js** | ✅ Adapter | App Router, Pages Router, API routes, SSR |
 | **TanStack** | ✅ Adapter | File-based routing, route tree generation |
-| **PledgeStack** | ✅ Adapter | React frontend + Rust backend, `.rs`/`.psx`, route macros |
+| **PledgeStack** | ✅ Adapter (route discovery + scaffolding) | React frontend + Rust backend, `.rs`/`.psx`, route macros. *Note: runtime execution (Rust backend compilation, API route execution, SSR rendering) not yet implemented* |
 | **Vanilla TS/JS** | ✅ Full | `.ts`, `.js`, `.mjs` |
 
 ## License

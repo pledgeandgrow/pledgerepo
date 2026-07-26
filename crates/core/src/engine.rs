@@ -10,11 +10,11 @@ use crate::module_graph::SerializableModuleGraph;
 use anyhow::{Result, bail};
 use pledgepack_native_sys::Graph;
 use rayon::prelude::*;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 /// Read a file as a string, using memory-mapped I/O for large files (>64KB).
 /// Falls back to standard `std::fs::read_to_string` for smaller files where
@@ -141,20 +141,21 @@ impl BuildEngine {
 
         // Try to load previous module graph from disk for incremental rebuilds
         let graph_path = config.cache.dir.join("module_graph.bin");
-        let previous_graph = if config.cache.enabled && SerializableModuleGraph::exists_on_disk(&graph_path) {
-            match SerializableModuleGraph::load_from_disk(&graph_path) {
-                Ok(g) => {
-                    info!("Loaded previous module graph: {} modules", g.modules.len());
-                    Some(g)
+        let previous_graph =
+            if config.cache.enabled && SerializableModuleGraph::exists_on_disk(&graph_path) {
+                match SerializableModuleGraph::load_from_disk(&graph_path) {
+                    Ok(g) => {
+                        info!("Loaded previous module graph: {} modules", g.modules.len());
+                        Some(g)
+                    }
+                    Err(e) => {
+                        warn!("Failed to load previous module graph: {}", e);
+                        None
+                    }
                 }
-                Err(e) => {
-                    warn!("Failed to load previous module graph: {}", e);
-                    None
-                }
-            }
-        } else {
-            None
-        };
+            } else {
+                None
+            };
 
         let is_incremental = previous_graph.is_some();
 
@@ -238,7 +239,10 @@ document.addEventListener("click", function(e) {
                     let entry_str = entry_path.to_string_lossy().replace('\\', "/");
                     auto_entries.push(entry_str);
 
-                    tracing::info!("Auto-discovered entry from app/ directory: {} routes", route_table.routes.len());
+                    tracing::info!(
+                        "Auto-discovered entry from app/ directory: {} routes",
+                        route_table.routes.len()
+                    );
                 }
             }
         } else {
@@ -255,7 +259,10 @@ document.addEventListener("click", function(e) {
                         let router_code = route_table.generate_router_module_build("../../");
                         let router_path = gen_dir.join("__pledge_router.tsx");
                         std::fs::write(&router_path, &router_code)?;
-                        tracing::info!("Generated __pledge_router for build: {} routes", route_table.routes.len());
+                        tracing::info!(
+                            "Generated __pledge_router for build: {} routes",
+                            route_table.routes.len()
+                        );
                     }
                 }
             }
@@ -284,54 +291,63 @@ document.addEventListener("click", function(e) {
 
         // Phase 2: Determine which modules need rebuilding (incremental)
         let mut skip_set: HashSet<ModuleId> = HashSet::new();
-        if self.is_incremental {
-            if let Some(ref prev) = self.previous_graph {
-                // Use git tree hash for fast repo-level change detection
-                if let Some(ref git) = self.git_invalidator {
-                    let prev_tree = prev.git_tree_hash.as_deref();
-                    if !git.has_repo_changed(prev_tree) {
-                        info!("Git tree hash unchanged — full cache hit");
-                        // Load all modules from previous graph
-                        for (id, node) in &prev.modules {
-                            if let Some(cached) = self.load_cached_module(*id, node.content_hash, &node.path) {
-                                self.function_cache.insert(node.content_hash, cached);
-                                skip_set.insert(*id);
-                            }
+        if self.is_incremental
+            && let Some(ref prev) = self.previous_graph
+        {
+            // Use git tree hash for fast repo-level change detection
+            if let Some(ref git) = self.git_invalidator {
+                let prev_tree = prev.git_tree_hash.as_deref();
+                if !git.has_repo_changed(prev_tree) {
+                    info!("Git tree hash unchanged — full cache hit");
+                    // Load all modules from previous graph
+                    for (id, node) in &prev.modules {
+                        if let Some(cached) =
+                            self.load_cached_module(*id, node.content_hash, &node.path)
+                        {
+                            self.function_cache.insert(node.content_hash, cached);
+                            skip_set.insert(*id);
                         }
                     }
                 }
+            }
 
-                // If git invalidation isn't available or tree changed,
-                // use content-hash-based incremental detection
-                if skip_set.is_empty() {
-                    // Compare current entry content hashes with previous
-                    let mut changed: HashSet<ModuleId> = HashSet::new();
-                    for (id, module) in &self.modules {
-                        if let Some(prev_node) = prev.modules.get(id) {
-                            if module.content_hash != prev_node.content_hash {
-                                debug!("Changed module: {:?} (hash {} → {})",
-                                    module.path, prev_node.content_hash, module.content_hash);
-                                changed.insert(*id);
-                            }
-                        } else {
+            // If git invalidation isn't available or tree changed,
+            // use content-hash-based incremental detection
+            if skip_set.is_empty() {
+                // Compare current entry content hashes with previous
+                let mut changed: HashSet<ModuleId> = HashSet::new();
+                for (id, module) in &self.modules {
+                    if let Some(prev_node) = prev.modules.get(id) {
+                        if module.content_hash != prev_node.content_hash {
+                            debug!(
+                                "Changed module: {:?} (hash {} → {})",
+                                module.path, prev_node.content_hash, module.content_hash
+                            );
                             changed.insert(*id);
                         }
+                    } else {
+                        changed.insert(*id);
                     }
-                    // Compute affected dependents (transitive closure)
-                    let affected = self.module_graph.compute_affected(&changed);
-                    // Load unaffected modules from cache
-                    for (id, node) in &prev.modules {
-                        if !affected.contains(id) {
-                            if let Some(cached) = self.load_cached_module(*id, node.content_hash, &node.path) {
-                                self.function_cache.insert(node.content_hash, cached);
-                                skip_set.insert(*id);
-                            }
-                        }
+                }
+                // Compute affected dependents (transitive closure)
+                let affected = self.module_graph.compute_affected(&changed);
+                // Load unaffected modules from cache
+                for (id, node) in &prev.modules {
+                    if !affected.contains(id)
+                        && let Some(cached) =
+                            self.load_cached_module(*id, node.content_hash, &node.path)
+                    {
+                        self.function_cache.insert(node.content_hash, cached);
+                        skip_set.insert(*id);
                     }
-                    if !affected.is_empty() {
-                        info!("Incremental: {} changed, {} affected, {} cached",
-                            changed.len(), affected.len(), skip_set.len());
-                    }
+                }
+                if !affected.is_empty() {
+                    info!(
+                        "Incremental: {} changed, {} affected, {} cached",
+                        changed.len(),
+                        affected.len(),
+                        skip_set.len()
+                    );
                 }
             }
         }
@@ -389,7 +405,11 @@ document.addEventListener("click", function(e) {
             }
 
             if let Some(ref pc) = self.persistent_cache {
-                let pkey = pledgepack_cache::make_key(cache_key, "transform", &module.path.to_string_lossy().to_string());
+                let pkey = pledgepack_cache::make_key(
+                    cache_key,
+                    "transform",
+                    &module.path.to_string_lossy().to_string(),
+                );
                 if let Some(entry) = pc.get(&pkey) {
                     modules_cached += 1;
                     let cached = CachedOutput {
@@ -412,7 +432,11 @@ document.addEventListener("click", function(e) {
 
                 if let Some(ref rc) = self.remote_cache {
                     // Try remote cache before transforming
-                    let rkey = pledgepack_cache::remote::remote_cache_key(cache_key, "transform", &module.path.to_string_lossy().to_string());
+                    let rkey = pledgepack_cache::remote::remote_cache_key(
+                        cache_key,
+                        "transform",
+                        module.path.to_string_lossy().as_ref(),
+                    );
                     if let Ok(Some(remote_entry)) = rc.get(&rkey) {
                         modules_cached += 1;
                         debug!("Remote cache hit: {:?}", module.path);
@@ -428,15 +452,18 @@ document.addEventListener("click", function(e) {
                         };
                         // Populate local caches
                         self.function_cache.insert(cache_key, cached.clone());
-                        pc.set(pkey, pledgepack_cache::CacheEntry {
-                            code: cached.code.clone(),
-                            source_map: cached.source_map.clone(),
-                            deps: cached.deps.clone(),
-                            created_at: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs(),
-                        });
+                        pc.set(
+                            pkey,
+                            pledgepack_cache::CacheEntry {
+                                code: cached.code.clone(),
+                                source_map: cached.source_map.clone(),
+                                deps: cached.deps.clone(),
+                                created_at: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs(),
+                            },
+                        );
                         for dep_path in &cached.deps {
                             let dep_id = self.resolve_and_add(dep_path, Some(&module.path))?;
                             queue.push(dep_id);
@@ -470,29 +497,43 @@ document.addEventListener("click", function(e) {
                 let cache_key = module.content_hash;
 
                 if let Some(ref pc) = self.persistent_cache {
-                    let pkey = pledgepack_cache::make_key(cache_key, "transform", &module.path.to_string_lossy().to_string());
-                    pc.set(pkey, pledgepack_cache::CacheEntry {
-                        code: output.code.clone(),
-                        source_map: output.source_map.clone(),
-                        deps: output.deps.clone(),
-                        created_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs(),
-                    });
+                    let pkey = pledgepack_cache::make_key(
+                        cache_key,
+                        "transform",
+                        &module.path.to_string_lossy().to_string(),
+                    );
+                    pc.set(
+                        pkey,
+                        pledgepack_cache::CacheEntry {
+                            code: output.code.clone(),
+                            source_map: output.source_map.clone(),
+                            deps: output.deps.clone(),
+                            created_at: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs(),
+                        },
+                    );
                 }
 
                 if let Some(ref rc) = self.remote_cache {
-                    let rkey = pledgepack_cache::remote::remote_cache_key(cache_key, "transform", &module.path.to_string_lossy().to_string());
-                    let _ = rc.set(&rkey, &pledgepack_cache::remote::RemoteCacheEntry {
-                        code: output.code.clone(),
-                        source_map: output.source_map.clone(),
-                        deps: output.deps.clone(),
-                        created_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs(),
-                    });
+                    let rkey = pledgepack_cache::remote::remote_cache_key(
+                        cache_key,
+                        "transform",
+                        module.path.to_string_lossy().as_ref(),
+                    );
+                    let _ = rc.set(
+                        &rkey,
+                        &pledgepack_cache::remote::RemoteCacheEntry {
+                            code: output.code.clone(),
+                            source_map: output.source_map.clone(),
+                            deps: output.deps.clone(),
+                            created_at: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs(),
+                        },
+                    );
                 }
 
                 self.function_cache.insert(cache_key, output);
@@ -503,11 +544,11 @@ document.addEventListener("click", function(e) {
         for (&module_id, module) in &self.modules {
             if let Some(cached) = self.function_cache.get(&module.content_hash) {
                 for dep_path in &cached.deps {
-                    if let Ok(dep_path_resolved) = self.resolve(dep_path, Some(&module.path)) {
-                        if let Some(&dep_id) = self.path_to_id.get(&dep_path_resolved) {
-                            self.graph.add_dependency(module_id, dep_id);
-                            self.module_graph.add_dependency(module_id, dep_id);
-                        }
+                    if let Ok(dep_path_resolved) = self.resolve(dep_path, Some(&module.path))
+                        && let Some(&dep_id) = self.path_to_id.get(&dep_path_resolved)
+                    {
+                        self.graph.add_dependency(module_id, dep_id);
+                        self.module_graph.add_dependency(module_id, dep_id);
                     }
                 }
             }
@@ -536,7 +577,11 @@ document.addEventListener("click", function(e) {
             modules_built,
             modules_cached,
             duration.as_millis(),
-            if self.is_incremental { " (incremental)" } else { "" }
+            if self.is_incremental {
+                " (incremental)"
+            } else {
+                ""
+            }
         );
 
         Ok(BuildResult {
@@ -547,12 +592,21 @@ document.addEventListener("click", function(e) {
     }
 
     /// Try to load a cached module output from persistent cache
-    fn load_cached_module(&self, _id: ModuleId, content_hash: u64, path: &PathBuf) -> Option<CachedOutput> {
+    fn load_cached_module(
+        &self,
+        _id: ModuleId,
+        content_hash: u64,
+        path: &Path,
+    ) -> Option<CachedOutput> {
         if let Some(cached) = self.function_cache.get(&content_hash) {
             return Some(cached.clone());
         }
         if let Some(ref pc) = self.persistent_cache {
-            let pkey = pledgepack_cache::make_key(content_hash, "transform", &path.to_string_lossy().to_string());
+            let pkey = pledgepack_cache::make_key(
+                content_hash,
+                "transform",
+                &path.to_string_lossy().to_string(),
+            );
             if let Some(entry) = pc.get(&pkey) {
                 return Some(CachedOutput {
                     code: entry.code,
@@ -583,9 +637,11 @@ document.addEventListener("click", function(e) {
 
         // Read source via Zig I/O layer
         let source = pledgepack_native_sys::read_file(path.to_str().unwrap_or(""))?;
-        let content_hash = u64::from_be_bytes(blake3::hash(&source).as_bytes()[0..8].try_into().unwrap());
+        let content_hash =
+            u64::from_be_bytes(blake3::hash(&source).as_bytes()[0..8].try_into().unwrap());
 
-        let ext_str = path.extension()
+        let ext_str = path
+            .extension()
             .and_then(|e| e.to_str())
             .map(|e| format!(".{}", e))
             .unwrap_or_default();
@@ -608,12 +664,21 @@ document.addEventListener("click", function(e) {
     fn resolve(&self, specifier: &str, importer: Option<&PathBuf>) -> Result<PathBuf> {
         // 0a. Virtual modules: /__pledge_router → .pledge/gen/__pledge_router.tsx
         if specifier == "/__pledge_router" {
-            let gen_router = self.config.root.join(".pledge").join("gen").join("__pledge_router.tsx");
+            let gen_router = self
+                .config
+                .root
+                .join(".pledge")
+                .join("gen")
+                .join("__pledge_router.tsx");
             if gen_router.exists() {
                 return Ok(gen_router);
             }
             // Fallback: check out_dir for CLI-generated router
-            let out_router = self.config.root.join(&self.config.out_dir).join("__pledge_router.js");
+            let out_router = self
+                .config
+                .root
+                .join(&self.config.out_dir)
+                .join("__pledge_router.js");
             if out_router.exists() {
                 return Ok(out_router);
             }
@@ -692,7 +757,11 @@ document.addEventListener("click", function(e) {
                 let parts: Vec<&str> = specifier.splitn(3, '/').collect();
                 if parts.len() >= 2 {
                     let pkg = format!("{}/{}", parts[0], parts[1]);
-                    let sub = if parts.len() == 3 { format!("/{}", parts[2]) } else { String::new() };
+                    let sub = if parts.len() == 3 {
+                        format!("/{}", parts[2])
+                    } else {
+                        String::new()
+                    };
                     (pkg, sub)
                 } else {
                     (specifier.to_string(), String::new())
@@ -709,87 +778,101 @@ document.addEventListener("click", function(e) {
             loop {
                 let node_modules = current.join("node_modules");
 
-            let pkg_json = node_modules.join(&pkg_name).join("package.json");
+                let pkg_json = node_modules.join(&pkg_name).join("package.json");
 
-            if pkg_json.exists() {
-                let content = read_file_mmap(&pkg_json)?;
-                let pkg: serde_json::Value = serde_json::from_str(&content)?;
+                if pkg_json.exists() {
+                    let content = read_file_mmap(&pkg_json)?;
+                    let pkg: serde_json::Value = serde_json::from_str(&content)?;
 
-                if subpath.is_empty() {
-                    // Root import: check "exports" field first (modern), then "module"/"main"
-                    if let Some(exports) = pkg.get("exports") {
-                        // Sugar form: { "import": "...", "require": "..." } or { ".": { "import": "..." } }
-                        if let Some(obj) = exports.as_object() {
-                            // Check if it's sugar form (top-level conditions)
-                            if obj.contains_key("import") || obj.contains_key("require") || obj.contains_key("default") || obj.contains_key("browser") {
-                                let resolved = obj.get("browser")
-                                    .or_else(|| obj.get("module"))
-                                    .or_else(|| obj.get("import"))
-                                    .or_else(|| obj.get("require"))
-                                    .or_else(|| obj.get("default"))
-                                    .and_then(|v| v.as_str());
-                                if let Some(entry) = resolved {
-                                    let full = node_modules.join(&pkg_name).join(entry.trim_start_matches("./"));
-                                    if full.exists() {
-                                        return Ok(full);
+                    if subpath.is_empty() {
+                        // Root import: check "exports" field first (modern), then "module"/"main"
+                        if let Some(exports) = pkg.get("exports") {
+                            // Sugar form: { "import": "...", "require": "..." } or { ".": { "import": "..." } }
+                            if let Some(obj) = exports.as_object() {
+                                // Check if it's sugar form (top-level conditions)
+                                if obj.contains_key("import")
+                                    || obj.contains_key("require")
+                                    || obj.contains_key("default")
+                                    || obj.contains_key("browser")
+                                {
+                                    let resolved = obj
+                                        .get("browser")
+                                        .or_else(|| obj.get("module"))
+                                        .or_else(|| obj.get("import"))
+                                        .or_else(|| obj.get("require"))
+                                        .or_else(|| obj.get("default"))
+                                        .and_then(|v| v.as_str());
+                                    if let Some(entry) = resolved {
+                                        let full = node_modules
+                                            .join(&pkg_name)
+                                            .join(entry.trim_start_matches("./"));
+                                        if full.exists() {
+                                            return Ok(full);
+                                        }
+                                    }
+                                } else if let Some(dot_export) = obj.get(".") {
+                                    // "." key with conditions
+                                    let resolved = if let Some(s) = dot_export.as_str() {
+                                        Some(s.to_string())
+                                    } else if let Some(conditions) = dot_export.as_object() {
+                                        conditions
+                                            .get("browser")
+                                            .or_else(|| conditions.get("module"))
+                                            .or_else(|| conditions.get("import"))
+                                            .or_else(|| conditions.get("default"))
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string())
+                                    } else {
+                                        None
+                                    };
+                                    if let Some(entry) = resolved {
+                                        let full = node_modules
+                                            .join(&pkg_name)
+                                            .join(entry.trim_start_matches("./"));
+                                        if full.exists() {
+                                            return Ok(full);
+                                        }
                                     }
                                 }
-                            } else if let Some(dot_export) = obj.get(".") {
-                                // "." key with conditions
-                                let resolved = if let Some(s) = dot_export.as_str() {
-                                    Some(s.to_string())
-                                } else if let Some(conditions) = dot_export.as_object() {
-                                    conditions.get("browser")
-                                        .or_else(|| conditions.get("module"))
-                                        .or_else(|| conditions.get("import"))
-                                        .or_else(|| conditions.get("default"))
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s.to_string())
-                                } else {
-                                    None
-                                };
-                                if let Some(entry) = resolved {
-                                    let full = node_modules.join(&pkg_name).join(entry.trim_start_matches("./"));
-                                    if full.exists() {
-                                        return Ok(full);
-                                    }
+                            } else if let Some(entry) = exports.as_str() {
+                                // Direct string export
+                                let full = node_modules
+                                    .join(&pkg_name)
+                                    .join(entry.trim_start_matches("./"));
+                                if full.exists() {
+                                    return Ok(full);
                                 }
-                            }
-                        } else if let Some(entry) = exports.as_str() {
-                            // Direct string export
-                            let full = node_modules.join(&pkg_name).join(entry.trim_start_matches("./"));
-                            if full.exists() {
-                                return Ok(full);
                             }
                         }
-                    }
 
-                    // Fallback: resolve via "module" or "main"
-                    let entry = pkg
-                        .get("module")
-                        .or_else(|| pkg.get("main"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("index.js");
-                    let full = node_modules.join(&pkg_name).join(entry);
-                    if full.exists() || full == node_modules.join(&pkg_name).join("index.js") {
-                        return Ok(full);
-                    }
-                    // Try index.js in the package directory
-                    let index = node_modules.join(&pkg_name).join("index.js");
-                    if index.exists() {
-                        return Ok(index);
-                    }
-                    return Ok(full); // Return even if doesn't exist — error will surface on read
-                } else {
-                    // Subpath import: check "exports" map first
-                    if let Some(exports) = pkg.get("exports") {
-                        if let Some(obj) = exports.as_object() {
+                        // Fallback: resolve via "module" or "main"
+                        let entry = pkg
+                            .get("module")
+                            .or_else(|| pkg.get("main"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("index.js");
+                        let full = node_modules.join(&pkg_name).join(entry);
+                        if full.exists() || full == node_modules.join(&pkg_name).join("index.js") {
+                            return Ok(full);
+                        }
+                        // Try index.js in the package directory
+                        let index = node_modules.join(&pkg_name).join("index.js");
+                        if index.exists() {
+                            return Ok(index);
+                        }
+                        return Ok(full); // Return even if doesn't exist — error will surface on read
+                    } else {
+                        // Subpath import: check "exports" map first
+                        if let Some(exports) = pkg.get("exports")
+                            && let Some(obj) = exports.as_object()
+                        {
                             let key = format!(".{}", subpath);
                             if let Some(export_val) = obj.get(&key) {
                                 let resolved = if let Some(s) = export_val.as_str() {
                                     Some(s.to_string())
                                 } else if let Some(conditions) = export_val.as_object() {
-                                    conditions.get("browser")
+                                    conditions
+                                        .get("browser")
                                         .or_else(|| conditions.get("module"))
                                         .or_else(|| conditions.get("import"))
                                         .or_else(|| conditions.get("default"))
@@ -799,28 +882,31 @@ document.addEventListener("click", function(e) {
                                     None
                                 };
                                 if let Some(resolved_path) = resolved {
-                                    let full = node_modules.join(&pkg_name).join(resolved_path.trim_start_matches("./"));
+                                    let full = node_modules
+                                        .join(&pkg_name)
+                                        .join(resolved_path.trim_start_matches("./"));
                                     if full.exists() {
                                         return Ok(full);
                                     }
                                 }
                             }
                         }
-                    }
-                    // Fallback: try direct file path
-                    let direct = node_modules.join(&pkg_name).join(subpath.trim_start_matches('/'));
-                    if direct.exists() {
-                        return Ok(direct);
-                    }
-                    // Try with extensions
-                    for ext in &self.config.extensions {
-                        let with_ext = direct.with_extension(ext.trim_start_matches('.'));
-                        if with_ext.exists() {
-                            return Ok(with_ext);
+                        // Fallback: try direct file path
+                        let direct = node_modules
+                            .join(&pkg_name)
+                            .join(subpath.trim_start_matches('/'));
+                        if direct.exists() {
+                            return Ok(direct);
+                        }
+                        // Try with extensions
+                        for ext in &self.config.extensions {
+                            let with_ext = direct.with_extension(ext.trim_start_matches('.'));
+                            if with_ext.exists() {
+                                return Ok(with_ext);
+                            }
                         }
                     }
                 }
-            }
 
                 // Walk up to parent directory for hoisted node_modules
                 if !current.pop() {
@@ -1005,7 +1091,8 @@ document.addEventListener("click", function(e) {
             } else {
                 self.config.entry.clone()
             };
-            entries.iter()
+            entries
+                .iter()
                 .filter_map(|e| {
                     let path = self.config.root.join(e);
                     self.path_to_id.get(&path).copied()
@@ -1050,7 +1137,10 @@ document.addEventListener("click", function(e) {
         if out_dir.exists() {
             let canonical = out_dir.canonicalize().unwrap_or(out_dir.to_path_buf());
             if canonical.parent().is_none() {
-                anyhow::bail!("Refusing to delete unsafe output directory: {}", canonical.display());
+                anyhow::bail!(
+                    "Refusing to delete unsafe output directory: {}",
+                    canonical.display()
+                );
             }
             std::fs::remove_dir_all(out_dir)?;
         }
@@ -1059,7 +1149,8 @@ document.addEventListener("click", function(e) {
         let mut css_files: Vec<String> = Vec::new();
         let mut js_files: Vec<String> = Vec::new();
         let mut async_chunks: Vec<String> = Vec::new();
-        let mut manifest_entries: std::collections::HashMap<String, ManifestEntry> = std::collections::HashMap::new();
+        let mut manifest_entries: std::collections::HashMap<String, ManifestEntry> =
+            std::collections::HashMap::new();
         let mut entry_chunks: Vec<(String, String)> = Vec::new(); // (entry name, hashed filename)
 
         // Determine entry modules from config or auto-discovered entries
@@ -1070,10 +1161,12 @@ document.addEventListener("click", function(e) {
         };
 
         // Write each transformed module to .pledge/
-        for (_id, module) in &self.modules {
+        for module in self.modules.values() {
             if let Some(cached) = self.function_cache.get(&module.content_hash) {
                 // Determine output path relative to project root
-                let rel = module.path.strip_prefix(&self.config.root)
+                let rel = module
+                    .path
+                    .strip_prefix(&self.config.root)
                     .unwrap_or(&module.path);
                 let out_path = out_dir.join(rel);
 
@@ -1083,16 +1176,30 @@ document.addEventListener("click", function(e) {
 
                 // CSS files keep .css extension, JS files get .js
                 let (out_path, hashed_rel, is_css) = if cached.is_css {
-                    let stem = out_path.file_stem().and_then(|s| s.to_str()).unwrap_or("index");
+                    let stem = out_path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("index");
                     let hashed_name = format!("{}.{}.css", stem, hash_hex);
                     let p = out_path.with_file_name(hashed_name);
-                    let rel = p.strip_prefix(out_dir).unwrap_or(&p).to_string_lossy().replace('\\', "/");
+                    let rel = p
+                        .strip_prefix(out_dir)
+                        .unwrap_or(&p)
+                        .to_string_lossy()
+                        .replace('\\', "/");
                     (p, rel, true)
                 } else {
-                    let stem = out_path.file_stem().and_then(|s| s.to_str()).unwrap_or("index");
+                    let stem = out_path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("index");
                     let hashed_name = format!("{}.{}.js", stem, hash_hex);
                     let p = out_path.with_file_name(hashed_name);
-                    let rel = p.strip_prefix(out_dir).unwrap_or(&p).to_string_lossy().replace('\\', "/");
+                    let rel = p
+                        .strip_prefix(out_dir)
+                        .unwrap_or(&p)
+                        .to_string_lossy()
+                        .replace('\\', "/");
                     (p, rel, false)
                 };
 
@@ -1105,42 +1212,55 @@ document.addEventListener("click", function(e) {
                 let original_rel = rel.to_string_lossy().replace('\\', "/");
                 let is_entry = entries.iter().any(|e| {
                     let entry_normalized = e.replace('\\', "/");
-                    original_rel == *e || original_rel == entry_normalized
+                    original_rel == *e
+                        || original_rel == entry_normalized
                         || original_rel.ends_with(&entry_normalized)
                 });
-                let is_async = !cached.is_css && !cached.dynamic_imports.is_empty()
+                let is_async = !cached.is_css
+                    && !cached.dynamic_imports.is_empty()
                     && !self.config.build.inline_dynamic_imports
                     && !is_entry;
 
                 // Incremental output (#54): skip writing if file exists with identical content
-                if self.config.build.incremental_output && out_path.exists() {
-                    if let Ok(existing) = std::fs::read_to_string(&out_path) {
-                        if existing == cached.code {
-                            tracing::debug!("Skipped unchanged: {}", out_path.display());
-                            // Still track for manifest/HTML
-                            if is_css {
-                                css_files.push(hashed_rel.clone());
-                            } else {
-                                if is_async {
-                                    async_chunks.push(hashed_rel.clone());
-                                } else {
-                                    js_files.push(hashed_rel.clone());
-                                }
-                            }
-                            if is_entry {
-                                entry_chunks.push((original_rel.clone(), hashed_rel.clone()));
-                            }
-                            manifest_entries.insert(original_rel.clone(), ManifestEntry {
-                                file: hashed_rel.clone(),
-                                is_entry,
-                                is_css,
-                                is_async,
-                                imports: if !is_css { cached.dynamic_imports.clone() } else { Vec::new() },
-                                css: if is_css { Some(hashed_rel.clone()) } else { None },
-                            });
-                            continue;
+                if self.config.build.incremental_output
+                    && out_path.exists()
+                    && let Ok(existing) = std::fs::read_to_string(&out_path)
+                    && existing == cached.code
+                {
+                    tracing::debug!("Skipped unchanged: {}", out_path.display());
+                    // Still track for manifest/HTML
+                    if is_css {
+                        css_files.push(hashed_rel.clone());
+                    } else {
+                        if is_async {
+                            async_chunks.push(hashed_rel.clone());
+                        } else {
+                            js_files.push(hashed_rel.clone());
                         }
                     }
+                    if is_entry {
+                        entry_chunks.push((original_rel.clone(), hashed_rel.clone()));
+                    }
+                    manifest_entries.insert(
+                        original_rel.clone(),
+                        ManifestEntry {
+                            file: hashed_rel.clone(),
+                            is_entry,
+                            is_css,
+                            is_async,
+                            imports: if !is_css {
+                                cached.dynamic_imports.clone()
+                            } else {
+                                Vec::new()
+                            },
+                            css: if is_css {
+                                Some(hashed_rel.clone())
+                            } else {
+                                None
+                            },
+                        },
+                    );
+                    continue;
                 }
 
                 // Write the transformed code using mmap for large files
@@ -1151,9 +1271,13 @@ document.addEventListener("click", function(e) {
                 if let Some(ref source_map) = cached.source_map {
                     let mode = &self.config.build.source_map_mode;
                     if mode != "hidden" {
-                        let map_path = out_path.with_extension(
-                            format!("{}.map", out_path.extension().and_then(|e| e.to_str()).unwrap_or("js"))
-                        );
+                        let map_path = out_path.with_extension(format!(
+                            "{}.map",
+                            out_path
+                                .extension()
+                                .and_then(|e| e.to_str())
+                                .unwrap_or("js")
+                        ));
                         std::fs::write(&map_path, source_map)?;
                     }
                 }
@@ -1165,9 +1289,14 @@ document.addEventListener("click", function(e) {
                     // RTL CSS auto-generation for standalone CSS files (#107)
                     if crate::rtl::should_generate_rtl(&self.config.css) {
                         let css_content = std::fs::read_to_string(&out_path).unwrap_or_default();
-                        if let Some(rtl_css) = crate::rtl::generate_rtl_css(&css_content, &self.config.css) {
+                        if let Some(rtl_css) =
+                            crate::rtl::generate_rtl_css(&css_content, &self.config.css)
+                        {
                             let rtl_path = out_path.with_extension({
-                                let ext = out_path.extension().and_then(|e| e.to_str()).unwrap_or("css");
+                                let ext = out_path
+                                    .extension()
+                                    .and_then(|e| e.to_str())
+                                    .unwrap_or("css");
                                 format!("{}.rtl", ext)
                             });
                             std::fs::write(&rtl_path, &rtl_css)?;
@@ -1179,22 +1308,30 @@ document.addEventListener("click", function(e) {
                     if let Some(ref extracted_css) = cached.extracted_css {
                         let css_hash = blake3::hash(extracted_css.as_bytes());
                         let css_hash_hex = &css_hash.to_hex()[..8];
-                        let css_stem = out_path.file_stem().and_then(|s| s.to_str()).unwrap_or("index");
+                        let css_stem = out_path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("index");
                         let css_name = format!("{}.{}.css", css_stem, css_hash_hex);
                         let css_out_path = out_path.with_file_name(css_name);
-                        let css_rel = css_out_path.strip_prefix(out_dir).unwrap_or(&css_out_path).to_string_lossy().replace('\\', "/");
+                        let css_rel = css_out_path
+                            .strip_prefix(out_dir)
+                            .unwrap_or(&css_out_path)
+                            .to_string_lossy()
+                            .replace('\\', "/");
                         std::fs::write(&css_out_path, extracted_css)?;
                         css_files.push(css_rel.clone());
                         tracing::info!("Extracted CSS: {}", css_out_path.display());
 
                         // RTL CSS auto-generation (#107)
-                        if crate::rtl::should_generate_rtl(&self.config.css) {
-                            if let Some(rtl_css) = crate::rtl::generate_rtl_css(extracted_css, &self.config.css) {
-                                let rtl_name = format!("{}.{}.rtl.css", css_stem, css_hash_hex);
-                                let rtl_out_path = out_path.with_file_name(rtl_name);
-                                std::fs::write(&rtl_out_path, &rtl_css)?;
-                                tracing::info!("RTL CSS: {}", rtl_out_path.display());
-                            }
+                        if crate::rtl::should_generate_rtl(&self.config.css)
+                            && let Some(rtl_css) =
+                                crate::rtl::generate_rtl_css(extracted_css, &self.config.css)
+                        {
+                            let rtl_name = format!("{}.{}.rtl.css", css_stem, css_hash_hex);
+                            let rtl_out_path = out_path.with_file_name(rtl_name);
+                            std::fs::write(&rtl_out_path, &rtl_css)?;
+                            tracing::info!("RTL CSS: {}", rtl_out_path.display());
                         }
                     }
 
@@ -1207,14 +1344,25 @@ document.addEventListener("click", function(e) {
                 }
 
                 // Track manifest entry (using pre-computed original_rel, is_entry, is_async)
-                manifest_entries.insert(original_rel.clone(), ManifestEntry {
-                    file: hashed_rel.clone(),
-                    is_entry,
-                    is_css,
-                    is_async,
-                    imports: if !is_css { cached.dynamic_imports.clone() } else { Vec::new() },
-                    css: if is_css { Some(hashed_rel.clone()) } else { None },
-                });
+                manifest_entries.insert(
+                    original_rel.clone(),
+                    ManifestEntry {
+                        file: hashed_rel.clone(),
+                        is_entry,
+                        is_css,
+                        is_async,
+                        imports: if !is_css {
+                            cached.dynamic_imports.clone()
+                        } else {
+                            Vec::new()
+                        },
+                        css: if is_css {
+                            Some(hashed_rel.clone())
+                        } else {
+                            None
+                        },
+                    },
+                );
 
                 // Track entry chunks for multi-script HTML
                 if is_entry {
@@ -1235,27 +1383,42 @@ document.addEventListener("click", function(e) {
                     }
                 }
                 let glob_set = glob_builder.build().unwrap_or_default();
-                for (_id, module) in &self.modules {
+                for module in self.modules.values() {
                     if let Some(cached) = self.function_cache.get(&module.content_hash) {
                         let path_str = module.path.to_string_lossy().replace('\\', "/");
-                        if glob_set.is_match(&path_str) || module_patterns.iter().any(|pattern| {
-                            path_str.contains(pattern) || path_str == *pattern
-                        }) {
-                            let rel = module.path.strip_prefix(&self.config.root)
+                        if glob_set.is_match(&path_str)
+                            || module_patterns
+                                .iter()
+                                .any(|pattern| path_str.contains(pattern) || path_str == *pattern)
+                        {
+                            let rel = module
+                                .path
+                                .strip_prefix(&self.config.root)
                                 .unwrap_or(&module.path);
                             let out_path = out_dir.join(rel);
                             let hash = blake3::hash(cached.code.as_bytes());
                             let hash_hex = &hash.to_hex()[..8];
-                            let stem = out_path.file_stem().and_then(|s| s.to_str()).unwrap_or("index");
+                            let stem = out_path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("index");
                             let hashed_name = format!("{}.{}.js", stem, hash_hex);
                             let p = out_path.with_file_name(hashed_name);
-                            let hashed_rel = p.strip_prefix(out_dir).unwrap_or(&p).to_string_lossy().replace('\\', "/");
+                            let hashed_rel = p
+                                .strip_prefix(out_dir)
+                                .unwrap_or(&p)
+                                .to_string_lossy()
+                                .replace('\\', "/");
                             chunk_modules.push(hashed_rel);
                         }
                     }
                 }
                 if !chunk_modules.is_empty() {
-                    tracing::info!("Manual chunk '{}': {} modules", chunk_name, chunk_modules.len());
+                    tracing::info!(
+                        "Manual chunk '{}': {} modules",
+                        chunk_name,
+                        chunk_modules.len()
+                    );
                 }
             }
         }
@@ -1265,8 +1428,14 @@ document.addEventListener("click", function(e) {
         std::fs::write(out_dir.join("manifest.json"), manifest_json)?;
 
         // Generate index.html with CSS links, module preloads, and multi-script entry
-        let css_links: String = css_files.iter()
-            .map(|css| format!(r#"    <link rel="stylesheet" href="{}" />"#, self.config.asset_url(css)))
+        let css_links: String = css_files
+            .iter()
+            .map(|css| {
+                format!(
+                    r#"    <link rel="stylesheet" href="{}" />"#,
+                    self.config.asset_url(css)
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -1280,7 +1449,8 @@ document.addEventListener("click", function(e) {
                     Ok(subsets) => {
                         if !subsets.is_empty() {
                             let font_css = crate::fonts::generate_subset_css(&subsets);
-                            font_preload_tags = crate::fonts::generate_subset_preload_tags(&subsets);
+                            font_preload_tags =
+                                crate::fonts::generate_subset_preload_tags(&subsets);
                             // Write font CSS to a file
                             let font_css_hash = blake3::hash(font_css.as_bytes());
                             let font_css_hash_hex = &font_css_hash.to_hex()[..8];
@@ -1301,17 +1471,19 @@ document.addEventListener("click", function(e) {
         // SVG sprite generation — collect all SVG files and generate a sprite sheet
         if self.config.build.svg_sprite {
             let mut svg_entries: Vec<crate::svg::SvgSpriteEntry> = Vec::new();
-            for (_id, module) in &self.modules {
-                if crate::svg::is_svg(&module.path) {
-                    if let Some(cached) = self.function_cache.get(&module.content_hash) {
-                        let stem = module.path.file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("icon");
-                        svg_entries.push(crate::svg::SvgSpriteEntry {
-                            id: stem.to_string(),
-                            svg: cached.code.clone(),
-                        });
-                    }
+            for module in self.modules.values() {
+                if crate::svg::is_svg(&module.path)
+                    && let Some(cached) = self.function_cache.get(&module.content_hash)
+                {
+                    let stem = module
+                        .path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("icon");
+                    svg_entries.push(crate::svg::SvgSpriteEntry {
+                        id: stem.to_string(),
+                        svg: cached.code.clone(),
+                    });
                 }
             }
             if !svg_entries.is_empty() {
@@ -1344,8 +1516,14 @@ document.addEventListener("click", function(e) {
                     }
                 }
                 if self.config.build.module_preload {
-                    chunks_to_preload.iter()
-                        .map(|chunk| format!(r#"    <link rel="modulepreload" href="{}" />"#, self.config.asset_url(chunk)))
+                    chunks_to_preload
+                        .iter()
+                        .map(|chunk| {
+                            format!(
+                                r#"    <link rel="modulepreload" href="{}" />"#,
+                                self.config.asset_url(chunk)
+                            )
+                        })
                         .collect::<Vec<_>>()
                         .join("\n")
                 } else {
@@ -1355,8 +1533,14 @@ document.addEventListener("click", function(e) {
             _ => {
                 // "lazy" (default) — only preload entry chunks
                 if self.config.build.module_preload {
-                    entry_chunks.iter()
-                        .map(|(_, hashed)| format!(r#"    <link rel="modulepreload" href="{}" />"#, self.config.asset_url(hashed)))
+                    entry_chunks
+                        .iter()
+                        .map(|(_, hashed)| {
+                            format!(
+                                r#"    <link rel="modulepreload" href="{}" />"#,
+                                self.config.asset_url(hashed)
+                            )
+                        })
                         .collect::<Vec<_>>()
                         .join("\n")
                 } else {
@@ -1369,8 +1553,11 @@ document.addEventListener("click", function(e) {
         let preload_links: String = if self.config.build.preload {
             let mut links: Vec<String> = Vec::new();
             // Preload first CSS file
-            if let Some(first_css) = css_files.iter().filter(|css| css.ends_with(".css")).next() {
-                links.push(format!(r#"    <link rel="preload" href="{}" as="style" />"#, self.config.asset_url(first_css)));
+            if let Some(first_css) = css_files.iter().find(|css| css.ends_with(".css")) {
+                links.push(format!(
+                    r#"    <link rel="preload" href="{}" as="style" />"#,
+                    self.config.asset_url(first_css)
+                ));
             }
             // Font preload tags from subsetting
             for tag in &font_preload_tags {
@@ -1380,7 +1567,8 @@ document.addEventListener("click", function(e) {
         } else {
             // Even if preload is off, include font preloads if subsetting is on
             if !font_preload_tags.is_empty() {
-                font_preload_tags.iter()
+                font_preload_tags
+                    .iter()
                     .map(|t| format!(r#"    {}"#, t))
                     .collect::<Vec<_>>()
                     .join("\n")
@@ -1391,8 +1579,14 @@ document.addEventListener("click", function(e) {
 
         // Prefetch directives for non-critical assets
         let prefetch_links: String = if self.config.build.prefetch {
-            async_chunks.iter()
-                .map(|chunk| format!(r#"    <link rel="prefetch" href="{}" />"#, self.config.asset_url(chunk)))
+            async_chunks
+                .iter()
+                .map(|chunk| {
+                    format!(
+                        r#"    <link rel="prefetch" href="{}" />"#,
+                        self.config.asset_url(chunk)
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
         } else {
@@ -1407,17 +1601,29 @@ document.addEventListener("click", function(e) {
                 String::new()
             } else {
                 let entry = &entries[0];
-                let entry_js = entry.replace(".tsx", ".js").replace(".ts", ".js")
+                let entry_js = entry
+                    .replace(".tsx", ".js")
+                    .replace(".ts", ".js")
                     .replace(".jsx", ".js");
-                let entry_hashed = manifest_entries.values()
+                let entry_hashed = manifest_entries
+                    .values()
                     .find(|m| m.is_entry)
                     .map(|m| m.file.clone())
                     .unwrap_or(entry_js);
-                format!(r#"    <script type="module" src="{}"></script>"#, self.config.asset_url(&entry_hashed))
+                format!(
+                    r#"    <script type="module" src="{}"></script>"#,
+                    self.config.asset_url(&entry_hashed)
+                )
             }
         } else {
-            entry_chunks.iter()
-                .map(|(_, hashed)| format!(r#"    <script type="module" src="{}"></script>"#, self.config.asset_url(hashed)))
+            entry_chunks
+                .iter()
+                .map(|(_, hashed)| {
+                    format!(
+                        r#"    <script type="module" src="{}"></script>"#,
+                        self.config.asset_url(hashed)
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
         };
@@ -1501,11 +1707,7 @@ document.addEventListener("click", function(e) {
 {}
 </body>
 </html>"#,
-                    css_links,
-                    module_preloads,
-                    preload_links,
-                    prefetch_links,
-                    script_tags
+                    css_links, module_preloads, preload_links, prefetch_links, script_tags
                 )
             }
         } else {
@@ -1528,11 +1730,7 @@ document.addEventListener("click", function(e) {
 {}
 </body>
 </html>"#,
-                css_links,
-                module_preloads,
-                preload_links,
-                prefetch_links,
-                script_tags
+                css_links, module_preloads, preload_links, prefetch_links, script_tags
             )
         };
         std::fs::write(out_dir.join("index.html"), html)?;
@@ -1578,29 +1776,40 @@ document.addEventListener("click", function(e) {
             }
 
             // Check 3: for JS files, verify import references resolve
-            if !entry.is_css && !entry.is_async {
-                if let Ok(content) = std::fs::read_to_string(&file_path) {
-                    for line in content.lines() {
-                        let trimmed = line.trim();
-                        if trimmed.starts_with("import ") || trimmed.starts_with("export ") {
-                            if let Some(from_pos) = trimmed.find(" from \"") {
-                                let rest = &trimmed[from_pos + 7..];
-                                if let Some(end) = rest.find('"') {
-                                    let import_path = &rest[..end];
-                                    if import_path.starts_with("./") || import_path.starts_with("../") {
-                                        let resolved = file_path.parent()
-                                            .map(|p| p.join(import_path.replace(".js", "").replace(".ts", "").replace(".tsx", "")))
-                                            .unwrap_or_default();
-                                        let found = [".js", ".mjs", ".css", ".json"]
-                                            .iter()
-                                            .any(|ext| resolved.with_extension(ext.trim_start_matches('.')).exists());
-                                        if !found && !resolved.exists() {
-                                            errors.push(format!(
+            if !entry.is_css
+                && !entry.is_async
+                && let Ok(content) = std::fs::read_to_string(&file_path)
+            {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if (trimmed.starts_with("import ") || trimmed.starts_with("export "))
+                        && let Some(from_pos) = trimmed.find(" from \"")
+                    {
+                        let rest = &trimmed[from_pos + 7..];
+                        if let Some(end) = rest.find('"') {
+                            let import_path = &rest[..end];
+                            if import_path.starts_with("./") || import_path.starts_with("../") {
+                                let resolved = file_path
+                                    .parent()
+                                    .map(|p| {
+                                        p.join(
+                                            import_path
+                                                .replace(".js", "")
+                                                .replace(".ts", "")
+                                                .replace(".tsx", ""),
+                                        )
+                                    })
+                                    .unwrap_or_default();
+                                let found = [".js", ".mjs", ".css", ".json"].iter().any(|ext| {
+                                    resolved
+                                        .with_extension(ext.trim_start_matches('.'))
+                                        .exists()
+                                });
+                                if !found && !resolved.exists() {
+                                    errors.push(format!(
                                                 "Broken import in {}: \"{}\" does not resolve to any output file",
                                                 entry.file, import_path
                                             ));
-                                        }
-                                    }
                                 }
                             }
                         }
@@ -1633,13 +1842,19 @@ document.addEventListener("click", function(e) {
         }
 
         if errors.is_empty() {
-            tracing::info!("Build verification passed: {} files checked, all OK", checked);
+            tracing::info!(
+                "Build verification passed: {} files checked, all OK",
+                checked
+            );
         } else {
             tracing::error!("Build verification failed with {} error(s):", errors.len());
             for err in &errors {
                 tracing::error!("  ✗ {}", err);
             }
-            bail!("Build output verification failed: {} error(s)", errors.len());
+            bail!(
+                "Build output verification failed: {} error(s)",
+                errors.len()
+            );
         }
 
         Ok(())
@@ -1656,7 +1871,10 @@ document.addEventListener("click", function(e) {
             // Safety: refuse to delete root, home, or empty paths
             let canonical = out_dir.canonicalize().unwrap_or(out_dir.to_path_buf());
             if canonical == std::path::Path::new("/") || canonical.parent().is_none() {
-                bail!("Refusing to delete unsafe output directory: {}", canonical.display());
+                bail!(
+                    "Refusing to delete unsafe output directory: {}",
+                    canonical.display()
+                );
             }
             std::fs::remove_dir_all(out_dir)?;
         }
@@ -1691,9 +1909,9 @@ document.addEventListener("click", function(e) {
         };
 
         // Generate HTML
-        let css_link = css_filename.map(|f| {
-            format!(r#"    <link rel="stylesheet" href="/{}" />"#, f)
-        }).unwrap_or_default();
+        let css_link = css_filename
+            .map(|f| format!(r#"    <link rel="stylesheet" href="/{}" />"#, f))
+            .unwrap_or_default();
 
         let html = format!(
             r#"<!DOCTYPE html>
@@ -1710,8 +1928,7 @@ document.addEventListener("click", function(e) {
     <script type="module" src="/{}"></script>
 </body>
 </html>"#,
-            css_link,
-            js_filename
+            css_link, js_filename
         );
         std::fs::write(out_dir.join("index.html"), html)?;
 
@@ -1737,7 +1954,9 @@ document.addEventListener("click", function(e) {
                     css_bundle.push_str(&cached.code);
                     css_bundle.push('\n');
                 } else {
-                    let rel = module.path.strip_prefix(&self.config.root)
+                    let rel = module
+                        .path
+                        .strip_prefix(&self.config.root)
                         .unwrap_or(&module.path);
                     bundle.push_str(&format!("// === {} ===\n", rel.display()));
                     bundle.push_str(&cached.code);

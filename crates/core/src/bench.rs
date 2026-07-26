@@ -6,7 +6,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::Path;
 use tracing::{info, warn};
 
 /// Benchmark result for a single run
@@ -32,7 +32,7 @@ pub struct BenchBaseline {
 
 impl BenchBaseline {
     /// Load baseline from .pledge/bench.json
-    pub fn load(root: &PathBuf) -> Result<Self> {
+    pub fn load(root: &Path) -> Result<Self> {
         let path = root.join(".pledge").join("bench.json");
         if path.exists() {
             let content = std::fs::read_to_string(&path)?;
@@ -43,7 +43,7 @@ impl BenchBaseline {
     }
 
     /// Save baseline to .pledge/bench.json
-    pub fn save(&self, root: &PathBuf) -> Result<()> {
+    pub fn save(&self, root: &Path) -> Result<()> {
         let dir = root.join(".pledge");
         std::fs::create_dir_all(&dir)?;
         let path = dir.join("bench.json");
@@ -123,7 +123,7 @@ impl RegressionReport {
 
 /// Record a benchmark result
 pub fn record_bench(
-    root: &PathBuf,
+    root: &Path,
     ref_name: &str,
     duration_ms: u128,
     modules: usize,
@@ -151,7 +151,7 @@ pub fn record_bench(
 
 /// Compare current run against baseline ref
 pub fn compare_with_baseline(
-    root: &PathBuf,
+    root: &Path,
     baseline_ref: &str,
     current_ms: u128,
     threshold_pct: f64,
@@ -163,11 +163,17 @@ pub fn compare_with_baseline(
         if let Some(ref r) = report {
             warn!("{}", r.format());
         } else {
-            info!("No regression detected: {}ms vs baseline {}ms", current_ms, base.duration_ms);
+            info!(
+                "No regression detected: {}ms vs baseline {}ms",
+                current_ms, base.duration_ms
+            );
         }
         Ok(report)
     } else {
-        info!("No baseline found for ref '{}', skipping comparison", baseline_ref);
+        info!(
+            "No baseline found for ref '{}', skipping comparison",
+            baseline_ref
+        );
         Ok(None)
     }
 }

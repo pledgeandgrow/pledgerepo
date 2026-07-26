@@ -232,7 +232,7 @@ fn generate_blur_placeholder(img: &DynamicImage) -> Result<String> {
         .map_err(|e| anyhow::anyhow!("LQIP encode error: {}", e))?;
 
     use base64::Engine;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf.into_inner());
+    let b64 = base64::engine::general_purpose::STANDARD.encode(buf.into_inner());
     Ok(format!("data:image/jpeg;base64,{}", b64))
 }
 
@@ -263,14 +263,25 @@ pub fn generate_img_tag(src: &str, srcset: &str, alt: &str, width: u32, height: 
 }
 
 /// Generate HTML picture tag with multiple formats
-pub fn generate_picture_tag(outputs: &[ImageOutput], fallback: &str, alt: &str, width: u32, height: u32) -> String {
+pub fn generate_picture_tag(
+    outputs: &[ImageOutput],
+    fallback: &str,
+    alt: &str,
+    width: u32,
+    height: u32,
+) -> String {
     let mut sources = Vec::new();
     for format in &[ImageFormat::AVIF, ImageFormat::WebP, ImageFormat::JPEG] {
         let format_outputs: Vec<_> = outputs.iter().filter(|o| o.format == *format).collect();
         if format_outputs.is_empty() {
             continue;
         }
-        let srcset = generate_srcset(&format_outputs.iter().map(|o| (*o).clone()).collect::<Vec<_>>());
+        let srcset = generate_srcset(
+            &format_outputs
+                .iter()
+                .map(|o| (*o).clone())
+                .collect::<Vec<_>>(),
+        );
         sources.push(format!(
             r#"<source srcset="{}" type="{}" />"#,
             srcset,
@@ -299,9 +310,7 @@ const srcset = "{}";
 const blurPlaceholder = "{}";
 export {{ src, srcset, blurPlaceholder }};
 export default src;"#,
-        processed.original_path,
-        processed.srcset,
-        blur
+        processed.original_path, processed.srcset, blur
     )
 }
 
@@ -340,8 +349,20 @@ mod tests {
     #[test]
     fn test_generate_srcset() {
         let outputs = vec![
-            ImageOutput { format: ImageFormat::WebP, width: 640, path: "/img/640.webp".to_string(), size_bytes: 1000, data: vec![] },
-            ImageOutput { format: ImageFormat::WebP, width: 1080, path: "/img/1080.webp".to_string(), size_bytes: 2000, data: vec![] },
+            ImageOutput {
+                format: ImageFormat::WebP,
+                width: 640,
+                path: "/img/640.webp".to_string(),
+                size_bytes: 1000,
+                data: vec![],
+            },
+            ImageOutput {
+                format: ImageFormat::WebP,
+                width: 1080,
+                path: "/img/1080.webp".to_string(),
+                size_bytes: 2000,
+                data: vec![],
+            },
         ];
         let srcset = generate_srcset(&outputs);
         assert!(srcset.contains("640w"));
@@ -350,7 +371,13 @@ mod tests {
 
     #[test]
     fn test_generate_img_tag() {
-        let tag = generate_img_tag("/img/photo.jpg", "/img/photo.webp 640w, /img/photo-2x.webp 1280w", "Photo", 640, 480);
+        let tag = generate_img_tag(
+            "/img/photo.jpg",
+            "/img/photo.webp 640w, /img/photo-2x.webp 1280w",
+            "Photo",
+            640,
+            480,
+        );
         assert!(tag.contains("loading=\"lazy\""));
         assert!(tag.contains("decoding=\"async\""));
         assert!(tag.contains("alt=\"Photo\""));

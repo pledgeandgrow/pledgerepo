@@ -81,16 +81,13 @@ pub fn encrypt_strings(code: &str, config: &EncryptConfig) -> Result<(String, Ve
     // and replace occurrences in the code with encrypted versions
     for key_name in &config.keys {
         // Look up the value from process.env
-        if let Ok(value) = std::env::var(key_name) {
-            if result.contains(&value) {
-                let encrypted = encrypt_value(&value, &key);
-                // Replace the plain-text value with a decryption call
-                let replacement = format!(
-                    "__pledge_decrypt(\"{}\")",
-                    encrypted,
-                );
-                result = result.replace(&value, &replacement);
-            }
+        if let Ok(value) = std::env::var(key_name)
+            && result.contains(&value)
+        {
+            let encrypted = encrypt_value(&value, &key);
+            // Replace the plain-text value with a decryption call
+            let replacement = format!("__pledge_decrypt(\"{}\")", encrypted,);
+            result = result.replace(&value, &replacement);
         }
     }
 

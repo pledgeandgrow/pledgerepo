@@ -98,7 +98,12 @@ pub fn get_css_config(framework: CssFramework) -> CssFrameworkConfig {
         CssFramework::Tailwind => CssFrameworkConfig {
             framework,
             dependencies: vec![],
-            dev_dependencies: vec!["tailwindcss", "@tailwindcss/postcss", "postcss", "autoprefixer"],
+            dev_dependencies: vec![
+                "tailwindcss",
+                "@tailwindcss/postcss",
+                "postcss",
+                "autoprefixer",
+            ],
             config_file: Some("tailwind.config.ts"),
             config_content: r#"import type { Config } from 'tailwindcss'
 
@@ -108,7 +113,8 @@ export default {
     extend: {},
   },
   plugins: [],
-} satisfies Config"#.to_string(),
+} satisfies Config"#
+                .to_string(),
             postcss_plugins: vec!["@tailwindcss/postcss", "autoprefixer"],
             description: "Utility-first CSS framework",
         },
@@ -121,7 +127,8 @@ export default {
 
 export default defineConfig({
   presets: [presetUno()],
-})"#.to_string(),
+})"#
+            .to_string(),
             postcss_plugins: vec!["unocss/postcss"],
             description: "Atomic CSS engine with full preset support",
         },
@@ -134,7 +141,8 @@ export default defineConfig({
 
 export default defineConfig({
   // Your configuration
-})"#.to_string(),
+})"#
+            .to_string(),
             postcss_plugins: vec![],
             description: "Build-time CSS-in-JS with type safety",
         },
@@ -164,7 +172,8 @@ pub fn generate_postcss_config(plugins: &[&str]) -> String {
     if plugins.is_empty() {
         return r#"export default {
   plugins: {},
-}"#.to_string();
+}"#
+        .to_string();
     }
 
     let mut entries = Vec::new();

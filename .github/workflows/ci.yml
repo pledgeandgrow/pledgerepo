@@ -19,7 +19,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -27,12 +27,12 @@ jobs:
           components: clippy, rustfmt
 
       - name: Install Zig
-        uses: goto-bus-stop/setup-zig@v2
+        uses: mlugg/setup-zig@v2
         with:
           version: "0.16.0"
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -40,17 +40,17 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Build Zig native library
+        run: zig build -Doptimize=ReleaseFast
+
       - name: Check formatting
         run: cargo fmt --all -- --check
-        continue-on-error: true
 
       - name: Run clippy
-        run: cargo clippy --all-targets
-        continue-on-error: true
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Run tests
         run: cargo test --verbose
-        continue-on-error: true
 
   build:
     name: Build (${{ matrix.os }})
@@ -61,18 +61,18 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Zig
-        uses: goto-bus-stop/setup-zig@v2
+        uses: mlugg/setup-zig@v2
         with:
           version: "0.16.0"
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry

@@ -7,7 +7,7 @@ Known limitations, trade-offs, and areas for improvement.
 ## Platform Support
 
 ### Status: ✅ Resolved
-CI (GitHub Actions) cross-compiles and publishes prebuilt binaries for all 6 platform targets (Windows x64, Linux x64/arm64, macOS x64/arm64, Windows ARM64) on each release.
+CI (GitHub Actions) cross-compiles and publishes prebuilt binaries for 5 platform targets (Windows x64, Linux x64/arm64, macOS x64/arm64) on each release. The release workflow passes `-Dtarget` to `zig build` for correct cross-compilation of the Zig native library.
 
 ---
 
@@ -91,6 +91,28 @@ The auto-generated import map now includes `scopes` entries for packages with mu
 ## Binary Size
 
 ### Status: ✅ Resolved
-- Release profile uses `strip = true`, `lto = "fat"`, and `opt-level = "z"` for size.
+- Release profile uses `strip = true`, `lto = "fat"`, `opt-level = 3`, `codegen-units = 1`, and `panic = "abort"` for maximum optimization.
 - WASM plugin host crate removed — wasmtime dependency (~10MB) eliminated entirely.
 - Release binary ~23.6MB (includes Oxc, Lightning CSS, Boa JS runtime, notify, tokio, axum).
+
+---
+
+## PledgeStack Full-Stack Runtime
+
+### Status: ⚠️ Partial — Route Discovery Only
+
+The PledgeStack adapter (`crates/adapter-pledgestack/`) provides comprehensive **route discovery and manifest generation** but does not yet implement runtime execution:
+
+- ✅ **Frontend route discovery** — `app/` directory scanning with dynamic routes, layouts, loading/error boundaries
+- ✅ **API route discovery** — `app/api/*/route.ts` with HTTP method detection
+- ✅ **Rust backend route discovery** — `server/api/*.rs` and `.psx` files with `#[route(...)]` macro parsing
+- ✅ **Middleware discovery** — Root and server middleware files detected
+- ✅ **`.psx` → `.rs` copy** — Files copied for `cargo build` compatibility
+- ✅ **Route manifest generation** — JSON manifest with all frontend + backend + middleware routes
+- ✅ **Project scaffolding** — `pledge create pledgestack` generates full app structure
+- ❌ **Rust backend compilation** — PledgePack does not compile or run the `server/` Rust backend
+- ❌ **API route execution** — API routes are discovered but not executed in dev mode (requires manual proxy)
+- ❌ **SSR rendering** — SSR/SSG is detected but no server-side React rendering pipeline exists
+- ❌ **Middleware execution** — Middleware files are discovered but not loaded or executed
+- ❌ **`.psx` transpilation** — `.psx` files are copied to `.rs` but no JSX→Rust transpilation occurs
+- ❌ **Production server** — `pledge serve` only serves static files; no integrated API/SSR server

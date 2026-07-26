@@ -22,8 +22,8 @@
 // PledgeStack extensions:
 //   .psx files are treated like .tsx (PledgeStack's Rust+JSX extension)
 
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 /// A single route discovered from the app directory
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,53 +113,81 @@ pub struct RouteTable {
 }
 
 /// Page file names that define a route
-const PAGE_FILES: &[&str] = &[
-    "page.tsx", "page.ts", "page.jsx", "page.js", "page.psx",
-];
+const PAGE_FILES: &[&str] = &["page.tsx", "page.ts", "page.jsx", "page.js", "page.psx"];
 
 /// Route handler file names (API endpoints)
 const ROUTE_FILES: &[&str] = &[
-    "route.tsx", "route.ts", "route.jsx", "route.js", "route.psx",
+    "route.tsx",
+    "route.ts",
+    "route.jsx",
+    "route.js",
+    "route.psx",
 ];
 
 /// Layout file names
 const LAYOUT_FILES: &[&str] = &[
-    "layout.tsx", "layout.ts", "layout.jsx", "layout.js", "layout.psx",
+    "layout.tsx",
+    "layout.ts",
+    "layout.jsx",
+    "layout.js",
+    "layout.psx",
 ];
 
 /// Template file names (like layout but re-renders on navigation)
 const TEMPLATE_FILES: &[&str] = &[
-    "template.tsx", "template.ts", "template.jsx", "template.js", "template.psx",
+    "template.tsx",
+    "template.ts",
+    "template.jsx",
+    "template.js",
+    "template.psx",
 ];
 
 /// Loading file names
 const LOADING_FILES: &[&str] = &[
-    "loading.tsx", "loading.ts", "loading.jsx", "loading.js", "loading.psx",
+    "loading.tsx",
+    "loading.ts",
+    "loading.jsx",
+    "loading.js",
+    "loading.psx",
 ];
 
 /// Error boundary file names
 const ERROR_FILES: &[&str] = &[
-    "error.tsx", "error.ts", "error.jsx", "error.js", "error.psx",
+    "error.tsx",
+    "error.ts",
+    "error.jsx",
+    "error.js",
+    "error.psx",
 ];
 
 /// Not-found file names
 const NOT_FOUND_FILES: &[&str] = &[
-    "not-found.tsx", "not-found.ts", "not-found.jsx", "not-found.js", "not-found.psx",
+    "not-found.tsx",
+    "not-found.ts",
+    "not-found.jsx",
+    "not-found.js",
+    "not-found.psx",
 ];
 
 /// Global error boundary file names
 const GLOBAL_ERROR_FILES: &[&str] = &[
-    "global-error.tsx", "global-error.ts", "global-error.jsx", "global-error.js", "global-error.psx",
+    "global-error.tsx",
+    "global-error.ts",
+    "global-error.jsx",
+    "global-error.js",
+    "global-error.psx",
 ];
 
 /// Head file names (per-segment head metadata)
-const HEAD_FILES: &[&str] = &[
-    "head.tsx", "head.ts", "head.jsx", "head.js", "head.psx",
-];
+const HEAD_FILES: &[&str] = &["head.tsx", "head.ts", "head.jsx", "head.js", "head.psx"];
 
 /// Middleware file names
 const MIDDLEWARE_FILES: &[&str] = &[
-    "middleware.ts", "middleware.tsx", "middleware.js", "middleware.jsx", "middleware.psx",
+    "middleware.ts",
+    "middleware.tsx",
+    "middleware.js",
+    "middleware.jsx",
+    "middleware.psx",
 ];
 
 /// Scan the app directory and build a route table
@@ -177,17 +205,13 @@ pub fn scan_app_dir(root: &Path, app_dir: &str) -> anyhow::Result<RouteTable> {
     }
 
     let mut routes: Vec<Route> = vec![];
-    let root_layout = find_file(&app_path, LAYOUT_FILES)
-        .map(|p| relative_path(root, &p));
+    let root_layout = find_file(&app_path, LAYOUT_FILES).map(|p| relative_path(root, &p));
 
-    let not_found = find_file(&app_path, NOT_FOUND_FILES)
-        .map(|p| relative_path(root, &p));
+    let not_found = find_file(&app_path, NOT_FOUND_FILES).map(|p| relative_path(root, &p));
 
-    let global_error = find_file(&app_path, GLOBAL_ERROR_FILES)
-        .map(|p| relative_path(root, &p));
+    let global_error = find_file(&app_path, GLOBAL_ERROR_FILES).map(|p| relative_path(root, &p));
 
-    let middleware = find_file(&app_path, MIDDLEWARE_FILES)
-        .map(|p| relative_path(root, &p));
+    let middleware = find_file(&app_path, MIDDLEWARE_FILES).map(|p| relative_path(root, &p));
 
     // Recursively scan for page and route handler files
     scan_dir_for_routes(root, &app_path, &app_path, &mut routes, 0)?;
@@ -228,15 +252,15 @@ pub fn scan_app_dir(root: &Path, app_dir: &str) -> anyhow::Result<RouteTable> {
 
         // Walk up from the route's directory to find the nearest layout and template
         loop {
-            if best_layout.is_none() {
-                if let Some(layout_path) = find_file(current_dir, LAYOUT_FILES) {
-                    best_layout = Some(relative_path(root, &layout_path));
-                }
+            if best_layout.is_none()
+                && let Some(layout_path) = find_file(current_dir, LAYOUT_FILES)
+            {
+                best_layout = Some(relative_path(root, &layout_path));
             }
-            if best_template.is_none() {
-                if let Some(template_path) = find_file(current_dir, TEMPLATE_FILES) {
-                    best_template = Some(relative_path(root, &template_path));
-                }
+            if best_template.is_none()
+                && let Some(template_path) = find_file(current_dir, TEMPLATE_FILES)
+            {
+                best_template = Some(relative_path(root, &template_path));
             }
             if current_dir == app_path.as_path() {
                 break;
@@ -251,12 +275,9 @@ pub fn scan_app_dir(root: &Path, app_dir: &str) -> anyhow::Result<RouteTable> {
         route.template = best_template;
 
         // Find loading, error, and head (nearest in the route's directory)
-        route.loading = find_file(&route_dir, LOADING_FILES)
-            .map(|p| relative_path(root, &p));
-        route.error_boundary = find_file(&route_dir, ERROR_FILES)
-            .map(|p| relative_path(root, &p));
-        route.head = find_file(&route_dir, HEAD_FILES)
-            .map(|p| relative_path(root, &p));
+        route.loading = find_file(&route_dir, LOADING_FILES).map(|p| relative_path(root, &p));
+        route.error_boundary = find_file(&route_dir, ERROR_FILES).map(|p| relative_path(root, &p));
+        route.head = find_file(&route_dir, HEAD_FILES).map(|p| relative_path(root, &p));
     }
 
     Ok(RouteTable {
@@ -328,10 +349,10 @@ fn scan_dir_for_routes(
         let path = entry.path();
         if path.is_dir() {
             // Skip private folders (starting with _)
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with('_') || name.starts_with('.') {
-                    continue;
-                }
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && (name.starts_with('_') || name.starts_with('.'))
+            {
+                continue;
             }
             scan_dir_for_routes(root, app_path, &path, routes, depth + 1)?;
         }
@@ -353,25 +374,25 @@ fn parse_route_segments(dir: &Path, app_path: &Path) -> Vec<RouteSegment> {
 
         if name.starts_with("[[") && name.ends_with("]]") {
             // Optional catch-all: [[...slug]]
-            let inner = &name[2..name.len()-2];
-            if inner.starts_with("...") {
-                segments.push(RouteSegment::OptionalCatchAll(inner[3..].to_string()));
+            let inner = &name[2..name.len() - 2];
+            if let Some(rest) = inner.strip_prefix("...") {
+                segments.push(RouteSegment::OptionalCatchAll(rest.to_string()));
             }
         } else if name.starts_with('[') && name.ends_with(']') {
-            let inner = &name[1..name.len()-1];
-            if inner.starts_with("...") {
+            let inner = &name[1..name.len() - 1];
+            if let Some(rest) = inner.strip_prefix("...") {
                 // Catch-all: [...slug]
-                segments.push(RouteSegment::CatchAll(inner[3..].to_string()));
+                segments.push(RouteSegment::CatchAll(rest.to_string()));
             } else {
                 // Dynamic param: [slug]
                 segments.push(RouteSegment::Param(inner.to_string()));
             }
         } else if name.starts_with('(') && name.ends_with(')') {
             // Route group: (marketing) — skipped from URL
-            segments.push(RouteSegment::Group(name[1..name.len()-1].to_string()));
-        } else if name.starts_with('@') {
+            segments.push(RouteSegment::Group(name[1..name.len() - 1].to_string()));
+        } else if let Some(rest) = name.strip_prefix('@') {
             // Parallel route slot: @analytics — skipped from URL
-            segments.push(RouteSegment::Slot(name[1..].to_string()));
+            segments.push(RouteSegment::Slot(rest.to_string()));
         } else {
             segments.push(RouteSegment::Static(name));
         }
@@ -387,7 +408,7 @@ fn build_pattern(segments: &[RouteSegment]) -> String {
         .filter(|s| s.is_url_segment())
         .map(|s| s.to_pattern())
         .collect();
-    
+
     if url_segments.is_empty() {
         return "/".to_string();
     }
@@ -590,24 +611,15 @@ export {{ routes, middleware }};
         }
         // Import not-found component
         if let Some(nf) = &self.not_found {
-            imports.push_str(&format!(
-                "import NotFound from \"{}{}\";\n",
-                prefix, nf
-            ));
+            imports.push_str(&format!("import NotFound from \"{}{}\";\n", prefix, nf));
         }
         // Import global error boundary
         if let Some(ge) = &self.global_error {
-            imports.push_str(&format!(
-                "import GlobalError from \"{}{}\";\n",
-                prefix, ge
-            ));
+            imports.push_str(&format!("import GlobalError from \"{}{}\";\n", prefix, ge));
         }
         // Import middleware
         if let Some(mw) = &self.middleware {
-            imports.push_str(&format!(
-                "import Middleware from \"{}{}\";\n",
-                prefix, mw
-            ));
+            imports.push_str(&format!("import Middleware from \"{}{}\";\n", prefix, mw));
         }
         imports
     }
@@ -617,23 +629,33 @@ export {{ routes, middleware }};
         let mut routes_js = String::new();
         for (i, route) in self.routes.iter().enumerate() {
             let import_name = format!("Page{}", i);
-            let layout_str = route.layout.as_ref()
+            let layout_str = route
+                .layout
+                .as_ref()
                 .map(|_| format!("Layout{}", i))
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "null".to_string());
-            let template_str = route.template.as_ref()
+            let template_str = route
+                .template
+                .as_ref()
                 .map(|_| format!("Template{}", i))
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "null".to_string());
-            let loading_str = route.loading.as_ref()
+            let loading_str = route
+                .loading
+                .as_ref()
                 .map(|_| format!("Loading{}", i))
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "null".to_string());
-            let error_str = route.error_boundary.as_ref()
+            let error_str = route
+                .error_boundary
+                .as_ref()
                 .map(|_| format!("Error{}", i))
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "null".to_string());
-            let head_str = route.head.as_ref()
+            let head_str = route
+                .head
+                .as_ref()
                 .map(|_| format!("Head{}", i))
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "null".to_string());
@@ -679,12 +701,10 @@ export {{ routes, middleware }};
 
     /// Check if a pathname matches any route
     pub fn match_path(&self, pathname: &str) -> Option<&Route> {
-        for route in &self.routes {
-            if path_matches_pattern(&route.pattern, pathname) {
-                return Some(route);
-            }
-        }
-        None
+        self.routes
+            .iter()
+            .find(|&route| path_matches_pattern(&route.pattern, pathname))
+            .map(|v| v as _)
     }
 }
 
@@ -699,11 +719,11 @@ fn path_matches_pattern(pattern: &str, pathname: &str) -> bool {
 
     if pattern_parts.len() != path_parts.len() {
         // Check for catch-all (required or optional)
-        if let Some(last) = pattern_parts.last() {
-            if last.starts_with('*') {
-                // Catch-all matches if path has at least pattern_parts - 1 segments
-                return path_parts.len() >= pattern_parts.len() - 1;
-            }
+        if let Some(last) = pattern_parts.last()
+            && last.starts_with('*')
+        {
+            // Catch-all matches if path has at least pattern_parts - 1 segments
+            return path_parts.len() >= pattern_parts.len() - 1;
         }
         // Check for optional catch-all at the end — matches with or without the segment
         // Optional catch-all is represented as *param but should also match when the segment is absent

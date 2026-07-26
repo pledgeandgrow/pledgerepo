@@ -4,11 +4,11 @@
 // Handles `import messages from './messages.${locale}.json'` pattern.
 
 use crate::config::I18nConfig;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::info;
 
 /// Resolve locale-specific message file path
-pub fn resolve_locale_file(pattern: &str, locale: &str, root: &PathBuf) -> PathBuf {
+pub fn resolve_locale_file(pattern: &str, locale: &str, root: &Path) -> PathBuf {
     let path = pattern.replace("${locale}", locale);
     if path.starts_with("./") {
         root.join(path.strip_prefix("./").unwrap_or(&path))
@@ -59,7 +59,10 @@ const __pledge_currentLocale = __pledge_locales.includes(__pledge_locale) ? __pl
         result = format!("{}\n{}", shim, result);
     }
 
-    info!("i18n transform: {} locales configured", config.locales.len());
+    info!(
+        "i18n transform: {} locales configured",
+        config.locales.len()
+    );
     result
 }
 
@@ -86,8 +89,7 @@ pub fn is_locale_message_file(path: &str, config: &I18nConfig) -> bool {
     for locale in &config.locales {
         let expected = pattern.replace("${locale}", locale);
         let expected_normalized = expected.replace('\\', "/");
-        if path_normalized.ends_with(&expected_normalized)
-            || path_normalized == expected_normalized
+        if path_normalized.ends_with(&expected_normalized) || path_normalized == expected_normalized
         {
             return true;
         }

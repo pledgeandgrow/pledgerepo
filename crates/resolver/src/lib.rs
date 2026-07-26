@@ -57,7 +57,12 @@ impl Resolver {
     }
 
     /// Create a resolver with custom export conditions (#119)
-    pub fn with_conditions(root: PathBuf, extensions: Vec<String>, aliases: Vec<Alias>, conditions: Vec<String>) -> Self {
+    pub fn with_conditions(
+        root: PathBuf,
+        extensions: Vec<String>,
+        aliases: Vec<Alias>,
+        conditions: Vec<String>,
+    ) -> Self {
         Self {
             root,
             extensions,
@@ -69,7 +74,12 @@ impl Resolver {
     }
 
     /// Create a resolver with workspace info (#98)
-    pub fn with_workspace(root: PathBuf, extensions: Vec<String>, aliases: Vec<Alias>, workspace: pledgepack_core::ecosystem::WorkspaceInfo) -> Self {
+    pub fn with_workspace(
+        root: PathBuf,
+        extensions: Vec<String>,
+        aliases: Vec<Alias>,
+        workspace: pledgepack_core::ecosystem::WorkspaceInfo,
+    ) -> Self {
         Self {
             root,
             extensions,
@@ -86,10 +96,15 @@ impl Resolver {
         let mut aliases = Vec::new();
 
         // Try tsconfig.json first, then jsconfig.json
-        let config_path = root.join("tsconfig.json")
+        let config_path = root
+            .join("tsconfig.json")
             .exists()
             .then(|| root.join("tsconfig.json"))
-            .or_else(|| root.join("jsconfig.json").exists().then(|| root.join("jsconfig.json")));
+            .or_else(|| {
+                root.join("jsconfig.json")
+                    .exists()
+                    .then(|| root.join("jsconfig.json"))
+            });
 
         if let Some(tsconfig_path) = config_path {
             Self::parse_tsconfig(&tsconfig_path, &root, &mut aliases);
@@ -118,7 +133,8 @@ impl Resolver {
         if let Some(ref extends) = tsconfig.extends {
             let parent_path = if extends.starts_with('.') {
                 // Relative path
-                config_path.parent()
+                config_path
+                    .parent()
                     .map(|p| p.join(extends))
                     .filter(|p| p.exists())
             } else {
@@ -127,7 +143,11 @@ impl Resolver {
                     .join(extends)
                     .join("tsconfig.json")
                     .exists()
-                    .then(|| root.join("node_modules").join(extends).join("tsconfig.json"))
+                    .then(|| {
+                        root.join("node_modules")
+                            .join(extends)
+                            .join("tsconfig.json")
+                    })
             };
 
             if let Some(ref parent) = parent_path {
@@ -143,7 +163,11 @@ impl Resolver {
             if let Some(paths) = opts.paths {
                 // Clear parent aliases that conflict (paths override extends)
                 let new_froms: Vec<String> = paths.keys().cloned().collect();
-                aliases.retain(|a| !new_froms.iter().any(|nf| nf.starts_with(&a.from) || a.from.starts_with(nf)));
+                aliases.retain(|a| {
+                    !new_froms
+                        .iter()
+                        .any(|nf| nf.starts_with(&a.from) || a.from.starts_with(nf))
+                });
 
                 for (from, tos) in paths {
                     for to in tos {
@@ -173,10 +197,10 @@ impl Resolver {
     /// Resolve a module specifier to a file path
     pub fn resolve(&self, specifier: &str, importer: &Path) -> Result<PathBuf> {
         let cache_key = (importer.to_path_buf(), specifier.to_string());
-        if let Some(cached) = self.cache.get(&cache_key) {
-            if let Some(path) = cached.as_ref() {
-                return Ok(path.clone());
-            }
+        if let Some(cached) = self.cache.get(&cache_key)
+            && let Some(path) = cached.as_ref()
+        {
+            return Ok(path.clone());
         }
 
         let resolved = self.resolve_uncached(specifier, importer)?;
@@ -187,7 +211,9 @@ impl Resolver {
 
     fn resolve_uncached(&self, specifier: &str, importer: &Path) -> Result<PathBuf> {
         // Strip ?worker and ?sharedworker suffixes (#111, #112)
-        let specifier = specifier.trim_end_matches("?worker").trim_end_matches("?sharedworker");
+        let specifier = specifier
+            .trim_end_matches("?worker")
+            .trim_end_matches("?sharedworker");
 
         // 1. Check aliases
         for alias in &self.aliases {
@@ -218,10 +244,11 @@ impl Resolver {
         }
 
         // 4. Bare specifier → workspace packages (#98)
-        if let Some(ref ws) = self.workspace {
-            if let Some(resolved) = pledgepack_core::ecosystem::resolve_workspace_import(specifier, ws) {
-                return Ok(resolved);
-            }
+        if let Some(ref ws) = self.workspace
+            && let Some(resolved) =
+                pledgepack_core::ecosystem::resolve_workspace_import(specifier, ws)
+        {
+            return Ok(resolved);
         }
 
         // 5. Bare specifier → node_modules
@@ -263,10 +290,10 @@ impl Resolver {
         let mut current = self.root.clone();
 
         // Split package name and subpath (e.g., "react/jsx-runtime" → "react" + "/jsx-runtime")
-        let (pkg_name, subpath) = if specifier.starts_with('@') {
+        let (pkg_name, subpath) = if let Some(rest) = specifier.strip_prefix('@') {
             // Scoped package: @scope/name/subpath
-            if let Some(idx) = specifier[1..].find('/') {
-                let after_scope = &specifier[1..idx + 1];
+            if let Some(idx) = rest.find('/') {
+                let after_scope = &rest[..idx];
                 if let Some(sub_idx) = after_scope.find('/') {
                     let pkg = &specifier[..1 + sub_idx + 1];
                     let sub = &specifier[1 + sub_idx + 1..];
@@ -290,43 +317,43 @@ impl Resolver {
 
                 // Check package.json for entry point
                 let pkg_json = module_path.join("package.json");
-                if pkg_json.is_file() {
-                    if let Ok(content) = std::fs::read_to_string(&pkg_json) {
-                        if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
-                            // 1. Try "exports" field (modern)
-                            if let Some(exports) = pkg.get("exports") {
-                                if let Some(resolved) = self.resolve_exports(exports, subpath, &module_path)? {
-                                    return Ok(Some(resolved));
-                                }
-                            }
+                if pkg_json.is_file()
+                    && let Ok(content) = std::fs::read_to_string(&pkg_json)
+                    && let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content)
+                {
+                    // 1. Try "exports" field (modern)
+                    if let Some(exports) = pkg.get("exports")
+                        && let Some(resolved) =
+                            self.resolve_exports(exports, subpath, &module_path)?
+                    {
+                        return Ok(Some(resolved));
+                    }
 
-                            // 2. Try "module" field (ESM preference)
-                            if subpath.is_none() {
-                                if let Some(module) = pkg.get("module").and_then(|v| v.as_str()) {
-                                    let entry_path = module_path.join(module);
-                                    if entry_path.is_file() {
-                                        return Ok(Some(entry_path.canonicalize().unwrap_or(entry_path)));
-                                    }
-                                }
-
-                                // 3. Try "main" field
-                                if let Some(main) = pkg.get("main").and_then(|v| v.as_str()) {
-                                    let entry_path = module_path.join(main);
-                                    if entry_path.is_file() {
-                                        return Ok(Some(entry_path.canonicalize().unwrap_or(entry_path)));
-                                    }
-                                }
+                    // 2. Try "module" field (ESM preference)
+                    if subpath.is_none() {
+                        if let Some(module) = pkg.get("module").and_then(|v| v.as_str()) {
+                            let entry_path = module_path.join(module);
+                            if entry_path.is_file() {
+                                return Ok(Some(entry_path.canonicalize().unwrap_or(entry_path)));
                             }
+                        }
 
-                            // 4. Try "browser" field for browser-specific builds
-                            if subpath.is_none() {
-                                if let Some(browser) = pkg.get("browser").and_then(|v| v.as_str()) {
-                                    let entry_path = module_path.join(browser);
-                                    if entry_path.is_file() {
-                                        return Ok(Some(entry_path.canonicalize().unwrap_or(entry_path)));
-                                    }
-                                }
+                        // 3. Try "main" field
+                        if let Some(main) = pkg.get("main").and_then(|v| v.as_str()) {
+                            let entry_path = module_path.join(main);
+                            if entry_path.is_file() {
+                                return Ok(Some(entry_path.canonicalize().unwrap_or(entry_path)));
                             }
+                        }
+                    }
+
+                    // 4. Try "browser" field for browser-specific builds
+                    if subpath.is_none()
+                        && let Some(browser) = pkg.get("browser").and_then(|v| v.as_str())
+                    {
+                        let entry_path = module_path.join(browser);
+                        if entry_path.is_file() {
+                            return Ok(Some(entry_path.canonicalize().unwrap_or(entry_path)));
                         }
                     }
                 }
@@ -370,11 +397,13 @@ impl Resolver {
 
         if let Some(obj) = exports.as_object() {
             // Check if it's a conditional export (top-level keys like "import", "require")
-            if obj.contains_key("import") || obj.contains_key("require") || obj.contains_key("default") {
-                if target_key == "." {
-                    // Sugar form: top-level conditions apply to "."
-                    return self.resolve_conditions(obj, module_path);
-                }
+            if (obj.contains_key("import")
+                || obj.contains_key("require")
+                || obj.contains_key("default"))
+                && target_key == "."
+            {
+                // Sugar form: top-level conditions apply to "."
+                return self.resolve_conditions(obj, module_path);
             }
 
             // Subpath exports: look for matching key
@@ -400,19 +429,19 @@ impl Resolver {
                         if resolved.is_file() {
                             return Ok(Some(resolved.canonicalize().unwrap_or(resolved)));
                         }
-                    } else if let Some(obj2) = value.as_object() {
-                        if let Some(path) = self.resolve_conditions(obj2, module_path)?.as_ref() {
-                            // Replace pattern in resolved path
-                            let path_str = path.to_string_lossy();
-                            if path_str.contains('*') {
-                                let replaced = path_str.replace('*', rest);
-                                let p = PathBuf::from(replaced);
-                                if p.is_file() {
-                                    return Ok(Some(p));
-                                }
+                    } else if let Some(obj2) = value.as_object()
+                        && let Some(path) = self.resolve_conditions(obj2, module_path)?.as_ref()
+                    {
+                        // Replace pattern in resolved path
+                        let path_str = path.to_string_lossy();
+                        if path_str.contains('*') {
+                            let replaced = path_str.replace('*', rest);
+                            let p = PathBuf::from(replaced);
+                            if p.is_file() {
+                                return Ok(Some(p));
                             }
-                            return Ok(Some(path.clone()));
                         }
+                        return Ok(Some(path.clone()));
                     }
                 }
             }
@@ -444,12 +473,12 @@ impl Resolver {
             }
         }
         for condition in &all_conditions {
-            if let Some(value) = obj.get(condition) {
-                if let Some(path) = value.as_str() {
-                    let resolved = module_path.join(path);
-                    if resolved.is_file() {
-                        return Ok(Some(resolved.canonicalize().unwrap_or(resolved)));
-                    }
+            if let Some(value) = obj.get(condition)
+                && let Some(path) = value.as_str()
+            {
+                let resolved = module_path.join(path);
+                if resolved.is_file() {
+                    return Ok(Some(resolved.canonicalize().unwrap_or(resolved)));
                 }
             }
         }
@@ -540,7 +569,11 @@ mod tests {
 
         // Resolve ./Cargo.toml relative to the workspace root
         let cargo_toml = resolver.resolve("./Cargo.toml", &cwd.join("Cargo.toml"));
-        assert!(cargo_toml.is_ok(), "Failed to resolve ./Cargo.toml: {:?}", cargo_toml.err());
+        assert!(
+            cargo_toml.is_ok(),
+            "Failed to resolve ./Cargo.toml: {:?}",
+            cargo_toml.err()
+        );
     }
 
     #[test]

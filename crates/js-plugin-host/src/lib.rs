@@ -16,13 +16,13 @@ pub mod test_runner;
 // The host loads and evaluates plugin files, then calls hooks during the build pipeline.
 
 use anyhow::Result;
+use boa_engine::NativeFunction;
+use boa_engine::object::ObjectInitializer;
+use boa_engine::{Context, JsValue, Source, js_string};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{info, warn};
-use boa_engine::{Context, JsValue, Source, js_string};
-use boa_engine::object::ObjectInitializer;
-use boa_engine::NativeFunction;
 
 /// A loaded JS plugin with its hooks
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,18 +100,30 @@ impl JsPluginHost {
     /// Create a new empty plugin host with a JS runtime
     pub fn new() -> Self {
         let mut context = Context::default();
-        
+
         // Inject console.log support for plugin debugging
         let console_log = NativeFunction::from_copy_closure(|_this, _args, ctx| {
-            let msg = _args.iter().map(|v| v.to_string(ctx).map(|s| s.to_std_string_escaped()).unwrap_or_default()).collect::<Vec<_>>().join(" ");
+            let msg = _args
+                .iter()
+                .map(|v| {
+                    v.to_string(ctx)
+                        .map(|s| s.to_std_string_escaped())
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
             info!("[plugin console] {}", msg);
             Ok(JsValue::undefined())
         });
         let console = ObjectInitializer::new(&mut context)
             .function(console_log, js_string!("log"), 0)
             .build();
-        let _ = context.register_global_property(js_string!("console"), console, boa_engine::property::Attribute::all());
-        
+        let _ = context.register_global_property(
+            js_string!("console"),
+            console,
+            boa_engine::property::Attribute::all(),
+        );
+
         Self {
             plugins: Vec::new(),
             context,
@@ -130,7 +142,7 @@ impl JsPluginHost {
             let source = std::fs::read_to_string(&pathbuf)?;
             let plugin = Self::parse_plugin(&source, pathbuf)?;
             info!("Loaded JS plugin: {}", plugin.name);
-            
+
             // Strip ESM syntax and evaluate the plugin source in the JS context
             // Store the exported module object as a global variable for later hook calls
             let plugin_index = self.plugins.len();
@@ -139,7 +151,7 @@ impl JsPluginHost {
             if let Err(e) = self.context.eval(Source::from_bytes(js_source.as_str())) {
                 warn!("Failed to evaluate plugin {}: {}", plugin.name, e);
             }
-            
+
             self.plugins.push(plugin);
         }
         Ok(())
@@ -155,10 +167,10 @@ impl JsPluginHost {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if matches!(ext, "js" | "ts" | "mjs" | "cjs") {
-                        plugin_paths.push(path.to_string_lossy().to_string());
-                    }
+                if let Some(ext) = path.extension().and_then(|e| e.to_str())
+                    && matches!(ext, "js" | "ts" | "mjs" | "cjs")
+                {
+                    plugin_paths.push(path.to_string_lossy().to_string());
                 }
             }
         }
@@ -173,13 +185,12 @@ impl JsPluginHost {
     /// hook function definitions in the exported object.
     fn parse_plugin(source: &str, path: PathBuf) -> Result<JsPlugin> {
         // Extract plugin name from `name: "..."` or `name: '...'`
-        let name = Self::extract_string_field(source, "name")
-            .unwrap_or_else(|| {
-                path.file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("anonymous")
-                    .to_string()
-            });
+        let name = Self::extract_string_field(source, "name").unwrap_or_else(|| {
+            path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("anonymous")
+                .to_string()
+        });
 
         // Detect which hooks are present by looking for hook names as keys
         let has_resolve_id = Self::has_hook(source, "resolveId");
@@ -276,7 +287,13 @@ impl JsPluginHost {
             if plugin.has_resolve_id {
                 info!("[plugin:{}] resolveId: {}", plugin.name, source);
 
-                let global_name = format!("__pledge_plugin_{}", self.plugins.iter().position(|p| p.name == plugin.name).unwrap_or(0));
+                let global_name = format!(
+                    "__pledge_plugin_{}",
+                    self.plugins
+                        .iter()
+                        .position(|p| p.name == plugin.name)
+                        .unwrap_or(0)
+                );
                 let js_code = format!(
                     r#"
                     (function() {{
@@ -301,12 +318,13 @@ impl JsPluginHost {
 
                 match self.context.eval(Source::from_bytes(js_code.as_str())) {
                     Ok(val) => {
-                        if !val.is_null() && !val.is_undefined() {
-                            if let Ok(json_str) = val.to_string(&mut self.context) {
-                                let json_str = json_str.to_std_string_escaped();
-                                if let Ok(result) = serde_json::from_str::<ResolveIdResult>(&json_str) {
-                                    return Some(result);
-                                }
+                        if !val.is_null()
+                            && !val.is_undefined()
+                            && let Ok(json_str) = val.to_string(&mut self.context)
+                        {
+                            let json_str = json_str.to_std_string_escaped();
+                            if let Ok(result) = serde_json::from_str::<ResolveIdResult>(&json_str) {
+                                return Some(result);
                             }
                         }
                     }
@@ -326,7 +344,13 @@ impl JsPluginHost {
             if plugin.has_load {
                 info!("[plugin:{}] load: {}", plugin.name, id);
 
-                let global_name = format!("__pledge_plugin_{}", self.plugins.iter().position(|p| p.name == plugin.name).unwrap_or(0));
+                let global_name = format!(
+                    "__pledge_plugin_{}",
+                    self.plugins
+                        .iter()
+                        .position(|p| p.name == plugin.name)
+                        .unwrap_or(0)
+                );
                 let js_code = format!(
                     r#"
                     (function() {{
@@ -350,12 +374,13 @@ impl JsPluginHost {
 
                 match self.context.eval(Source::from_bytes(js_code.as_str())) {
                     Ok(val) => {
-                        if !val.is_null() && !val.is_undefined() {
-                            if let Ok(json_str) = val.to_string(&mut self.context) {
-                                let json_str = json_str.to_std_string_escaped();
-                                if let Ok(result) = serde_json::from_str::<LoadResult>(&json_str) {
-                                    return Some(result);
-                                }
+                        if !val.is_null()
+                            && !val.is_undefined()
+                            && let Ok(json_str) = val.to_string(&mut self.context)
+                        {
+                            let json_str = json_str.to_std_string_escaped();
+                            if let Ok(result) = serde_json::from_str::<LoadResult>(&json_str) {
+                                return Some(result);
                             }
                         }
                     }
@@ -377,9 +402,15 @@ impl JsPluginHost {
         for plugin in &self.plugins {
             if plugin.has_transform {
                 info!("[plugin:{}] transform: {}", plugin.name, id);
-                
+
                 // Try to call the plugin's transform function in JS
-                let global_name = format!("__pledge_plugin_{}", self.plugins.iter().position(|p| p.name == plugin.name).unwrap_or(0));
+                let global_name = format!(
+                    "__pledge_plugin_{}",
+                    self.plugins
+                        .iter()
+                        .position(|p| p.name == plugin.name)
+                        .unwrap_or(0)
+                );
                 let js_code = format!(
                     r#"
                     (function() {{
@@ -404,13 +435,14 @@ impl JsPluginHost {
 
                 match self.context.eval(Source::from_bytes(js_code.as_str())) {
                     Ok(val) => {
-                        if !val.is_null() && !val.is_undefined() {
-                            if let Ok(json_str) = val.to_string(&mut self.context) {
-                                let json_str = json_str.to_std_string_escaped();
-                                if let Ok(result) = serde_json::from_str::<TransformResult>(&json_str) {
-                                    result_code = result.code;
-                                    transformed = true;
-                                }
+                        if !val.is_null()
+                            && !val.is_undefined()
+                            && let Ok(json_str) = val.to_string(&mut self.context)
+                        {
+                            let json_str = json_str.to_std_string_escaped();
+                            if let Ok(result) = serde_json::from_str::<TransformResult>(&json_str) {
+                                result_code = result.code;
+                                transformed = true;
                             }
                         }
                     }
@@ -441,7 +473,13 @@ impl JsPluginHost {
             if plugin.has_transform_index_html {
                 info!("[plugin:{}] transformIndexHtml", plugin.name);
 
-                let global_name = format!("__pledge_plugin_{}", self.plugins.iter().position(|p| p.name == plugin.name).unwrap_or(0));
+                let global_name = format!(
+                    "__pledge_plugin_{}",
+                    self.plugins
+                        .iter()
+                        .position(|p| p.name == plugin.name)
+                        .unwrap_or(0)
+                );
                 let js_code = format!(
                     r#"
                     (function() {{
@@ -471,33 +509,52 @@ impl JsPluginHost {
 
                 match self.context.eval(Source::from_bytes(js_code.as_str())) {
                     Ok(val) => {
-                        if !val.is_null() && !val.is_undefined() {
-                            if let Ok(json_str) = val.to_string(&mut self.context) {
-                                let json_str = json_str.to_std_string_escaped();
-                                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                                    // If html is returned as string, replace result_html
-                                    if let Some(html_val) = parsed.get("html").and_then(|h| h.as_str()) {
-                                        if !html_val.is_empty() {
-                                            result_html = html_val.to_string();
+                        if !val.is_null()
+                            && !val.is_undefined()
+                            && let Ok(json_str) = val.to_string(&mut self.context)
+                        {
+                            let json_str = json_str.to_std_string_escaped();
+                            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str)
+                            {
+                                // If html is returned as string, replace result_html
+                                if let Some(html_val) = parsed.get("html").and_then(|h| h.as_str())
+                                    && !html_val.is_empty()
+                                {
+                                    result_html = html_val.to_string();
+                                }
+                                // Parse tags array
+                                if let Some(tags_arr) =
+                                    parsed.get("tags").and_then(|t| t.as_array())
+                                {
+                                    for tag_val in tags_arr {
+                                        let mut tag = HtmlTag {
+                                            tag: tag_val
+                                                .get("tag")
+                                                .and_then(|t| t.as_str())
+                                                .unwrap_or("")
+                                                .to_string(),
+                                            attrs: HashMap::new(),
+                                            children: tag_val
+                                                .get("children")
+                                                .and_then(|c| c.as_str())
+                                                .map(|s| s.to_string()),
+                                            inject_to: tag_val
+                                                .get("injectTo")
+                                                .and_then(|i| i.as_str())
+                                                .map(|s| s.to_string()),
+                                        };
+                                        if let Some(attrs) =
+                                            tag_val.get("attrs").and_then(|a| a.as_object())
+                                        {
+                                            for (k, v) in attrs {
+                                                tag.attrs.insert(
+                                                    k.clone(),
+                                                    v.as_str().unwrap_or("").to_string(),
+                                                );
+                                            }
                                         }
-                                    }
-                                    // Parse tags array
-                                    if let Some(tags_arr) = parsed.get("tags").and_then(|t| t.as_array()) {
-                                        for tag_val in tags_arr {
-                                            let mut tag = HtmlTag {
-                                                tag: tag_val.get("tag").and_then(|t| t.as_str()).unwrap_or("").to_string(),
-                                                attrs: HashMap::new(),
-                                                children: tag_val.get("children").and_then(|c| c.as_str()).map(|s| s.to_string()),
-                                                inject_to: tag_val.get("injectTo").and_then(|i| i.as_str()).map(|s| s.to_string()),
-                                            };
-                                            if let Some(attrs) = tag_val.get("attrs").and_then(|a| a.as_object()) {
-                                                for (k, v) in attrs {
-                                                    tag.attrs.insert(k.clone(), v.as_str().unwrap_or("").to_string());
-                                                }
-                                            }
-                                            if !tag.tag.is_empty() {
-                                                tags.push(tag);
-                                            }
+                                        if !tag.tag.is_empty() {
+                                            tags.push(tag);
                                         }
                                     }
                                 }
@@ -505,7 +562,10 @@ impl JsPluginHost {
                         }
                     }
                     Err(e) => {
-                        warn!("[plugin:{}] transformIndexHtml execution error: {}", plugin.name, e);
+                        warn!(
+                            "[plugin:{}] transformIndexHtml execution error: {}",
+                            plugin.name, e
+                        );
                     }
                 }
             }
@@ -526,7 +586,13 @@ impl JsPluginHost {
 
                 // Execute the configureServer hook in JS
                 // The plugin can register middleware by calling server.use(fn)
-                let global_name = format!("__pledge_plugin_{}", self.plugins.iter().position(|p| p.name == plugin.name).unwrap_or(0));
+                let global_name = format!(
+                    "__pledge_plugin_{}",
+                    self.plugins
+                        .iter()
+                        .position(|p| p.name == plugin.name)
+                        .unwrap_or(0)
+                );
                 let js_code = format!(
                     r#"
                     (function() {{
@@ -558,22 +624,26 @@ impl JsPluginHost {
 
                 match self.context.eval(Source::from_bytes(js_code.as_str())) {
                     Ok(val) => {
-                        if !val.is_null() && !val.is_undefined() {
-                            if let Ok(json_str) = val.to_string(&mut self.context) {
-                                let json_str = json_str.to_std_string_escaped();
-                                if let Ok(fns) = serde_json::from_str::<Vec<String>>(&json_str) {
-                                    for fn_source in fns {
-                                        middlewares.push(ServerMiddleware {
-                                            plugin_name: plugin.name.clone(),
-                                            source: fn_source,
-                                        });
-                                    }
+                        if !val.is_null()
+                            && !val.is_undefined()
+                            && let Ok(json_str) = val.to_string(&mut self.context)
+                        {
+                            let json_str = json_str.to_std_string_escaped();
+                            if let Ok(fns) = serde_json::from_str::<Vec<String>>(&json_str) {
+                                for fn_source in fns {
+                                    middlewares.push(ServerMiddleware {
+                                        plugin_name: plugin.name.clone(),
+                                        source: fn_source,
+                                    });
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        warn!("[plugin:{}] configureServer execution error: {}", plugin.name, e);
+                        warn!(
+                            "[plugin:{}] configureServer execution error: {}",
+                            plugin.name, e
+                        );
                     }
                 }
             }
@@ -653,15 +723,21 @@ fn strip_esm_and_assign(source: &str, global_name: &str) -> String {
         result.push(ch);
     }
 
-    let result = result
+    result
         .lines()
         .map(|line| {
             let trimmed = line.trim();
             if trimmed.starts_with("export default") {
-                line.replace("export default", &format!("globalThis['{}'] =", global_name))
-            } else if trimmed.starts_with("export const") || trimmed.starts_with("export let") || trimmed.starts_with("export var") {
-                line.replace("export ", "")
-            } else if trimmed.starts_with("export function") || trimmed.starts_with("export class") {
+                line.replace(
+                    "export default",
+                    &format!("globalThis['{}'] =", global_name),
+                )
+            } else if trimmed.starts_with("export const")
+                || trimmed.starts_with("export let")
+                || trimmed.starts_with("export var")
+                || trimmed.starts_with("export function")
+                || trimmed.starts_with("export class")
+            {
                 line.replace("export ", "")
             } else if trimmed.starts_with("import ") {
                 String::new()
@@ -670,9 +746,7 @@ fn strip_esm_and_assign(source: &str, global_name: &str) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join("\n");
-
-    result
+        .join("\n")
 }
 
 #[cfg(test)]
@@ -704,8 +778,14 @@ mod tests {
 
     #[test]
     fn test_has_hook_detection() {
-        assert!(JsPluginHost::has_hook("transform(code, id) {}", "transform"));
-        assert!(JsPluginHost::has_hook("transform: function(code) {}", "transform"));
+        assert!(JsPluginHost::has_hook(
+            "transform(code, id) {}",
+            "transform"
+        ));
+        assert!(JsPluginHost::has_hook(
+            "transform: function(code) {}",
+            "transform"
+        ));
         assert!(!JsPluginHost::has_hook("load(code) {}", "transform"));
     }
 }

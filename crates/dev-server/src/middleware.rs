@@ -29,23 +29,13 @@ pub enum MiddlewareKind {
         headers: Vec<String>,
     },
     /// Rewrite URL paths
-    Rewrite {
-        from: String,
-        to: String,
-    },
+    Rewrite { from: String, to: String },
     /// Add custom headers to responses
-    Headers {
-        headers: HashMap<String, String>,
-    },
+    Headers { headers: HashMap<String, String> },
     /// Proxy requests to another server
-    Proxy {
-        target: String,
-        path_prefix: String,
-    },
+    Proxy { target: String, path_prefix: String },
     /// Custom middleware (logged but not executed natively)
-    Custom {
-        source: String,
-    },
+    Custom { source: String },
 }
 
 impl MiddlewareFn {
@@ -55,10 +45,10 @@ impl MiddlewareFn {
         let trimmed = source.trim();
 
         // Try parsing as JSON
-        if trimmed.starts_with('{') {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                return Self::from_json(&json);
-            }
+        if trimmed.starts_with('{')
+            && let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed)
+        {
+            return Self::from_json(&json);
         }
 
         // Try parsing as a simple directive: "cors", "cors:origin=*", etc.
@@ -75,7 +65,14 @@ impl MiddlewareFn {
                 source: source.into(),
                 kind: MiddlewareKind::Cors {
                     origin: "*".into(),
-                    methods: vec!["GET".into(), "POST".into(), "PUT".into(), "DELETE".into(), "PATCH".into(), "OPTIONS".into()],
+                    methods: vec![
+                        "GET".into(),
+                        "POST".into(),
+                        "PUT".into(),
+                        "DELETE".into(),
+                        "PATCH".into(),
+                        "OPTIONS".into(),
+                    ],
                     headers: vec!["Content-Type".into(), "Authorization".into()],
                 },
             }),
@@ -89,16 +86,34 @@ impl MiddlewareFn {
 
         let kind = match name.as_str() {
             "cors" => {
-                let origin = json.get("origin").and_then(|v| v.as_str()).unwrap_or("*").to_string();
-                let methods = json.get("methods")
+                let origin = json
+                    .get("origin")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("*")
+                    .to_string();
+                let methods = json
+                    .get("methods")
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_else(|| vec!["GET".into(), "POST".into(), "OPTIONS".into()]);
-                let headers = json.get("headers")
+                let headers = json
+                    .get("headers")
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_else(|| vec!["Content-Type".into()]);
-                MiddlewareKind::Cors { origin, methods, headers }
+                MiddlewareKind::Cors {
+                    origin,
+                    methods,
+                    headers,
+                }
             }
             "rewrite" => {
                 let from = json.get("from").and_then(|v| v.as_str())?.to_string();
@@ -118,12 +133,19 @@ impl MiddlewareFn {
             }
             "proxy" => {
                 let target = json.get("target").and_then(|v| v.as_str())?.to_string();
-                let path_prefix = json.get("pathPrefix").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                MiddlewareKind::Proxy { target, path_prefix }
+                let path_prefix = json
+                    .get("pathPrefix")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                MiddlewareKind::Proxy {
+                    target,
+                    path_prefix,
+                }
             }
-            _ => {
-                MiddlewareKind::Custom { source: json.to_string() }
-            }
+            _ => MiddlewareKind::Custom {
+                source: json.to_string(),
+            },
         };
 
         Some(Self {
@@ -137,7 +159,11 @@ impl MiddlewareFn {
         match name {
             "cors" => {
                 let origin = if args.contains("origin=") {
-                    args.split("origin=").nth(1).and_then(|s| s.split('&').next()).unwrap_or("*").to_string()
+                    args.split("origin=")
+                        .nth(1)
+                        .and_then(|s| s.split('&').next())
+                        .unwrap_or("*")
+                        .to_string()
                 } else {
                     "*".to_string()
                 };
@@ -146,7 +172,14 @@ impl MiddlewareFn {
                     source: format!("cors:{}", args),
                     kind: MiddlewareKind::Cors {
                         origin,
-                        methods: vec!["GET".into(), "POST".into(), "PUT".into(), "DELETE".into(), "PATCH".into(), "OPTIONS".into()],
+                        methods: vec![
+                            "GET".into(),
+                            "POST".into(),
+                            "PUT".into(),
+                            "DELETE".into(),
+                            "PATCH".into(),
+                            "OPTIONS".into(),
+                        ],
                         headers: vec!["Content-Type".into(), "Authorization".into()],
                     },
                 })
@@ -186,7 +219,9 @@ impl MiddlewareFn {
             _ => Some(Self {
                 name: name.to_string(),
                 source: format!("{}:{}", name, args),
-                kind: MiddlewareKind::Custom { source: args.to_string() },
+                kind: MiddlewareKind::Custom {
+                    source: args.to_string(),
+                },
             }),
         }
     }
@@ -203,24 +238,24 @@ pub fn apply_cors_headers(
     let headers_map = response.headers_mut();
     headers_map.insert(
         axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
-        axum::http::HeaderValue::from_str(origin).unwrap_or_else(|_| axum::http::HeaderValue::from_static("*")),
+        axum::http::HeaderValue::from_str(origin)
+            .unwrap_or_else(|_| axum::http::HeaderValue::from_static("*")),
     );
     headers_map.insert(
         axum::http::header::ACCESS_CONTROL_ALLOW_METHODS,
-        axum::http::HeaderValue::from_str(&methods.join(", ")).unwrap_or_else(|_| axum::http::HeaderValue::from_static("GET, POST, OPTIONS")),
+        axum::http::HeaderValue::from_str(&methods.join(", "))
+            .unwrap_or_else(|_| axum::http::HeaderValue::from_static("GET, POST, OPTIONS")),
     );
     headers_map.insert(
         axum::http::header::ACCESS_CONTROL_ALLOW_HEADERS,
-        axum::http::HeaderValue::from_str(&headers.join(", ")).unwrap_or_else(|_| axum::http::HeaderValue::from_static("Content-Type")),
+        axum::http::HeaderValue::from_str(&headers.join(", "))
+            .unwrap_or_else(|_| axum::http::HeaderValue::from_static("Content-Type")),
     );
 }
 
 /// Check if a request path matches a rewrite rule and return the rewritten path
 #[allow(dead_code)]
 pub fn apply_rewrite(path: &str, from: &str, to: &str) -> Option<String> {
-    if path.starts_with(from) {
-        Some(format!("{}{}", to, &path[from.len()..]))
-    } else {
-        None
-    }
+    path.strip_prefix(from)
+        .map(|rest| format!("{}{}", to, rest))
 }

@@ -47,7 +47,10 @@ impl GitCacheInvalidator {
                 );
             }
             Err(e) => {
-                warn!("Git cache invalidator unavailable ({}), falling back to content hashes", e);
+                warn!(
+                    "Git cache invalidator unavailable ({}), falling back to content hashes",
+                    e
+                );
             }
         }
 
@@ -73,9 +76,9 @@ impl GitCacheInvalidator {
     pub fn has_file_changed(&self, path: &Path, previous_hash: Option<&str>) -> bool {
         match (self.file_hash(path), previous_hash) {
             (Some(current), Some(prev)) => current != prev,
-            (Some(_), None) => true,  // new file
-            (None, Some(_)) => true,  // file was removed
-            (None, None) => true,     // unknown file
+            (Some(_), None) => true, // new file
+            (None, Some(_)) => true, // file was removed
+            (None, None) => true,    // unknown file
         }
     }
 
@@ -100,7 +103,10 @@ impl GitCacheInvalidator {
             .output()?;
 
         if !output.status.success() {
-            anyhow::bail!("git ls-files failed: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!(
+                "git ls-files failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);

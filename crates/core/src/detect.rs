@@ -262,7 +262,10 @@ pub fn detect_project(root: &Path) -> ProjectDetection {
     let package_manager = detect_package_manager(root);
 
     // Detect build tool
-    let build_tool = if deps.contains_key("vite") || root.join("vite.config.ts").exists() || root.join("vite.config.js").exists() {
+    let build_tool = if deps.contains_key("vite")
+        || root.join("vite.config.ts").exists()
+        || root.join("vite.config.js").exists()
+    {
         BuildTool::Vite
     } else if deps.contains_key("next") {
         BuildTool::Next
@@ -272,7 +275,9 @@ pub fn detect_project(root: &Path) -> ProjectDetection {
         BuildTool::Astro
     } else if deps.contains_key("nuxt") || deps.contains_key("nuxt3") {
         BuildTool::Nuxt
-    } else if deps.contains_key("@angular/cli") || deps.contains_key("@angular-devkit/build-angular") {
+    } else if deps.contains_key("@angular/cli")
+        || deps.contains_key("@angular-devkit/build-angular")
+    {
         BuildTool::Angular
     } else if deps.contains_key("webpack") || deps.contains_key("webpack-cli") {
         BuildTool::Webpack
@@ -314,11 +319,30 @@ fn detect_package_manager(root: &Path) -> PackageManager {
 
 fn detect_entry_file(root: &Path, framework: &DetectedFramework) -> String {
     let candidates = match framework {
-        DetectedFramework::Next | DetectedFramework::Remix | DetectedFramework::PledgeStack => vec!["src/app/root.tsx", "src/app.tsx", "app/layout.tsx", "app/page.tsx", "src/main.tsx", "pages/index.tsx", "src/index.tsx"],
+        DetectedFramework::Next | DetectedFramework::Remix | DetectedFramework::PledgeStack => {
+            vec![
+                "src/app/root.tsx",
+                "src/app.tsx",
+                "app/layout.tsx",
+                "app/page.tsx",
+                "src/main.tsx",
+                "pages/index.tsx",
+                "src/index.tsx",
+            ]
+        }
         DetectedFramework::Angular => vec!["src/main.ts", "src/main.tsx"],
         DetectedFramework::Astro => vec!["src/pages/index.astro", "src/index.astro"],
         DetectedFramework::Nuxt => vec!["src/app.vue", "src/main.ts", "src/index.ts"],
-        _ => vec!["src/index.tsx", "src/index.ts", "src/main.tsx", "src/main.ts", "src/index.jsx", "src/index.js", "src/main.jsx", "src/main.js"],
+        _ => vec![
+            "src/index.tsx",
+            "src/index.ts",
+            "src/main.tsx",
+            "src/main.ts",
+            "src/index.jsx",
+            "src/index.js",
+            "src/main.jsx",
+            "src/main.js",
+        ],
     };
 
     for candidate in candidates {
@@ -365,11 +389,7 @@ pub fn generate_config(detection: &ProjectDetection) -> String {
     }
 
     // Add proxy config if it looks like a full-stack app
-    if detection.has_routing {
-        extra_fields.push_str("  devServer: {\n    port: 3000,\n    hmr: true,\n  },\n");
-    } else {
-        extra_fields.push_str("  devServer: {\n    port: 3000,\n    hmr: true,\n  },\n");
-    }
+    extra_fields.push_str("  devServer: {\n    port: 3000,\n    hmr: true,\n  },\n");
 
     let plugins_str = if plugins.is_empty() {
         String::new()
@@ -385,7 +405,8 @@ export default defineConfig({{
   framework: '{}',{plugins}
 {extra_fields}}});
 "#,
-        entry, framework,
+        entry,
+        framework,
         plugins = plugins_str,
         extra_fields = extra_fields.trim_end_matches(",\n"),
     )

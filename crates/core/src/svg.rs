@@ -63,12 +63,11 @@ pub enum SvgComponentFramework {
 pub fn optimize_svg(svg: &str, opts: &SvgOptions) -> String {
     let mut result = svg.to_string();
 
-    if opts.remove_xml_decl {
-        if let Some(end) = result.find("?>") {
-            if result.starts_with("<?xml") {
-                result = result[end + 2..].trim_start().to_string();
-            }
-        }
+    if opts.remove_xml_decl
+        && let Some(end) = result.find("?>")
+        && result.starts_with("<?xml")
+    {
+        result = result[end + 2..].trim_start().to_string();
     }
 
     if opts.remove_comments {
@@ -124,28 +123,41 @@ pub fn optimize_svg(svg: &str, opts: &SvgOptions) -> String {
 /// Simple empty element removal (without regex crate)
 fn regex_like_empty_removal(svg: &str) -> String {
     let mut result = svg.to_string();
-    let tags_to_check = ["g", "defs", "clipPath", "mask", "symbol", "pattern", "linearGradient", "radialGradient"];
+    let tags_to_check = [
+        "g",
+        "defs",
+        "clipPath",
+        "mask",
+        "symbol",
+        "pattern",
+        "linearGradient",
+        "radialGradient",
+    ];
 
     for tag in &tags_to_check {
         let open = format!("<{}", tag);
         let close = format!("</{}>", tag);
         loop {
-            if let Some(start) = result.find(&open) {
-                if let Some(close_pos) = result[start..].find(&close) {
-                    let inner = &result[start + open.len()..start + close_pos];
-                    // Check if inner is empty or only whitespace
-                    let inner_trimmed = inner.trim();
-                    if inner_trimmed.is_empty() || inner_trimmed.starts_with("/>") {
-                        // Skip self-closing
+            if let Some(start) = result.find(&open)
+                && let Some(close_pos) = result[start..].find(&close)
+            {
+                let inner = &result[start + open.len()..start + close_pos];
+                // Check if inner is empty or only whitespace
+                let inner_trimmed = inner.trim();
+                if inner_trimmed.is_empty() || inner_trimmed.starts_with("/>") {
+                    // Skip self-closing
+                    continue;
+                }
+                // Check if it's just an empty tag with attributes
+                if let Some(gt_pos) = inner.find('>') {
+                    let after_gt = &inner[gt_pos + 1..].trim();
+                    if after_gt.is_empty() {
+                        result = format!(
+                            "{}{}",
+                            &result[..start],
+                            &result[start + close_pos + close.len()..]
+                        );
                         continue;
-                    }
-                    // Check if it's just an empty tag with attributes
-                    if let Some(gt_pos) = inner.find('>') {
-                        let after_gt = &inner[gt_pos + 1..].trim();
-                        if after_gt.is_empty() {
-                            result = format!("{}{}", &result[..start], &result[start + close_pos + close.len()..]);
-                            continue;
-                        }
                     }
                 }
             }
@@ -194,8 +206,7 @@ pub fn svg_to_vue_component(svg: &str) -> String {
 
 /// Convert an SVG to a Svelte component
 pub fn svg_to_svelte_component(svg: &str) -> String {
-    let optimized = optimize_svg(svg, &SvgOptions::default());
-    optimized
+    optimize_svg(svg, &SvgOptions::default())
 }
 
 /// Convert SVG attributes to React-compatible format (camelCase)
@@ -265,7 +276,9 @@ pub fn generate_sprite(entries: &[SvgSpriteEntry]) -> String {
         symbols.push_str(&format!(
             r#"<symbol id="{}" {}>{}</symbol>"#,
             entry.id,
-            viewbox.map(|vb| format!("viewBox=\"{}\"", vb)).unwrap_or_default(),
+            viewbox
+                .map(|vb| format!("viewBox=\"{}\"", vb))
+                .unwrap_or_default(),
             inner
         ));
     }
@@ -278,12 +291,12 @@ pub fn generate_sprite(entries: &[SvgSpriteEntry]) -> String {
 
 /// Extract the inner content between <svg> and </svg> tags
 fn extract_svg_inner(svg: &str) -> String {
-    if let Some(start) = svg.find("<svg") {
-        if let Some(content_start) = svg[start..].find('>') {
-            let content_start = start + content_start + 1;
-            if let Some(end) = svg.rfind("</svg>") {
-                return svg[content_start..end].trim().to_string();
-            }
+    if let Some(start) = svg.find("<svg")
+        && let Some(content_start) = svg[start..].find('>')
+    {
+        let content_start = start + content_start + 1;
+        if let Some(end) = svg.rfind("</svg>") {
+            return svg[content_start..end].trim().to_string();
         }
     }
     svg.to_string()
@@ -360,8 +373,14 @@ mod tests {
     #[test]
     fn test_generate_sprite() {
         let entries = vec![
-            SvgSpriteEntry { id: "icon-home".to_string(), svg: r#"<svg viewBox="0 0 24 24"><path d="M3 12L12 3l9 9"/></svg>"#.to_string() },
-            SvgSpriteEntry { id: "icon-user".to_string(), svg: r#"<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/></svg>"#.to_string() },
+            SvgSpriteEntry {
+                id: "icon-home".to_string(),
+                svg: r#"<svg viewBox="0 0 24 24"><path d="M3 12L12 3l9 9"/></svg>"#.to_string(),
+            },
+            SvgSpriteEntry {
+                id: "icon-user".to_string(),
+                svg: r#"<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/></svg>"#.to_string(),
+            },
         ];
         let sprite = generate_sprite(&entries);
         assert!(sprite.contains("symbol id=\"icon-home\""));

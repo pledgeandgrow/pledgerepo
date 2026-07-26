@@ -14,7 +14,7 @@
 use crate::config::PledgeConfig;
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 /// Pre-bundled dependency information
@@ -114,7 +114,8 @@ impl DepBundler {
 
             if path.is_dir() {
                 // Skip node_modules and hidden directories
-                if path.file_name()
+                if path
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .map(|n| n == "node_modules" || n.starts_with('.'))
                     .unwrap_or(false)
@@ -124,10 +125,10 @@ impl DepBundler {
                 self.scan_directory(&path, imports)?;
             } else if path.is_file() {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if matches!(ext, "ts" | "tsx" | "js" | "jsx" | "mjs") {
-                    if let Ok(source) = std::fs::read_to_string(&path) {
-                        Self::extract_bare_imports(&source, imports);
-                    }
+                if matches!(ext, "ts" | "tsx" | "js" | "jsx" | "mjs")
+                    && let Ok(source) = std::fs::read_to_string(&path)
+                {
+                    Self::extract_bare_imports(&source, imports);
                 }
             }
         }
@@ -145,13 +146,17 @@ impl DepBundler {
                 let after_pattern = abs_pos + pattern.len();
                 let rest = &source[after_pattern..];
 
-                let closing = if pattern.ends_with('"') { '"' }
-                    else if pattern.ends_with('\'') { '\'' }
-                    else { '(' };
+                let closing = if pattern.ends_with('"') {
+                    '"'
+                } else if pattern.ends_with('\'') {
+                    '\''
+                } else {
+                    '('
+                };
 
                 if closing == '(' {
                     // Dynamic import: find the string inside
-                    if let Some(q_pos) = rest.find(|c: char| c == '"' || c == '\'') {
+                    if let Some(q_pos) = rest.find(['"', '\'']) {
                         let q_char = rest.as_bytes()[q_pos] as char;
                         let spec_start = q_pos + 1;
                         if let Some(end) = rest[spec_start..].find(q_char) {
@@ -186,8 +191,8 @@ impl DepBundler {
     fn pre_bundle_dep(
         &self,
         specifier: &str,
-        root: &PathBuf,
-        deps_dir: &PathBuf,
+        root: &Path,
+        deps_dir: &Path,
     ) -> Result<PreBundledDep> {
         // Resolve the dependency from node_modules
         let node_modules = root.join("node_modules");
@@ -227,7 +232,7 @@ impl DepBundler {
     }
 
     /// Resolve a bare specifier to a file path in node_modules
-    fn resolve_dep(&self, specifier: &str, node_modules: &PathBuf) -> Result<PathBuf> {
+    fn resolve_dep(&self, specifier: &str, node_modules: &Path) -> Result<PathBuf> {
         // Handle scoped packages and subpaths: @org/pkg/sub → @org/pkg + /sub
         let (pkg_name, subpath) = if specifier.starts_with('@') {
             let parts: Vec<&str> = specifier.splitn(3, '/').collect();
@@ -257,27 +262,28 @@ impl DepBundler {
 
                 // Check exports field for subpath
                 if !subpath.is_empty() {
-                    if let Some(exports) = pkg_json.get("exports") {
-                        if let Some(obj) = exports.as_object() {
-                            let key = format!("./{}", subpath);
-                            if let Some(export_val) = obj.get(&key) {
-                                let resolved = if let Some(s) = export_val.as_str() {
-                                    Some(s.to_string())
-                                } else if let Some(conditions) = export_val.as_object() {
-                                    conditions.get("browser")
-                                        .or_else(|| conditions.get("module"))
-                                        .or_else(|| conditions.get("import"))
-                                        .or_else(|| conditions.get("default"))
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s.to_string())
-                                } else {
-                                    None
-                                };
-                                if let Some(resolved_path) = resolved {
-                                    let full = dep_dir.join(resolved_path.trim_start_matches("./"));
-                                    if full.exists() {
-                                        return Ok(full);
-                                    }
+                    if let Some(exports) = pkg_json.get("exports")
+                        && let Some(obj) = exports.as_object()
+                    {
+                        let key = format!("./{}", subpath);
+                        if let Some(export_val) = obj.get(&key) {
+                            let resolved = if let Some(s) = export_val.as_str() {
+                                Some(s.to_string())
+                            } else if let Some(conditions) = export_val.as_object() {
+                                conditions
+                                    .get("browser")
+                                    .or_else(|| conditions.get("module"))
+                                    .or_else(|| conditions.get("import"))
+                                    .or_else(|| conditions.get("default"))
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                            } else {
+                                None
+                            };
+                            if let Some(resolved_path) = resolved {
+                                let full = dep_dir.join(resolved_path.trim_start_matches("./"));
+                                if full.exists() {
+                                    return Ok(full);
                                 }
                             }
                         }
@@ -321,7 +327,10 @@ impl DepBundler {
     /// Generate an ESM wrapper for a CJS module
     pub fn cjs_to_esm_wrapper(specifier: &str, cjs_source: &str) -> String {
         // Create an ESM wrapper that imports the CJS module and re-exports
-        let _safe_name = specifier.replace('/', "_").replace('@', "").replace('-', "_");
+        let _safe_name = specifier
+            .replace('/', "_")
+            .replace('@', "")
+            .replace('-', "_");
 
         format!(
             r#"// Pledge pre-bundled: {} (CJS → ESM interop)
@@ -339,8 +348,7 @@ export const __pledge_named = new Proxy(__pledge_default, {{
     get: (target, prop) => target[prop]
 }});
 "#,
-            specifier,
-            cjs_source
+            specifier, cjs_source
         )
     }
 

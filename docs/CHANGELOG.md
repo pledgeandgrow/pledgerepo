@@ -4,6 +4,33 @@ Development history of the Pledge build system enhancements.
 
 ---
 
+## Release 0.2.7 (2026-07-25)
+
+### Summary
+Cross-platform CI fixes and GitHub Actions modernization. Resolved OpenSSL cross-compilation failure on Linux ARM64 and Zig architecture mismatch on macOS x86_64. Updated all GitHub Actions to v5 to eliminate Node.js 20 deprecation warnings.
+
+### Bug Fixes
+- **Fixed OpenSSL cross-compile failure on Linux ARM64** — `reqwest` in `crates/dev-server/Cargo.toml` was using default features which pull in `native-tls` (openssl-sys). Switched to `default-features = false, features = ["rustls-tls", "json"]` to eliminate the openssl dependency entirely.
+- **Fixed Zig architecture mismatch on macOS x86_64** — The release workflow runs on `macos-14` (ARM64 runner) targeting `x86_64-apple-darwin`. `zig build` without `-Dtarget` produced an ARM64 library that couldn't link into an x86_64 binary. Added `zig_target` matrix entries and pass `-Dtarget=${{ matrix.zig_target }}` to `zig build` for correct cross-compilation.
+
+### Improvements
+- **Updated all GitHub Actions to v5** — `actions/checkout`, `actions/cache`, `actions/upload-artifact`, `actions/download-artifact`, `actions/setup-node` bumped from v4 to v5 across `release.yml`, `ci.yml`, and `audit.yml` to eliminate Node.js 20 deprecation warnings.
+- **Updated documentation** — Zig version requirement corrected from "0.14.0+" to "0.16.0+" in README and CONTRIBUTING.md. PledgeStack adapter status clarified to note runtime execution is not yet implemented. Dependency versions, crate counts, and build profile corrected in `dependencies.md`. Platform target count corrected in `LIMITATIONS.md`.
+
+### Files Changed
+- `crates/dev-server/Cargo.toml` — reqwest switched to rustls-tls
+- `.github/workflows/release.yml` — Added zig_target matrix, -Dtarget flag, bumped actions to v5
+- `.github/workflows/ci.yml` — Bumped actions to v5
+- `.github/workflows/audit.yml` — Bumped actions to v5
+- `README.md` — Zig version fix, PledgeStack status clarification
+- `CONTRIBUTING.md` — Zig version fix
+- `docs/LIMITATIONS.md` — Platform target count, opt-level correction
+- `docs/dependencies.md` — Version corrections, missing crates, crate count fix
+- `docs/BENCHMARK.md` — Version update to 0.2.7
+- `docs/CHANGELOG.md` — This entry
+
+---
+
 ## Release 0.2.6 (2026-07-24)
 
 ### Summary

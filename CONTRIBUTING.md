@@ -7,7 +7,7 @@ Thank you for your interest in contributing to Pledge! This document outlines th
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) (stable, edition 2024)
-- [Zig](https://ziglang.org/) (0.14.0+)
+- [Zig](https://ziglang.org/) (0.16.0+)
 - [Node.js](https://nodejs.org/) (>=18)
 
 ### Setup

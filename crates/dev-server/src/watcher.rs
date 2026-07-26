@@ -42,13 +42,25 @@ impl Default for WatcherConfig {
         Self {
             debounce_ms: 100,
             extensions: vec![
-                "ts".into(), "tsx".into(), "js".into(), "jsx".into(),
-                "css".into(), "json".into(), "vue".into(), "svelte".into(),
-                "scss".into(), "less".into(), "html".into(), "astro".into(),
+                "ts".into(),
+                "tsx".into(),
+                "js".into(),
+                "jsx".into(),
+                "css".into(),
+                "json".into(),
+                "vue".into(),
+                "svelte".into(),
+                "scss".into(),
+                "less".into(),
+                "html".into(),
+                "astro".into(),
             ],
             ignore_dirs: vec![
-                "node_modules".into(), ".git".into(), "dist".into(),
-                ".pledge-cache".into(), "target".into(),
+                "node_modules".into(),
+                ".git".into(),
+                "dist".into(),
+                ".pledge-cache".into(),
+                "target".into(),
             ],
         }
     }
@@ -66,7 +78,10 @@ pub fn start_watcher(root: &Path, config: WatcherConfig) -> mpsc::Receiver<FileE
         #[cfg(target_os = "windows")]
         {
             if let Err(e) = watch_windows(&root, &config, &tx) {
-                warn!("Windows native watcher failed: {}, falling back to notify", e);
+                warn!(
+                    "Windows native watcher failed: {}, falling back to notify",
+                    e
+                );
                 watch_notify_fallback(&root, &config, &tx);
             }
         }
@@ -74,7 +89,10 @@ pub fn start_watcher(root: &Path, config: WatcherConfig) -> mpsc::Receiver<FileE
         #[cfg(target_os = "linux")]
         {
             if let Err(e) = watch_linux(&root, &config, &tx) {
-                warn!("Linux inotify watcher failed: {}, falling back to notify", e);
+                warn!(
+                    "Linux inotify watcher failed: {}, falling back to notify",
+                    e
+                );
                 watch_notify_fallback(&root, &config, &tx);
             }
         }
@@ -82,7 +100,10 @@ pub fn start_watcher(root: &Path, config: WatcherConfig) -> mpsc::Receiver<FileE
         #[cfg(target_os = "macos")]
         {
             if let Err(e) = watch_macos(&root, &config, &tx) {
-                warn!("macOS FSEvents watcher failed: {}, falling back to notify", e);
+                warn!(
+                    "macOS FSEvents watcher failed: {}, falling back to notify",
+                    e
+                );
                 watch_notify_fallback(&root, &config, &tx);
             }
         }
@@ -118,18 +139,20 @@ fn should_watch(path: &Path, config: &WatcherConfig) -> bool {
 // ─── Windows: ReadDirectoryChangesW ──────────────────────────────────────────
 
 #[cfg(target_os = "windows")]
-fn watch_windows(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>) -> Result<(), String> {
+fn watch_windows(
+    root: &Path,
+    config: &WatcherConfig,
+    tx: &mpsc::Sender<FileEvent>,
+) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use std::ptr;
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, ReadDirectoryChangesW, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OVERLAPPED, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-        FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_DIR_NAME,
-        FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_CHANGE_SIZE,
-        FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_CREATION,
-        FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED,
-        FILE_ACTION_RENAMED_NEW_NAME,
+        CreateFileW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED,
+        FILE_ACTION_RENAMED_NEW_NAME, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED,
+        FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_CHANGE_CREATION, FILE_NOTIFY_CHANGE_DIR_NAME,
+        FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, ReadDirectoryChangesW,
     };
     use windows_sys::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
     use windows_sys::Win32::System::Threading::{CreateEventW, WaitForMultipleObjects};
@@ -137,7 +160,11 @@ fn watch_windows(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEven
     const BUFFER_SIZE: usize = 4096;
 
     // Convert path to wide string
-    let wide_path: Vec<u16> = root.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let wide_path: Vec<u16> = root
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
 
     let handle = unsafe {
         CreateFileW(
@@ -180,9 +207,12 @@ fn watch_windows(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEven
                 buffer.as_mut_ptr() as *mut _,
                 BUFFER_SIZE as u32,
                 1, // bWatchSubtree = TRUE
-                FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME
-                    | FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE
-                    | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_CREATION,
+                FILE_NOTIFY_CHANGE_FILE_NAME
+                    | FILE_NOTIFY_CHANGE_DIR_NAME
+                    | FILE_NOTIFY_CHANGE_ATTRIBUTES
+                    | FILE_NOTIFY_CHANGE_SIZE
+                    | FILE_NOTIFY_CHANGE_LAST_WRITE
+                    | FILE_NOTIFY_CHANGE_CREATION,
                 &mut bytes_returned,
                 &mut overlapped,
                 None,
@@ -196,7 +226,12 @@ fn watch_windows(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEven
 
         // Wait for the overlapped operation to complete
         let wait_result = unsafe {
-            WaitForMultipleObjects(1, [event].as_ptr(), 0, winapi_timeout_ms(config.debounce_ms))
+            WaitForMultipleObjects(
+                1,
+                [event].as_ptr(),
+                0,
+                winapi_timeout_ms(config.debounce_ms),
+            )
         };
 
         if wait_result == 0xFFFFFFFF {
@@ -206,20 +241,20 @@ fn watch_windows(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEven
         }
 
         let mut bytes_transferred: u32 = 0;
-        let ok = unsafe { GetOverlappedResult(handle, &mut overlapped, &mut bytes_transferred, 0) };
+        let ok = unsafe { GetOverlappedResult(handle, &overlapped, &mut bytes_transferred, 0) };
         if ok == 0 || bytes_transferred == 0 {
             // Timeout or no data — check debounce
-            if let (Some(path), Some(time)) = (&debounce_path, debounce_time) {
-                if time.elapsed() > debounce_dur {
-                    if should_watch(path, config) {
-                        let _ = tx.send(FileEvent {
-                            path: path.clone(),
-                            kind: EventKind::Modify,
-                        });
-                    }
-                    debounce_path = None;
-                    debounce_time = None;
+            if let (Some(path), Some(time)) = (&debounce_path, debounce_time)
+                && time.elapsed() > debounce_dur
+            {
+                if should_watch(path, config) {
+                    let _ = tx.send(FileEvent {
+                        path: path.clone(),
+                        kind: EventKind::Modify,
+                    });
                 }
+                debounce_path = None;
+                debounce_time = None;
             }
             continue;
         }
@@ -232,26 +267,20 @@ fn watch_windows(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEven
                 break;
             }
 
-            let next_offset = u32::from_le_bytes([
-                record[0], record[1], record[2], record[3],
-            ]) as usize;
+            let next_offset =
+                u32::from_le_bytes([record[0], record[1], record[2], record[3]]) as usize;
 
-            let action = u32::from_le_bytes([
-                record[4], record[5], record[6], record[7],
-            ]);
+            let action = u32::from_le_bytes([record[4], record[5], record[6], record[7]]);
 
-            let name_length = u32::from_le_bytes([
-                record[8], record[9], record[10], record[11],
-            ]) as usize;
+            let name_length =
+                u32::from_le_bytes([record[8], record[9], record[10], record[11]]) as usize;
 
             if record.len() < 12 + name_length {
                 break;
             }
 
             let name_bytes = &record[12..12 + name_length];
-            let name_str = String::from_utf16_lossy(
-                bytemuck::cast_slice(name_bytes),
-            );
+            let name_str = String::from_utf16_lossy(bytemuck::cast_slice(name_bytes));
 
             let full_path = root.join(&name_str);
 
@@ -290,17 +319,17 @@ fn watch_windows(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEven
         }
 
         // Flush any pending debounced event after processing
-        if let (Some(path), Some(time)) = (&debounce_path, debounce_time) {
-            if time.elapsed() > debounce_dur {
-                if should_watch(path, config) {
-                    let _ = tx.send(FileEvent {
-                        path: path.clone(),
-                        kind: EventKind::Modify,
-                    });
-                }
-                debounce_path = None;
-                debounce_time = None;
+        if let (Some(path), Some(time)) = (&debounce_path, debounce_time)
+            && time.elapsed() > debounce_dur
+        {
+            if should_watch(path, config) {
+                let _ = tx.send(FileEvent {
+                    path: path.clone(),
+                    kind: EventKind::Modify,
+                });
             }
+            debounce_path = None;
+            debounce_time = None;
         }
     }
 
@@ -321,10 +350,13 @@ fn winapi_timeout_ms(debounce_ms: u64) -> u32 {
 // ─── Linux: inotify ──────────────────────────────────────────────────────────
 
 #[cfg(target_os = "linux")]
-fn watch_linux(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>) -> Result<(), String> {
+fn watch_linux(
+    root: &Path,
+    config: &WatcherConfig,
+    tx: &mpsc::Sender<FileEvent>,
+) -> Result<(), String> {
     use std::os::unix::io::RawFd;
 
-    const IN_MODIFY: u32 = 0x2;
     const IN_CREATE: u32 = 0x100;
     const IN_DELETE: u32 = 0x200;
     const IN_MOVED_TO: u32 = 0x80;
@@ -345,7 +377,11 @@ fn watch_linux(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>
         return Err("No directories to watch".into());
     }
 
-    info!("Native Linux inotify watcher started on {} ({} dirs)", root.display(), watch_map.len());
+    info!(
+        "Native Linux inotify watcher started on {} ({} dirs)",
+        root.display(),
+        watch_map.len()
+    );
 
     let mut buffer = vec![0u8; 4096];
     let mut debounce_path: Option<PathBuf> = None;
@@ -353,7 +389,11 @@ fn watch_linux(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>
     let debounce_dur = Duration::from_millis(config.debounce_ms);
 
     // Use poll with timeout for debounce checking
-    let pollfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+    let pollfd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
 
     loop {
         let mut pfd = pollfd;
@@ -386,13 +426,7 @@ fn watch_linux(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>
         }
 
         // Read inotify events
-        let len = unsafe {
-            libc::read(
-                fd,
-                buffer.as_mut_ptr() as *mut _,
-                buffer.len(),
-            )
-        };
+        let len = unsafe { libc::read(fd, buffer.as_mut_ptr() as *mut _, buffer.len()) };
 
         if len <= 0 {
             continue;
@@ -403,16 +437,28 @@ fn watch_linux(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>
 
         while offset + 16 <= len {
             let wd = i32::from_le_bytes([
-                buffer[offset], buffer[offset+1], buffer[offset+2], buffer[offset+3],
+                buffer[offset],
+                buffer[offset + 1],
+                buffer[offset + 2],
+                buffer[offset + 3],
             ]);
             let mask = u32::from_le_bytes([
-                buffer[offset+4], buffer[offset+5], buffer[offset+6], buffer[offset+7],
+                buffer[offset + 4],
+                buffer[offset + 5],
+                buffer[offset + 6],
+                buffer[offset + 7],
             ]);
             let _cookie = u32::from_le_bytes([
-                buffer[offset+8], buffer[offset+9], buffer[offset+10], buffer[offset+11],
+                buffer[offset + 8],
+                buffer[offset + 9],
+                buffer[offset + 10],
+                buffer[offset + 11],
             ]);
             let name_len = u32::from_le_bytes([
-                buffer[offset+12], buffer[offset+13], buffer[offset+14], buffer[offset+15],
+                buffer[offset + 12],
+                buffer[offset + 13],
+                buffer[offset + 14],
+                buffer[offset + 15],
             ]) as usize;
 
             offset += 16;
@@ -506,8 +552,11 @@ fn add_watch_recursive(
         libc::inotify_add_watch(
             fd,
             c_dir.as_ptr(),
-            libc::IN_MODIFY | libc::IN_CREATE | libc::IN_DELETE
-                | libc::IN_MOVED_TO | libc::IN_MOVED_FROM,
+            libc::IN_MODIFY
+                | libc::IN_CREATE
+                | libc::IN_DELETE
+                | libc::IN_MOVED_TO
+                | libc::IN_MOVED_FROM,
         )
     };
 
@@ -529,11 +578,15 @@ fn add_watch_recursive(
 // ─── macOS: FSEvents ─────────────────────────────────────────────────────────
 
 #[cfg(target_os = "macos")]
-fn watch_macos(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>) -> Result<(), String> {
+fn watch_macos(
+    root: &Path,
+    config: &WatcherConfig,
+    tx: &mpsc::Sender<FileEvent>,
+) -> Result<(), String> {
     // FSEvents API is complex and requires CoreFoundation
     // For now, use the notify crate with FSEvents backend directly
     // This is still more efficient than recommended_watcher since we control the event loop
-    use notify::{Watcher, RecursiveMode, EventKind as NotifyEventKind};
+    use notify::{EventKind as NotifyEventKind, RecursiveMode, Watcher};
 
     let (notify_tx, notify_rx) = mpsc::channel::<notify::Result<notify::Event>>();
 
@@ -541,13 +594,17 @@ fn watch_macos(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>
     let mut watcher = notify::FsEventWatcher::new(notify_tx, notify::Config::default())
         .map_err(|e| format!("FsEventWatcher creation failed: {}", e))?;
 
-    watcher.watch(root, RecursiveMode::Recursive)
+    watcher
+        .watch(root, RecursiveMode::Recursive)
         .map_err(|e| format!("watch failed: {}", e))?;
 
     // Configure FSEvents for lower latency
     // (notify crate exposes this via configuration)
 
-    info!("Native macOS FSEvents watcher started on {}", root.display());
+    info!(
+        "Native macOS FSEvents watcher started on {}",
+        root.display()
+    );
 
     let mut debounce_path: Option<PathBuf> = None;
     let mut debounce_time: Option<Instant> = None;
@@ -560,8 +617,11 @@ fn watch_macos(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>
                     for path in &event.paths {
                         if should_watch(path, config) {
                             let now = Instant::now();
-                            if let (Some(prev_path), Some(prev_time)) = (&debounce_path, debounce_time) {
-                                if prev_path != path || now.duration_since(prev_time) > debounce_dur {
+                            if let (Some(prev_path), Some(prev_time)) =
+                                (&debounce_path, debounce_time)
+                            {
+                                if prev_path != path || now.duration_since(prev_time) > debounce_dur
+                                {
                                     let _ = tx.send(FileEvent {
                                         path: prev_path.clone(),
                                         kind: EventKind::Modify,
@@ -600,8 +660,8 @@ fn watch_macos(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>
 
 #[allow(dead_code)]
 fn watch_notify_fallback(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<FileEvent>) {
-    use notify_debouncer_full::new_debouncer;
     use notify::RecursiveMode;
+    use notify_debouncer_full::new_debouncer;
 
     let debounce_dur = Duration::from_millis(config.debounce_ms);
 
@@ -629,7 +689,10 @@ fn watch_notify_fallback(root: &Path, config: &WatcherConfig, tx: &mpsc::Sender<
         return;
     }
 
-    info!("File watcher started (notify-debouncer fallback) on {}", root.display());
+    info!(
+        "File watcher started (notify-debouncer fallback) on {}",
+        root.display()
+    );
 
     loop {
         match debounce_rx.recv_timeout(debounce_dur * 2) {

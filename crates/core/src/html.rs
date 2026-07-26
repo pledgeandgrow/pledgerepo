@@ -69,7 +69,13 @@ pub fn generate_production_html(
     css_files: &[String],
     additional_meta: &HashMap<String, String>,
 ) -> String {
-    generate_production_html_with_base(template_html, entry_scripts, css_files, additional_meta, "/")
+    generate_production_html_with_base(
+        template_html,
+        entry_scripts,
+        css_files,
+        additional_meta,
+        "/",
+    )
 }
 
 /// Generate production HTML with hashed asset references and base path
@@ -81,7 +87,11 @@ pub fn generate_production_html_with_base(
     base: &str,
 ) -> String {
     let base = base.trim_end_matches('/');
-    let prefix = if base.is_empty() { String::new() } else { base.to_string() };
+    let prefix = if base.is_empty() {
+        String::new()
+    } else {
+        base.to_string()
+    };
 
     let mut html = template_html.to_string();
 
@@ -118,6 +128,7 @@ pub fn generate_production_html_with_base(
 }
 
 /// Generate production HTML with full preload/prefetch and modulepreload support
+#[allow(clippy::too_many_arguments)]
 pub fn generate_production_html_with_preloads(
     template_html: &str,
     entry_scripts: &[(String, String)],
@@ -129,12 +140,20 @@ pub fn generate_production_html_with_preloads(
     additional_meta: &HashMap<String, String>,
 ) -> String {
     generate_production_html_with_preloads_and_base(
-        template_html, entry_scripts, css_files, async_chunks,
-        module_preload, preload, prefetch, additional_meta, "/",
+        template_html,
+        entry_scripts,
+        css_files,
+        async_chunks,
+        module_preload,
+        preload,
+        prefetch,
+        additional_meta,
+        "/",
     )
 }
 
 /// Generate production HTML with full preload/prefetch, modulepreload, and base path support
+#[allow(clippy::too_many_arguments)]
 pub fn generate_production_html_with_preloads_and_base(
     template_html: &str,
     entry_scripts: &[(String, String)],
@@ -147,7 +166,11 @@ pub fn generate_production_html_with_preloads_and_base(
     base: &str,
 ) -> String {
     let base = base.trim_end_matches('/');
-    let prefix = if base.is_empty() { String::new() } else { base.to_string() };
+    let prefix = if base.is_empty() {
+        String::new()
+    } else {
+        base.to_string()
+    };
 
     let mut html = template_html.to_string();
 
@@ -162,35 +185,50 @@ pub fn generate_production_html_with_preloads_and_base(
 
     // CSS links
     for css in css_files {
-        head_injections.push_str(&format!(r#"    <link rel="stylesheet" href="{}/{}" />"#, prefix, css));
+        head_injections.push_str(&format!(
+            r#"    <link rel="stylesheet" href="{}/{}" />"#,
+            prefix, css
+        ));
         head_injections.push('\n');
     }
 
     // Module preload directives for async chunks
     if module_preload {
         for chunk in async_chunks {
-            head_injections.push_str(&format!(r#"    <link rel="modulepreload" href="{}/{}" />"#, prefix, chunk));
+            head_injections.push_str(&format!(
+                r#"    <link rel="modulepreload" href="{}/{}" />"#,
+                prefix, chunk
+            ));
             head_injections.push('\n');
         }
     }
 
     // Preload directives for critical assets (first CSS file)
     if preload && !css_files.is_empty() {
-        head_injections.push_str(&format!(r#"    <link rel="preload" href="{}/{}" as="style" />"#, prefix, css_files[0]));
+        head_injections.push_str(&format!(
+            r#"    <link rel="preload" href="{}/{}" as="style" />"#,
+            prefix, css_files[0]
+        ));
         head_injections.push('\n');
     }
 
     // Prefetch directives for async chunks
     if prefetch {
         for chunk in async_chunks {
-            head_injections.push_str(&format!(r#"    <link rel="prefetch" href="{}/{}" />"#, prefix, chunk));
+            head_injections.push_str(&format!(
+                r#"    <link rel="prefetch" href="{}/{}" />"#,
+                prefix, chunk
+            ));
             head_injections.push('\n');
         }
     }
 
     // Meta tags
     for (name, content) in additional_meta {
-        head_injections.push_str(&format!(r#"    <meta name="{}" content="{}" />"#, name, content));
+        head_injections.push_str(&format!(
+            r#"    <meta name="{}" content="{}" />"#,
+            name, content
+        ));
         head_injections.push('\n');
     }
 
@@ -307,12 +345,12 @@ fn extract_module_preloads(html: &str) -> Vec<String> {
         if let Some(end) = rest.find('>') {
             let tag = &rest[..end];
 
-            if tag.contains("modulepreload") {
-                if let Some(href_start) = tag.find(r#"href=""#) {
-                    let href_rest = &tag[href_start + 6..];
-                    if let Some(href_end) = href_rest.find('"') {
-                        preloads.push(href_rest[..href_end].to_string());
-                    }
+            if tag.contains("modulepreload")
+                && let Some(href_start) = tag.find(r#"href=""#)
+            {
+                let href_rest = &tag[href_start + 6..];
+                if let Some(href_end) = href_rest.find('"') {
+                    preloads.push(href_rest[..href_end].to_string());
                 }
             }
         }
@@ -325,10 +363,10 @@ fn extract_module_preloads(html: &str) -> Vec<String> {
 
 /// Extract <title>...</title>
 fn extract_title(html: &str) -> Option<String> {
-    if let Some(start) = html.find("<title>") {
-        if let Some(end) = html[start..].find("</title>") {
-            return Some(html[start + 7..start + end].trim().to_string());
-        }
+    if let Some(start) = html.find("<title>")
+        && let Some(end) = html[start..].find("</title>")
+    {
+        return Some(html[start + 7..start + end].trim().to_string());
     }
     None
 }
@@ -403,9 +441,7 @@ pub fn minify_html(html: &str) -> String {
 
         if c == '<' {
             // Check for HTML comment
-            if html[result.len().saturating_sub(0)..].ends_with("<")
-                && chars.peek() == Some(&'!')
-            {
+            if html[result.len().saturating_sub(0)..].ends_with("<") && chars.peek() == Some(&'!') {
                 // Look ahead for <!--
                 let mut lookahead = chars.clone();
                 lookahead.next(); // !
@@ -481,6 +517,9 @@ mod tests {
     fn test_extract_meta_tags() {
         let html = r#"<meta name="viewport" content="width=device-width" />"#;
         let meta = extract_meta_tags(html);
-        assert_eq!(meta.get("viewport"), Some(&"width=device-width".to_string()));
+        assert_eq!(
+            meta.get("viewport"),
+            Some(&"width=device-width".to_string())
+        );
     }
 }

@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use schemars::JsonSchema;
-use std::path::PathBuf;
 use regex::Regex;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 /// Compile test include/exclude patterns into a GlobSet for efficient matching
@@ -335,9 +335,7 @@ fn default_snapshot_dir() -> String {
 }
 
 fn default_test_patterns() -> Vec<String> {
-    vec![
-        "**/*.{test,spec}.{js,ts,jsx,tsx}".to_string(),
-    ]
+    vec!["**/*.{test,spec}.{js,ts,jsx,tsx}".to_string()]
 }
 
 fn default_test_exclude() -> Vec<String> {
@@ -955,7 +953,7 @@ impl Default for A11yConfig {
 }
 
 /// Build-time string encryption configuration (#109)
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct EncryptConfig {
     /// Enable string encryption (default: false)
     #[serde(default)]
@@ -968,18 +966,8 @@ pub struct EncryptConfig {
     pub key: Option<String>,
 }
 
-impl Default for EncryptConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            keys: Vec::new(),
-            key: None,
-        }
-    }
-}
-
 /// Bundle size budget configuration (#102)
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct BudgetConfig {
     /// Enable budget checking (default: false)
     #[serde(default)]
@@ -998,18 +986,6 @@ pub struct BudgetConfig {
     pub entry_budgets: std::collections::HashMap<String, usize>,
 }
 
-impl Default for BudgetConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            max_bundle_size: 0,
-            max_chunk_size: 0,
-            max_chunk_count: 0,
-            entry_budgets: std::collections::HashMap::new(),
-        }
-    }
-}
-
 impl Default for PledgeConfig {
     fn default() -> Self {
         // Auto-detect entry point based on project structure
@@ -1022,7 +998,8 @@ impl Default for PledgeConfig {
                 cwd.join("src").join("index.tsx"),
                 cwd.join("index.tsx"),
             ];
-            candidates.iter()
+            candidates
+                .iter()
                 .find(|p| p.exists())
                 .and_then(|p| p.strip_prefix(&cwd).ok())
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
@@ -1131,8 +1108,13 @@ impl PledgeConfig {
     pub fn normalize(&mut self) {
         if let Some(ref resolve) = self.resolve {
             if !resolve.alias.is_empty() && self.resolve_alias.is_empty() {
-                self.resolve_alias = resolve.alias.iter()
-                    .map(|(from, to)| PathAlias { from: from.clone(), to: to.clone() })
+                self.resolve_alias = resolve
+                    .alias
+                    .iter()
+                    .map(|(from, to)| PathAlias {
+                        from: from.clone(),
+                        to: to.clone(),
+                    })
                     .collect();
             }
             if !resolve.extensions.is_empty() && self.extensions.is_empty() {
@@ -1142,18 +1124,18 @@ impl PledgeConfig {
                 self.conditions = resolve.conditions.clone();
             }
         }
-        if let Some(ref opt) = self.optimize {
-            if opt.minify.is_some() {
-                // minify is handled by Oxc in production — this flag controls whether to minify
-                // If explicitly set to false, disable minification by adjusting build config
-                if let Some(false) = opt.minify {
-                    // Will be respected by transform.rs which checks is_production
-                    // This is informational — actual minify control is via BuildMode
-                }
+        if let Some(ref opt) = self.optimize
+            && opt.minify.is_some()
+        {
+            // minify is handled by Oxc in production — this flag controls whether to minify
+            // If explicitly set to false, disable minification by adjusting build config
+            if let Some(false) = opt.minify {
+                // Will be respected by transform.rs which checks is_production
+                // This is informational — actual minify control is via BuildMode
             }
-            // tree_shake and split_chunks are always enabled in production builds
-            // via the optimizer. These flags are informational.
         }
+        // tree_shake and split_chunks are always enabled in production builds
+        // via the optimizer. These flags are informational.
     }
 
     /// Resolve the app directory for file-based routing.
@@ -1208,7 +1190,7 @@ impl PledgeConfig {
 
     /// Load config from pledge.config.ts, pledge.config.js, pledge.config.json, pledge.json, or defaults
     /// Supports TypeScript config files by extracting the JSON-like config object.
-    pub fn load(root: &PathBuf) -> anyhow::Result<Self> {
+    pub fn load(root: &Path) -> anyhow::Result<Self> {
         // Check for TS/JS config files first (higher priority)
         let ts_candidates = [
             root.join("pledge.config.ts"),
@@ -1259,10 +1241,8 @@ impl PledgeConfig {
             trimmed[pos..].find('{').map(|p| pos + p)
         } else if let Some(pos) = trimmed.find("module.exports") {
             trimmed[pos..].find('{').map(|p| pos + p)
-        } else if let Some(pos) = trimmed.find('{') {
-            Some(pos)
         } else {
-            None
+            trimmed.find('{')
         };
 
         let start = config_start.ok_or_else(|| {
@@ -1277,8 +1257,7 @@ impl PledgeConfig {
         let mut string_char = b' ';
         let mut escaped = false;
 
-        for i in start..bytes.len() {
-            let b = bytes[i];
+        for (i, &b) in bytes.iter().enumerate().skip(start) {
             if escaped {
                 escaped = false;
                 continue;
@@ -1334,12 +1313,10 @@ impl PledgeConfig {
 
         // Step 1: Remove comments using regex (string-aware — we use a state machine
         // to protect string literals from comment-like sequences inside them)
-        let single_line_re = SINGLE_LINE_COMMENT_RE.get_or_init(|| {
-            Regex::new(r"//[^\n]*").unwrap()
-        });
-        let multi_line_re = MULTI_LINE_COMMENT_RE.get_or_init(|| {
-            Regex::new(r"/\*[\s\S]*?\*/").unwrap()
-        });
+        let single_line_re =
+            SINGLE_LINE_COMMENT_RE.get_or_init(|| Regex::new(r"//[^\n]*").unwrap());
+        let multi_line_re =
+            MULTI_LINE_COMMENT_RE.get_or_init(|| Regex::new(r"/\*[\s\S]*?\*/").unwrap());
 
         // First strip multi-line comments, then single-line comments
         // We need to be careful not to strip // inside strings, so we do
@@ -1348,15 +1325,13 @@ impl PledgeConfig {
         let _ = (single_line_re, multi_line_re); // regexes available for future use
 
         // Step 2: Remove trailing commas using regex
-        let trailing_comma_re = TRAILING_COMMA_RE.get_or_init(|| {
-            Regex::new(r",(\s*[\}\]])").unwrap()
-        });
+        let trailing_comma_re =
+            TRAILING_COMMA_RE.get_or_init(|| Regex::new(r",(\s*[\}\]])").unwrap());
         let no_trailing = trailing_comma_re.replace_all(&stripped, "$1");
 
         // Step 3: Quote unquoted keys using regex
-        let unquoted_key_re = UNQUOTED_KEY_RE.get_or_init(|| {
-            Regex::new(r"([\{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)(\s*:)").unwrap()
-        });
+        let unquoted_key_re = UNQUOTED_KEY_RE
+            .get_or_init(|| Regex::new(r"([\{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)(\s*:)").unwrap());
         let quoted_keys = unquoted_key_re.replace_all(&no_trailing, r#"$1"$2"$3"#);
 
         // Step 4: Convert single quotes/backtick strings to double-quoted strings
@@ -1615,20 +1590,12 @@ impl Default for SwCachingConfig {
 // ─── Feature 119: Conditional exports config ──────────────────────────
 
 /// Conditional exports resolution configuration (#119)
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct ExportsConfig {
     /// Additional conditions for package.json exports resolution
     /// e.g., ["production", "browser"] to prefer production/browser entry points
     #[serde(default)]
     pub conditions: Vec<String>,
-}
-
-impl Default for ExportsConfig {
-    fn default() -> Self {
-        Self {
-            conditions: vec![],
-        }
-    }
 }
 
 // ─── Feature 94: Plugin preset config ────────────────────────────────
@@ -1654,7 +1621,7 @@ pub struct PluginPreset {
 
 /// Custom transformer pipeline configuration (#97)
 /// Allows inserting custom transform steps at any point in the pipeline
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 pub struct TransformPipelineConfig {
     /// Ordered list of transform steps
     /// Built-in steps: "oxc", "minify", "tree-shake"
@@ -1664,15 +1631,6 @@ pub struct TransformPipelineConfig {
     /// Whether to replace the default pipeline entirely (true) or insert into it (false)
     #[serde(default)]
     pub replace_default: bool,
-}
-
-impl Default for TransformPipelineConfig {
-    fn default() -> Self {
-        Self {
-            pipeline: vec![],
-            replace_default: false,
-        }
-    }
 }
 
 // ─── Feature 98-100: Workspace configuration ─────────────────────────
@@ -1745,6 +1703,7 @@ mod base_path_tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn test_base_path_normalized() {
         let mut config = PledgeConfig::default();
         config.base = "my-app".to_string();
@@ -1769,8 +1728,10 @@ mod base_path_tests {
 
     #[test]
     fn test_asset_url_subpath() {
-        let mut config = PledgeConfig::default();
-        config.base = "/my-app/".to_string();
+        let config = PledgeConfig {
+            base: "/my-app/".to_string(),
+            ..Default::default()
+        };
         assert_eq!(config.asset_url("js/index.js"), "/my-app/js/index.js");
         assert_eq!(config.asset_url("/js/index.js"), "/my-app/js/index.js");
     }

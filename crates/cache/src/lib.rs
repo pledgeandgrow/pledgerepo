@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-pub mod remote;
 pub mod git_cache;
+pub mod remote;
 use tracing::debug;
 
 /// Unique key for a cached function result
@@ -70,13 +70,13 @@ impl FunctionCache {
         }
 
         // Check filesystem
-        if self.persist {
-            if let Ok(entry) = self.read_from_disk(key) {
-                debug!("Cache hit (disk): {}", key.function_id);
-                // Populate memory cache
-                self.memory.insert(key.clone(), entry.clone());
-                return Some(entry);
-            }
+        if self.persist
+            && let Ok(entry) = self.read_from_disk(key)
+        {
+            debug!("Cache hit (disk): {}", key.function_id);
+            // Populate memory cache
+            self.memory.insert(key.clone(), entry.clone());
+            return Some(entry);
         }
 
         None
@@ -86,10 +86,10 @@ impl FunctionCache {
     pub fn set(&self, key: CacheKey, entry: CacheEntry) {
         self.memory.insert(key.clone(), entry.clone());
 
-        if self.persist {
-            if let Err(e) = self.write_to_disk(&key, &entry) {
-                tracing::warn!("Failed to persist cache entry: {}", e);
-            }
+        if self.persist
+            && let Err(e) = self.write_to_disk(&key, &entry)
+        {
+            tracing::warn!("Failed to persist cache entry: {}", e);
         }
     }
 
@@ -128,8 +128,12 @@ impl FunctionCache {
     }
 
     fn cache_path(&self, key: &CacheKey) -> PathBuf {
-        let hash = blake3::hash(bincode::serde::encode_to_vec(key, bincode::config::standard()).unwrap_or_default().as_slice());
-        self.cache_dir.join(hash.to_hex().as_str().to_string())
+        let hash = blake3::hash(
+            bincode::serde::encode_to_vec(key, bincode::config::standard())
+                .unwrap_or_default()
+                .as_slice(),
+        );
+        self.cache_dir.join(hash.to_hex().as_str())
     }
 
     fn read_from_disk(&self, key: &CacheKey) -> Result<CacheEntry> {
@@ -146,7 +150,8 @@ impl FunctionCache {
             std::fs::read(&path)?
         };
 
-        let (entry, _) = bincode::serde::decode_from_slice::<CacheEntry, _>(&data, bincode::config::standard())?;
+        let (entry, _) =
+            bincode::serde::decode_from_slice::<CacheEntry, _>(&data, bincode::config::standard())?;
         Ok(entry)
     }
 
@@ -168,8 +173,13 @@ pub struct CacheStats {
 
 /// Helper to compute a cache key
 pub fn make_key(content_hash: u64, function_id: &str, params: &impl serde::Serialize) -> CacheKey {
-    let params_bytes = bincode::serde::encode_to_vec(params, bincode::config::standard()).unwrap_or_default();
-    let params_hash = u64::from_be_bytes(blake3::hash(&params_bytes).as_bytes()[0..8].try_into().unwrap());
+    let params_bytes =
+        bincode::serde::encode_to_vec(params, bincode::config::standard()).unwrap_or_default();
+    let params_hash = u64::from_be_bytes(
+        blake3::hash(&params_bytes).as_bytes()[0..8]
+            .try_into()
+            .unwrap(),
+    );
 
     CacheKey {
         content_hash,

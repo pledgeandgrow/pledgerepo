@@ -67,11 +67,15 @@ pub enum FontSubset {
 impl FontSubset {
     pub fn unicode_range(&self) -> &'static str {
         match self {
-            Self::Latin => "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+            Self::Latin => {
+                "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+            }
             Self::LatinExtended => "U+0100-024F, U+0259, U+1E00-1EFF",
             Self::Cyrillic => "U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116",
             Self::Greek => "U+0370-03FF",
-            Self::Vietnamese => "U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+1EA0-1EF9, U+20AB",
+            Self::Vietnamese => {
+                "U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+1EA0-1EF9, U+20AB"
+            }
             Self::Full => "U+0000-FFFF",
         }
     }
@@ -97,19 +101,14 @@ pub struct FontSrc {
 }
 
 /// font-display strategy
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FontDisplay {
     Auto,
     Block,
+    #[default]
     Swap,
     Fallback,
     Optional,
-}
-
-impl Default for FontDisplay {
-    fn default() -> Self {
-        Self::Swap
-    }
 }
 
 impl FontDisplay {
@@ -154,7 +153,7 @@ pub fn generate_font_face(face: &FontFace) -> String {
         css.push_str(&format!("  unicode-range: {};\n", subset.unicode_range()));
     }
 
-    css.push_str("}");
+    css.push('}');
     css
 }
 
@@ -264,12 +263,8 @@ pub struct SubsettedFont {
 
 /// Generate subsetted font declarations for a font file
 /// Creates separate @font-face declarations with unicode-range for each subset
-pub fn generate_subsets(
-    font_path: &str,
-    config: &FontSubsetConfig,
-) -> Vec<SubsettedFont> {
-    let format = get_font_format(Path::new(font_path))
-        .unwrap_or(FontFormat::WOFF2);
+pub fn generate_subsets(font_path: &str, config: &FontSubsetConfig) -> Vec<SubsettedFont> {
+    let format = get_font_format(Path::new(font_path)).unwrap_or(FontFormat::WOFF2);
 
     let mut results = Vec::new();
 
@@ -341,10 +336,7 @@ pub fn generate_subset_preload_tags(subsets: &[SubsettedFont]) -> Vec<String> {
 }
 
 /// Optimize fonts in a project — scan for font files and generate subsetted CSS
-pub fn optimize_fonts(
-    font_dir: &Path,
-    config: &FontSubsetConfig,
-) -> Result<Vec<SubsettedFont>> {
+pub fn optimize_fonts(font_dir: &Path, config: &FontSubsetConfig) -> Result<Vec<SubsettedFont>> {
     let mut all_subsets = Vec::new();
 
     if !font_dir.exists() {

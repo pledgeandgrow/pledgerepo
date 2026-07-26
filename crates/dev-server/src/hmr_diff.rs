@@ -21,7 +21,11 @@ pub enum DiffOp {
     Delete { line: u32, count: u32 },
     /// Lines were replaced at the given line number
     #[serde(rename = "replace")]
-    Replace { line: u32, count: u32, content: Vec<String> },
+    Replace {
+        line: u32,
+        count: u32,
+        content: Vec<String>,
+    },
 }
 
 /// A line-level diff between two versions of a module
@@ -41,11 +45,15 @@ impl LineDiff {
         if self.ops.len() > 10 {
             return false;
         }
-        let changed_lines: u32 = self.ops.iter().map(|op| match op {
-            DiffOp::Insert { content, .. } => content.len() as u32,
-            DiffOp::Delete { count, .. } => *count,
-            DiffOp::Replace { count, content, .. } => (*count).max(content.len() as u32),
-        }).sum();
+        let changed_lines: u32 = self
+            .ops
+            .iter()
+            .map(|op| match op {
+                DiffOp::Insert { content, .. } => content.len() as u32,
+                DiffOp::Delete { count, .. } => *count,
+                DiffOp::Replace { count, content, .. } => (*count).max(content.len() as u32),
+            })
+            .sum();
         let max_lines = self.old_lines.max(self.new_lines).max(1);
         changed_lines < (max_lines * 30 / 100)
     }

@@ -6,7 +6,7 @@
 //   - HTML entry template
 //   - tsconfig.json template
 
-use crate::config::{Framework, PledgeConfig, BuildMode, OutputFormat};
+use crate::config::{BuildMode, Framework, OutputFormat, PledgeConfig};
 
 /// A framework preset
 #[derive(Debug, Clone)]
@@ -191,7 +191,13 @@ pub static PRESETS: &[FrameworkPreset] = &[
         display_name: "Angular",
         framework: Framework::Auto,
         entry: "src/main.ts",
-        dependencies: &["@angular/core", "@angular/platform-browser", "@angular/platform-browser-dynamic", "rxjs", "zone.js"],
+        dependencies: &[
+            "@angular/core",
+            "@angular/platform-browser",
+            "@angular/platform-browser-dynamic",
+            "rxjs",
+            "zone.js",
+        ],
         dev_dependencies: &["@angular/cli", "typescript"],
         aliases: &[],
         html_template: r#"<!DOCTYPE html>
@@ -231,12 +237,13 @@ pub fn list_presets() -> Vec<&'static str> {
 
 /// Generate a PledgeConfig from a preset
 pub fn config_from_preset(preset: &FrameworkPreset) -> PledgeConfig {
-    let mut config = PledgeConfig::default();
-    config.framework = preset.framework;
-    config.entry = vec![preset.entry.to_string()];
-    config.mode = BuildMode::Development;
-    config.output_format = OutputFormat::Esm;
-    config
+    PledgeConfig {
+        framework: preset.framework,
+        entry: vec![preset.entry.to_string()],
+        mode: BuildMode::Development,
+        output_format: OutputFormat::Esm,
+        ..Default::default()
+    }
 }
 
 #[cfg(test)]

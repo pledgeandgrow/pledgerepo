@@ -2,9 +2,9 @@
 // #72 module prefetch directives, #73 CSS-in-JS runtime tree shaking,
 // #74 WASM streaming compilation, #75 precompute module hash at transform.
 
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use regex::Regex;
 use std::sync::OnceLock;
 use tracing::{info, warn};
 
@@ -38,16 +38,19 @@ fn scan_route_dir(dir: &Path, base: &str, routes: &mut Vec<RouteInfo>) {
             let path = entry.path();
             if path.is_dir() {
                 scan_route_dir(&path, base, routes);
-            } else if let Some(ext) = path.extension() {
-                if matches!(ext.to_str(), Some("tsx") | Some("ts") | Some("jsx") | Some("js")) {
-                    let route_path = route_path_from_file(&path, base);
-                    let entry_module = path.to_string_lossy().to_string();
-                    routes.push(RouteInfo {
-                        path: route_path,
-                        entry_module,
-                        lazy_imports: Vec::new(),
-                    });
-                }
+            } else if let Some(ext) = path.extension()
+                && matches!(
+                    ext.to_str(),
+                    Some("tsx") | Some("ts") | Some("jsx") | Some("js")
+                )
+            {
+                let route_path = route_path_from_file(&path, base);
+                let entry_module = path.to_string_lossy().to_string();
+                routes.push(RouteInfo {
+                    path: route_path,
+                    entry_module,
+                    lazy_imports: Vec::new(),
+                });
             }
         }
     }
@@ -82,7 +85,11 @@ fn route_path_from_file(path: &Path, base: &str) -> String {
         format!("{}{}", route_segment, file_route)
     };
 
-    if route.is_empty() { "/".to_string() } else { route }
+    if route.is_empty() {
+        "/".to_string()
+    } else {
+        route
+    }
 }
 
 /// Extract lazy/dynamic imports from source code.
@@ -90,18 +97,16 @@ pub fn extract_lazy_imports(source: &str) -> Vec<String> {
     let mut imports = Vec::new();
 
     static LAZY_IMPORT_RE: OnceLock<Regex> = OnceLock::new();
-    let re = LAZY_IMPORT_RE.get_or_init(|| {
-        Regex::new(r#"(?:import\s*\(|lazy\s*\()\s*['"]([^'"]+)['"]"#).unwrap()
-    });
+    let re = LAZY_IMPORT_RE
+        .get_or_init(|| Regex::new(r#"(?:import\s*\(|lazy\s*\()\s*['"]([^'"]+)['"]"#).unwrap());
 
     for cap in re.captures_iter(source) {
         imports.push(cap[1].to_string());
     }
 
     static DYNAMIC_IMPORT_RE: OnceLock<Regex> = OnceLock::new();
-    let re2 = DYNAMIC_IMPORT_RE.get_or_init(|| {
-        Regex::new(r#"import\s*\(\s*['"]([^'"]+)['"]\s*\)"#).unwrap()
-    });
+    let re2 = DYNAMIC_IMPORT_RE
+        .get_or_init(|| Regex::new(r#"import\s*\(\s*['"]([^'"]+)['"]\s*\)"#).unwrap());
 
     for cap in re2.captures_iter(source) {
         if !imports.contains(&cap[1].to_string()) {
@@ -123,7 +128,10 @@ pub fn build_route_chunks(
     for route in routes {
         if let Some(mods) = all_modules.get(&route.entry_module) {
             for m in mods {
-                module_routes.entry(m.clone()).or_default().insert(route.path.clone());
+                module_routes
+                    .entry(m.clone())
+                    .or_default()
+                    .insert(route.path.clone());
             }
         }
     }
@@ -136,7 +144,10 @@ pub fn build_route_chunks(
             shared_modules.push(module.clone());
         } else {
             let route = routes_using.iter().next().unwrap();
-            route_exclusive.entry(route.clone()).or_default().push(module.clone());
+            route_exclusive
+                .entry(route.clone())
+                .or_default()
+                .push(module.clone());
         }
     }
 
@@ -170,7 +181,7 @@ pub enum PrefetchStrategy {
 }
 
 impl PrefetchStrategy {
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_strategy(s: &str) -> Self {
         match s {
             "hover" => Self::Hover,
             "viewport" => Self::Viewport,
@@ -223,8 +234,7 @@ pub fn generate_prefetch_tags_with_base(
         .keys()
         .filter(|route| {
             *route != current_route
-                && (route.starts_with(current_route)
-                    || is_sibling_route(current_route, route))
+                && (route.starts_with(current_route) || is_sibling_route(current_route, route))
         })
         .collect();
 
@@ -233,7 +243,10 @@ pub fn generate_prefetch_tags_with_base(
             for file in files {
                 let tag = match strategy {
                     PrefetchStrategy::Load => {
-                        format!(r#"<link rel="prefetch" href="{}/{}" as="script">"#, base, file)
+                        format!(
+                            r#"<link rel="prefetch" href="{}/{}" as="script">"#,
+                            base, file
+                        )
                     }
                     PrefetchStrategy::Viewport => {
                         format!(
@@ -438,11 +451,11 @@ pub fn compute_module_hash(content: &str, file_path: &str) -> ModuleHash {
 
 /// Generate a content-addressed filename from a module hash.
 pub fn hash_filename(original: &str, hash: &str) -> String {
-    let ext = original.rsplit_once('.').map(|(_, ext)| ext).unwrap_or("js");
-    let stem = original
-        .rsplit_once('/')
-        .map(|(dir, _)| dir)
-        .unwrap_or("");
+    let ext = original
+        .rsplit_once('.')
+        .map(|(_, ext)| ext)
+        .unwrap_or("js");
+    let stem = original.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
     let file_stem = original
         .rsplit('/')
         .next()
@@ -544,7 +557,10 @@ const mod = await import("./mod.ts");
     fn test_can_strip_runtime() {
         assert!(can_strip_runtime(".btn { color: red; }", &[]));
         assert!(!can_strip_runtime("", &[]));
-        assert!(!can_strip_runtime(".btn { color: red; }", &vec!["dynamic".to_string()]));
+        assert!(!can_strip_runtime(
+            ".btn { color: red; }",
+            &["dynamic".to_string()]
+        ));
     }
 
     #[test]

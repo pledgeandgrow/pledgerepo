@@ -10,10 +10,10 @@
 //   22. Optional chaining nullish short-circuit optimization
 //   23. Module-level memoization — cache by source hash + config hash
 
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use blake3;
 use regex::Regex;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::OnceLock;
 
 // ─── Feature 16: WASM target compilation ──────────────────────────────
@@ -100,18 +100,19 @@ async function loadWasm() {{
     ));
 
     if config.use_wasi {
-        js_glue.push_str("  // WASI support\n  wasmImports.wasi_snapshot_preview1 = wasiImports;\n");
+        js_glue
+            .push_str("  // WASI support\n  wasmImports.wasi_snapshot_preview1 = wasiImports;\n");
     }
 
-    js_glue.push_str(&format!(
-        r#"  const {{ instance }} = await WebAssembly.instantiate(bytes, wasmImports);
+    js_glue.push_str(
+        r#"  const { instance } = await WebAssembly.instantiate(bytes, wasmImports);
   wasmModule = instance.exports;
   return wasmModule;
-}}
+}
 
 // Exported functions
 "#,
-    ));
+    );
 
     for export in &exports {
         js_glue.push_str(&format!(
@@ -140,22 +141,22 @@ fn extract_export_signatures(source: &str) -> Vec<WasmExport> {
     // Match: export function name(params)
     for line in source.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("export function ") {
-            if let Some(paren) = rest.find('(') {
-                let name = rest[..paren].trim().to_string();
-                let close = rest[paren..].find(')').unwrap_or(rest.len() - paren);
-                let params_str = &rest[paren + 1..paren + close];
-                let params: Vec<String> = params_str
-                    .split(',')
-                    .map(|p| p.trim().split(':').next().unwrap_or("").trim().to_string())
-                    .filter(|p| !p.is_empty())
-                    .collect();
-                exports.push(WasmExport {
-                    name,
-                    params,
-                    return_type: "any".to_string(),
-                });
-            }
+        if let Some(rest) = trimmed.strip_prefix("export function ")
+            && let Some(paren) = rest.find('(')
+        {
+            let name = rest[..paren].trim().to_string();
+            let close = rest[paren..].find(')').unwrap_or(rest.len() - paren);
+            let params_str = &rest[paren + 1..paren + close];
+            let params: Vec<String> = params_str
+                .split(',')
+                .map(|p| p.trim().split(':').next().unwrap_or("").trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect();
+            exports.push(WasmExport {
+                name,
+                params,
+                return_type: "any".to_string(),
+            });
         }
     }
 
@@ -201,9 +202,8 @@ pub fn analyze_side_effects(source: &str) -> SideEffectAnalysis {
         let trimmed = line.trim();
 
         // Track nesting
-        brace_depth = brace_depth
-            + trimmed.matches('{').count() as u32
-            - trimmed.matches('}').count() as u32;
+        brace_depth =
+            brace_depth + trimmed.matches('{').count() as u32 - trimmed.matches('}').count() as u32;
 
         if trimmed.starts_with("function ") || trimmed.contains("function ") {
             in_function = brace_depth;
@@ -239,7 +239,10 @@ pub fn analyze_side_effects(source: &str) -> SideEffectAnalysis {
         {
             // Check if export has a function call (side effect)
             if trimmed.starts_with("export ") {
-                if trimmed.contains("console.") || trimmed.contains("document.") || trimmed.contains("window.") {
+                if trimmed.contains("console.")
+                    || trimmed.contains("document.")
+                    || trimmed.contains("window.")
+                {
                     // Extract export name
                     if let Some(name) = extract_export_name(trimmed) {
                         impure_exports.push(name);
@@ -313,24 +316,52 @@ fn extract_export_name(line: &str) -> Option<String> {
     if let Some(rest) = line.strip_prefix("export ") {
         let rest = rest.trim_start();
         if let Some(rest) = rest.strip_prefix("function ") {
-            return Some(rest.split(|c: char| c.is_whitespace() || c == '(').next()?.to_string());
+            return Some(
+                rest.split(|c: char| c.is_whitespace() || c == '(')
+                    .next()?
+                    .to_string(),
+            );
         }
         if let Some(rest) = rest.strip_prefix("const ") {
-            return Some(rest.split(|c: char| c.is_whitespace() || c == '=').next()?.to_string());
+            return Some(
+                rest.split(|c: char| c.is_whitespace() || c == '=')
+                    .next()?
+                    .to_string(),
+            );
         }
         if let Some(rest) = rest.strip_prefix("let ") {
-            return Some(rest.split(|c: char| c.is_whitespace() || c == '=').next()?.to_string());
+            return Some(
+                rest.split(|c: char| c.is_whitespace() || c == '=')
+                    .next()?
+                    .to_string(),
+            );
         }
         if let Some(rest) = rest.strip_prefix("class ") {
-            return Some(rest.split(|c: char| c.is_whitespace() || c == '{').next()?.to_string());
+            return Some(
+                rest.split(|c: char| c.is_whitespace() || c == '{')
+                    .next()?
+                    .to_string(),
+            );
         }
         if rest.starts_with('{') {
             // export { name1, name2 }
             let inner = rest.trim_start_matches('{').trim_end_matches('}').trim();
-            return Some(inner.split(',').next()?.trim().split(" as ").next()?.trim().to_string());
+            return Some(
+                inner
+                    .split(',')
+                    .next()?
+                    .trim()
+                    .split(" as ")
+                    .next()?
+                    .trim()
+                    .to_string(),
+            );
         }
         if let Some(rest) = rest.strip_prefix("default ") {
-            return Some(format!("default:{}", rest.split_whitespace().next().unwrap_or("")));
+            return Some(format!(
+                "default:{}",
+                rest.split_whitespace().next().unwrap_or("")
+            ));
         }
     }
     None
@@ -371,7 +402,8 @@ fn remove_export(source: &str, name: &str) -> String {
         let trimmed = line.trim();
 
         if skip_block {
-            brace_depth += trimmed.matches('{').count() as i32 - trimmed.matches('}').count() as i32;
+            brace_depth +=
+                trimmed.matches('{').count() as i32 - trimmed.matches('}').count() as i32;
             if brace_depth <= 0 {
                 skip_block = false;
                 brace_depth = 0;
@@ -390,7 +422,8 @@ fn remove_export(source: &str, name: &str) -> String {
             // Check if it's a block declaration
             if trimmed.contains('{') && !trimmed.contains('}') {
                 skip_block = true;
-                brace_depth = trimmed.matches('{').count() as i32 - trimmed.matches('}').count() as i32;
+                brace_depth =
+                    trimmed.matches('{').count() as i32 - trimmed.matches('}').count() as i32;
                 continue;
             }
             // Single line export, skip it
@@ -466,7 +499,8 @@ pub fn analyze_cross_chunk_hoisting(
                             if other_module.contains(import.as_str()) {
                                 // Check if already tracked
                                 let exists = hoisted.iter().any(|h: &HoistedVariable| {
-                                    h.name == *import && h.source_chunk == other_idx
+                                    h.name == *import
+                                        && h.source_chunk == other_idx
                                         && h.target_chunks.contains(&chunk_idx)
                                 });
                                 if !exists {
@@ -514,21 +548,13 @@ pub fn extract_used_class_names(sources: &[(&str, &str)]) -> HashSet<String> {
 
     // Match className="foo", class='bar', :class="baz" (string attributes)
     let classname_re = CLASSNAME_RE.get_or_init(|| {
-        Regex::new(
-            r#"(?:className|class|:class)\s*=\s*["']([^"']*)["']"#
-        ).unwrap()
+        Regex::new(r#"(?:className|class|:class)\s*=\s*["']([^"']*)["']"#).unwrap()
     });
     // Match className={`foo ${bar}`} (template literal attributes)
-    let template_re = TEMPLATE_RE.get_or_init(|| {
-        Regex::new(
-            r#"(?:className|class|:class)\s*=\s*\{`([^`]*)`\}"#
-        ).unwrap()
-    });
-    let classlist_re = CLASSLIST_RE.get_or_init(|| {
-        Regex::new(
-            r#"classList\.(?:add|toggle)\(\s*['"]([^'"]+)['"]"#
-        ).unwrap()
-    });
+    let template_re = TEMPLATE_RE
+        .get_or_init(|| Regex::new(r#"(?:className|class|:class)\s*=\s*\{`([^`]*)`\}"#).unwrap());
+    let classlist_re = CLASSLIST_RE
+        .get_or_init(|| Regex::new(r#"classList\.(?:add|toggle)\(\s*['"]([^'"]+)['"]"#).unwrap());
 
     let mut used = HashSet::new();
 
@@ -547,7 +573,7 @@ pub fn extract_used_class_names(sources: &[(&str, &str)]) -> HashSet<String> {
             // Extract static parts from template literals
             for part in class_str.split("${") {
                 let static_part = part.split('}').next().unwrap_or("");
-                for cls in static_part.trim().split_whitespace() {
+                for cls in static_part.split_whitespace() {
                     used.insert(cls.to_string());
                 }
             }
@@ -678,7 +704,10 @@ fn remove_if_false(source: &str) -> String {
             result.push_str(&source[i..i + pos]);
             let after = i + pos + "if (false)".len();
             // Skip whitespace to find the block
-            let block_start = source[after..].find('{').map(|p| after + p).unwrap_or(after);
+            let block_start = source[after..]
+                .find('{')
+                .map(|p| after + p)
+                .unwrap_or(after);
             // Find matching closing brace
             let mut depth = 1;
             let mut end = block_start + 1;
@@ -706,7 +735,7 @@ fn remove_if_false(source: &str) -> String {
                     else_end += 1;
                 }
                 // Keep the else block content
-                result.push_str(&source[else_block + 1..else_end - 1].trim());
+                result.push_str(source[else_block + 1..else_end - 1].trim());
                 i = else_end;
             } else {
                 i = end;
@@ -812,11 +841,15 @@ fn fold_numeric_arithmetic(source: &str) -> String {
         let bytes = result.as_bytes();
         let mut i = 0;
         while i < bytes.len() {
-            if bytes[i].is_ascii_digit() || (bytes[i] == b'.' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit()) {
+            if bytes[i].is_ascii_digit()
+                || (bytes[i] == b'.' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit())
+            {
                 // Extract first number
                 let num1_start = i;
                 let mut num1_end = i;
-                while num1_end < bytes.len() && (bytes[num1_end].is_ascii_digit() || bytes[num1_end] == b'.') {
+                while num1_end < bytes.len()
+                    && (bytes[num1_end].is_ascii_digit() || bytes[num1_end] == b'.')
+                {
                     num1_end += 1;
                 }
                 // Skip whitespace
@@ -833,9 +866,13 @@ fn fold_numeric_arithmetic(source: &str) -> String {
                         num2_start += 1;
                     }
                     // Extract second number
-                    if num2_start < bytes.len() && (bytes[num2_start].is_ascii_digit() || bytes[num2_start] == b'.') {
+                    if num2_start < bytes.len()
+                        && (bytes[num2_start].is_ascii_digit() || bytes[num2_start] == b'.')
+                    {
                         let mut num2_end = num2_start;
-                        while num2_end < bytes.len() && (bytes[num2_end].is_ascii_digit() || bytes[num2_end] == b'.') {
+                        while num2_end < bytes.len()
+                            && (bytes[num2_end].is_ascii_digit() || bytes[num2_end] == b'.')
+                        {
                             num2_end += 1;
                         }
                         // Try to fold
@@ -845,16 +882,31 @@ fn fold_numeric_arithmetic(source: &str) -> String {
                             '+' => n1 + n2,
                             '-' => n1 - n2,
                             '*' => n1 * n2,
-                            '/' => { if n2 != 0.0 { n1 / n2 } else { break; } },
-                            _ => { i = num2_end; continue; }
+                            '/' => {
+                                if n2 != 0.0 {
+                                    n1 / n2
+                                } else {
+                                    break;
+                                }
+                            }
+                            _ => {
+                                i = num2_end;
+                                continue;
+                            }
                         };
                         // Check if both are integers and result is integer
-                        let replacement = if folded.fract() == 0.0 && n1.fract() == 0.0 && n2.fract() == 0.0 {
-                            format!("{}", folded as i64)
-                        } else {
-                            format!("{}", folded)
-                        };
-                        result = format!("{}{}{}", &result[..num1_start], replacement, &result[num2_end..]);
+                        let replacement =
+                            if folded.fract() == 0.0 && n1.fract() == 0.0 && n2.fract() == 0.0 {
+                                format!("{}", folded as i64)
+                            } else {
+                                format!("{}", folded)
+                            };
+                        result = format!(
+                            "{}{}{}",
+                            &result[..num1_start],
+                            replacement,
+                            &result[num2_end..]
+                        );
                         found = true;
                         break;
                     }
@@ -896,7 +948,12 @@ fn fold_string_concat(source: &str) -> String {
                     let combined = format!("{}{}{}", q, str1_content, str2_content);
                     // Check no escaped quotes in content
                     if !str1_content.contains('\\') && !str2_content.contains('\\') {
-                        result = format!("{}{}{}", &result[..str1_start], combined, &result[str2_end..]);
+                        result = format!(
+                            "{}{}{}",
+                            &result[..str1_start],
+                            combined,
+                            &result[str2_end..]
+                        );
                         found = true;
                         break;
                     }
@@ -998,10 +1055,17 @@ fn remove_redundant_null_checks(source: &str) -> String {
                                 let after_colon = after_q + colon_pos + 1;
                                 let rest4 = result[after_colon..].trim_start();
                                 if rest4.starts_with("undefined") {
-                                    let undefined_end = after_colon + rest4.find("undefined").unwrap() + 9;
+                                    let undefined_end =
+                                        after_colon + rest4.find("undefined").unwrap() + 9;
                                     // Replace: remove the "ident != null ? " prefix and " : undefined" suffix
-                                    let optional_chain = &result[after_check..after_colon - 1].trim();
-                                    result = format!("{}{}{}", &result[..i], optional_chain, &result[undefined_end..]);
+                                    let optional_chain =
+                                        &result[after_check..after_colon - 1].trim();
+                                    result = format!(
+                                        "{}{}{}",
+                                        &result[..i],
+                                        optional_chain,
+                                        &result[undefined_end..]
+                                    );
                                     found = true;
                                     break;
                                 }
@@ -1062,8 +1126,16 @@ impl ModuleCacheKey {
 
     /// Get a hex string representation for disk caching
     pub fn to_hex(&self) -> String {
-        let source_hex: String = self.source_hash.iter().map(|b| format!("{:02x}", b)).collect();
-        let config_hex: String = self.config_hash.iter().map(|b| format!("{:02x}", b)).collect();
+        let source_hex: String = self
+            .source_hash
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
+        let config_hex: String = self
+            .config_hash
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
         format!("{}_{}", &source_hex[..16], &config_hex[..16])
     }
 }
@@ -1090,9 +1162,9 @@ impl ModuleTransformCache {
 
     /// Get a cached transform result
     pub fn get(&self, key: &ModuleCacheKey) -> Option<(String, Option<String>)> {
-        self.cache.get(key).map(|entry| {
-            (entry.code.clone(), entry.source_map.clone())
-        })
+        self.cache
+            .get(key)
+            .map(|entry| (entry.code.clone(), entry.source_map.clone()))
     }
 
     /// Insert a transform result into the cache
@@ -1281,7 +1353,9 @@ body { margin: 0; }
         let result = fold_constants(r#"const s = "hello" + " " + "world";"#);
         // After first fold: "hello" + " " → "hello "
         // After second fold: "hello " + "world" → "hello world"
-        assert!(result.contains("hello world") || result.contains("hello ") || result.contains("hello"));
+        assert!(
+            result.contains("hello world") || result.contains("hello ") || result.contains("hello")
+        );
     }
 
     #[test]
@@ -1330,8 +1404,8 @@ body { margin: 0; }
     #[test]
     fn test_cross_chunk_hoisting() {
         let chunks = vec![
-            vec!["shared_var".to_string()],  // chunk 0 exports shared_var
-            vec!["module_b".to_string()],     // chunk 1 imports shared_var
+            vec!["shared_var".to_string()], // chunk 0 exports shared_var
+            vec!["module_b".to_string()],   // chunk 1 imports shared_var
         ];
         let mut imports = HashMap::new();
         imports.insert("module_b".to_string(), vec!["shared_var".to_string()]);

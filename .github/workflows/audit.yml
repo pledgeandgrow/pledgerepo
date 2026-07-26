@@ -19,27 +19,22 @@ jobs:
   cargo-deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install cargo-deny
         uses: taiki-e/install-action@cargo-deny
 
       - name: Run cargo-deny checks
         run: cargo deny check
-        continue-on-error: true
 
       - name: Check advisories
         run: cargo deny check advisories
-        continue-on-error: true
 
       - name: Check licenses
         run: cargo deny check licenses
-        continue-on-error: true
 
       - name: Check bans
         run: cargo deny check bans
-        continue-on-error: true
 
       - name: Check sources
         run: cargo deny check sources
-        continue-on-error: true

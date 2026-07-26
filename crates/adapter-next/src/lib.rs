@@ -93,7 +93,7 @@ impl NextAdapter {
             if path.is_dir() {
                 // Dynamic route: [param]
                 let (route_segment, param) = if name.starts_with('[') && name.ends_with(']') {
-                    let param = name[1..name.len()-1].to_string();
+                    let param = name[1..name.len() - 1].to_string();
                     (format!(":{}", param), Some(param))
                 } else if name.starts_with('(') && name.ends_with(')') {
                     // Route group: (group) — doesn't affect URL
@@ -112,11 +112,16 @@ impl NextAdapter {
 
                 if let Some(p) = param {
                     // Check for page file in this dynamic route directory
-                    let page_file = find_file(&path, &["page.tsx", "page.ts", "page.jsx", "page.js"]);
+                    let page_file =
+                        find_file(&path, &["page.tsx", "page.ts", "page.jsx", "page.js"]);
                     if page_file.exists() {
                         let route = Route {
                             path: new_prefix.clone(),
-                            file: page_file.strip_prefix(&self.root).unwrap_or(&page_file).to_string_lossy().to_string(),
+                            file: page_file
+                                .strip_prefix(&self.root)
+                                .unwrap_or(&page_file)
+                                .to_string_lossy()
+                                .to_string(),
                             kind: RouteKind::Page,
                             params: vec![p],
                         };
@@ -131,14 +136,26 @@ impl NextAdapter {
                 let kind = match name.as_str() {
                     "page.tsx" | "page.ts" | "page.jsx" | "page.js" => RouteKind::Page,
                     "layout.tsx" | "layout.ts" | "layout.jsx" | "layout.js" => RouteKind::Layout,
-                    "loading.tsx" | "loading.ts" | "loading.jsx" | "loading.js" => RouteKind::Loading,
+                    "loading.tsx" | "loading.ts" | "loading.jsx" | "loading.js" => {
+                        RouteKind::Loading
+                    }
                     "error.tsx" | "error.ts" | "error.jsx" | "error.js" => RouteKind::Error,
-                    "not-found.tsx" | "not-found.ts" | "not-found.jsx" | "not-found.js" => RouteKind::NotFound,
+                    "not-found.tsx" | "not-found.ts" | "not-found.jsx" | "not-found.js" => {
+                        RouteKind::NotFound
+                    }
                     _ => continue,
                 };
 
-                let route_path = if prefix.is_empty() { "/".to_string() } else { prefix.to_string() };
-                let file_rel = path.strip_prefix(&self.root).unwrap_or(&path).to_string_lossy().to_string();
+                let route_path = if prefix.is_empty() {
+                    "/".to_string()
+                } else {
+                    prefix.to_string()
+                };
+                let file_rel = path
+                    .strip_prefix(&self.root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .to_string();
 
                 self.routes.push(Route {
                     path: route_path,
@@ -163,7 +180,7 @@ impl NextAdapter {
 
             if path.is_dir() {
                 let (route_segment, param) = if name.starts_with('[') && name.ends_with(']') {
-                    let param = name[1..name.len()-1].to_string();
+                    let param = name[1..name.len() - 1].to_string();
                     (format!(":{}", param), Some(param))
                 } else {
                     (name.clone(), None)
@@ -177,11 +194,16 @@ impl NextAdapter {
 
                 if let Some(p) = param {
                     // Check for index file in dynamic route
-                    let index_file = find_file(&path, &["index.tsx", "index.ts", "index.jsx", "index.js"]);
+                    let index_file =
+                        find_file(&path, &["index.tsx", "index.ts", "index.jsx", "index.js"]);
                     if index_file.exists() {
                         self.routes.push(Route {
                             path: new_prefix.clone(),
-                            file: index_file.strip_prefix(&self.root).unwrap_or(&index_file).to_string_lossy().to_string(),
+                            file: index_file
+                                .strip_prefix(&self.root)
+                                .unwrap_or(&index_file)
+                                .to_string_lossy()
+                                .to_string(),
                             kind: RouteKind::Page,
                             params: vec![p],
                         });
@@ -191,27 +213,55 @@ impl NextAdapter {
                 self.discover_pages_routes(&path, &new_prefix)?;
             } else {
                 // File-level routes
-                let (route_path, kind) = if name == "index.tsx" || name == "index.ts" || name == "index.jsx" || name == "index.js" {
-                    (if prefix.is_empty() { "/".to_string() } else { prefix.to_string() }, RouteKind::Page)
+                let (route_path, kind) = if name == "index.tsx"
+                    || name == "index.ts"
+                    || name == "index.jsx"
+                    || name == "index.js"
+                {
+                    (
+                        if prefix.is_empty() {
+                            "/".to_string()
+                        } else {
+                            prefix.to_string()
+                        },
+                        RouteKind::Page,
+                    )
                 } else if name.starts_with("api/") || name == "api.tsx" || name == "api.ts" {
                     (format!("{}/api", prefix), RouteKind::Api)
-                } else if name.ends_with(".tsx") || name.ends_with(".ts") || name.ends_with(".jsx") || name.ends_with(".js") {
+                } else if name.ends_with(".tsx")
+                    || name.ends_with(".ts")
+                    || name.ends_with(".jsx")
+                    || name.ends_with(".js")
+                {
                     let stem = name.split('.').next().unwrap_or(&name);
                     let (seg, param) = if stem.starts_with('[') && stem.ends_with(']') {
-                        (format!(":{}", &stem[1..stem.len()-1]), Some(stem[1..stem.len()-1].to_string()))
+                        (
+                            format!(":{}", &stem[1..stem.len() - 1]),
+                            Some(stem[1..stem.len() - 1].to_string()),
+                        )
                     } else {
                         (stem.to_string(), None)
                     };
-                    let path = if prefix.is_empty() { format!("/{}", seg) } else { format!("{}/{}", prefix, seg) };
+                    let path = if prefix.is_empty() {
+                        format!("/{}", seg)
+                    } else {
+                        format!("{}/{}", prefix, seg)
+                    };
                     let mut params = Vec::new();
-                    if let Some(p) = param { params.push(p); }
+                    if let Some(p) = param {
+                        params.push(p);
+                    }
                     // We'll handle params properly in the route
                     (path, RouteKind::Page)
                 } else {
                     continue;
                 };
 
-                let file_rel = path.strip_prefix(&self.root).unwrap_or(&path).to_string_lossy().to_string();
+                let file_rel = path
+                    .strip_prefix(&self.root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .to_string();
                 self.routes.push(Route {
                     path: route_path,
                     file: file_rel,
@@ -236,14 +286,16 @@ impl NextAdapter {
             if route.kind == RouteKind::Page {
                 code.push_str(&format!(
                     "  '{}': () => import('/{}'),\n",
-                    route.path, route.file.replace('\\', "/")
+                    route.path,
+                    route.file.replace('\\', "/")
                 ));
             }
         }
         code.push_str("};\n\n");
 
         // Generate router
-        code.push_str(r#"export function navigate(path) {
+        code.push_str(
+            r#"export function navigate(path) {
   const route = routes[path];
   if (route) {
     route().then(mod => {
@@ -263,21 +315,26 @@ impl NextAdapter {
 export function getRoutes() {
   return Object.keys(routes);
 }
-"#);
+"#,
+        );
 
         code
     }
 
     /// Generate SSR manifest for server-side rendering
     pub fn generate_ssr_manifest(&self) -> String {
-        let manifest: Vec<serde_json::Value> = self.routes.iter().map(|r| {
-            serde_json::json!({
-                "path": r.path,
-                "file": r.file,
-                "kind": format!("{:?}", r.kind),
-                "params": r.params,
+        let manifest: Vec<serde_json::Value> = self
+            .routes
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "path": r.path,
+                    "file": r.file,
+                    "kind": format!("{:?}", r.kind),
+                    "params": r.params,
+                })
             })
-        }).collect();
+            .collect();
 
         serde_json::to_string_pretty(&manifest).unwrap_or("[]".to_string())
     }
@@ -296,9 +353,7 @@ fn find_file(dir: &Path, candidates: &[&str]) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
-    fn test_dynamic_route_parsing() {
-    }
+    fn test_dynamic_route_parsing() {}
 }

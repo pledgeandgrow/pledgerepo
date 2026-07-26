@@ -1,13 +1,13 @@
 // Security & Integrity features: #81 SRI hashes, #82 CSP generation,
 // #83 dependency vulnerability scanning, #84 license compliance checking.
 
+use base64::{Engine, engine::general_purpose};
+use regex::Regex;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use regex::Regex;
 use std::sync::OnceLock;
 use tracing::{info, warn};
-use sha2::{Sha256, Digest};
-use base64::{Engine, engine::general_purpose};
 
 // ── Feature 81: Subresource Integrity (SRI) hashes ────────────────────
 
@@ -23,38 +23,41 @@ pub fn inject_sri_into_html(html: &str, out_dir: &Path) -> String {
     let mut result = html.to_string();
 
     static SCRIPT_RE: OnceLock<Regex> = OnceLock::new();
-    let re = SCRIPT_RE.get_or_init(|| {
-        Regex::new(r#"<script\s+src="([^"]+)""#).unwrap()
-    });
+    let re = SCRIPT_RE.get_or_init(|| Regex::new(r#"<script\s+src="([^"]+)""#).unwrap());
 
     for cap in re.captures_iter(html) {
         let src = &cap[1];
         let file_path = out_dir.join(src.trim_start_matches('/'));
-        if file_path.is_file() {
-            if let Ok(content) = std::fs::read(&file_path) {
-                let integrity = generate_sri_hash(&content);
-                let old = format!(r#"<script src="{}""#, src);
-                let new = format!(r#"<script src="{}" integrity="{}" crossorigin="anonymous""#, src, integrity);
-                result = result.replace(&old, &new);
-            }
+        if file_path.is_file()
+            && let Ok(content) = std::fs::read(&file_path)
+        {
+            let integrity = generate_sri_hash(&content);
+            let old = format!(r#"<script src="{}""#, src);
+            let new = format!(
+                r#"<script src="{}" integrity="{}" crossorigin="anonymous""#,
+                src, integrity
+            );
+            result = result.replace(&old, &new);
         }
     }
 
     static LINK_RE: OnceLock<Regex> = OnceLock::new();
-    let re = LINK_RE.get_or_init(|| {
-        Regex::new(r#"<link\s+[^>]*rel="stylesheet"[^>]*href="([^"]+)""#).unwrap()
-    });
+    let re = LINK_RE
+        .get_or_init(|| Regex::new(r#"<link\s+[^>]*rel="stylesheet"[^>]*href="([^"]+)""#).unwrap());
 
     for cap in re.captures_iter(html) {
         let href = &cap[1];
         let file_path = out_dir.join(href.trim_start_matches('/'));
-        if file_path.is_file() {
-            if let Ok(content) = std::fs::read(&file_path) {
-                let integrity = generate_sri_hash(&content);
-                let old = format!(r#"href="{}""#, href);
-                let new = format!(r#"href="{}" integrity="{}" crossorigin="anonymous""#, href, integrity);
-                result = result.replace(&old, &new);
-            }
+        if file_path.is_file()
+            && let Ok(content) = std::fs::read(&file_path)
+        {
+            let integrity = generate_sri_hash(&content);
+            let old = format!(r#"href="{}""#, href);
+            let new = format!(
+                r#"href="{}" integrity="{}" crossorigin="anonymous""#,
+                href, integrity
+            );
+            result = result.replace(&old, &new);
         }
     }
 
@@ -88,9 +91,8 @@ impl CspGenerator {
 
     pub fn analyze_html(&mut self, html: &str) {
         static INLINE_SCRIPT_RE: OnceLock<Regex> = OnceLock::new();
-        let re = INLINE_SCRIPT_RE.get_or_init(|| {
-            Regex::new(r"<script[^>]*>([\s\S]*?)</script>").unwrap()
-        });
+        let re = INLINE_SCRIPT_RE
+            .get_or_init(|| Regex::new(r"<script[^>]*>([\s\S]*?)</script>").unwrap());
 
         for cap in re.captures_iter(html) {
             // Skip scripts with src= attribute (external scripts)
@@ -106,9 +108,8 @@ impl CspGenerator {
         }
 
         static INLINE_STYLE_RE: OnceLock<Regex> = OnceLock::new();
-        let re = INLINE_STYLE_RE.get_or_init(|| {
-            Regex::new(r"<style[^>]*>([\s\S]*?)</style>").unwrap()
-        });
+        let re =
+            INLINE_STYLE_RE.get_or_init(|| Regex::new(r"<style[^>]*>([\s\S]*?)</style>").unwrap());
 
         for cap in re.captures_iter(html) {
             let inline_css = cap[1].trim();
@@ -158,7 +159,9 @@ impl CspGenerator {
 }
 
 impl Default for CspGenerator {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub fn generate_csp_from_build(html: &str, out_dir: &Path) -> String {
@@ -191,20 +194,29 @@ pub struct Vulnerability {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VulnerabilitySeverity {
-    Critical, High, Medium, Low, Info,
+    Critical,
+    High,
+    Medium,
+    Low,
+    Info,
 }
 
 impl VulnerabilitySeverity {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Critical => "CRITICAL", Self::High => "HIGH",
-            Self::Medium => "MEDIUM", Self::Low => "LOW", Self::Info => "INFO",
+            Self::Critical => "CRITICAL",
+            Self::High => "HIGH",
+            Self::Medium => "MEDIUM",
+            Self::Low => "LOW",
+            Self::Info => "INFO",
         }
     }
     pub fn color(&self) -> &'static str {
         match self {
             Self::Critical | Self::High => "\x1b[31m",
-            Self::Medium => "\x1b[33m", Self::Low => "\x1b[36m", Self::Info => "\x1b[90m",
+            Self::Medium => "\x1b[33m",
+            Self::Low => "\x1b[36m",
+            Self::Info => "\x1b[90m",
         }
     }
 }
@@ -212,13 +224,17 @@ impl VulnerabilitySeverity {
 pub fn scan_vulnerabilities(root: &Path) -> Vec<Vulnerability> {
     let mut vulns = Vec::new();
     let pkg_json = root.join("package.json");
-    if !pkg_json.is_file() { return vulns; }
+    if !pkg_json.is_file() {
+        return vulns;
+    }
 
     let content = match std::fs::read_to_string(&pkg_json) {
-        Ok(c) => c, Err(_) => return vulns,
+        Ok(c) => c,
+        Err(_) => return vulns,
     };
     let json: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(j) => j, Err(_) => return vulns,
+        Ok(j) => j,
+        Err(_) => return vulns,
     };
 
     let mut deps = HashMap::new();
@@ -239,29 +255,92 @@ pub fn scan_vulnerabilities(root: &Path) -> Vec<Vulnerability> {
     if vulns.is_empty() {
         info!("No known vulnerabilities found in {} packages", deps.len());
     } else {
-        warn!("Found {} vulnerabilities in {} packages", vulns.len(), deps.len());
+        warn!(
+            "Found {} vulnerabilities in {} packages",
+            vulns.len(),
+            deps.len()
+        );
     }
     vulns
 }
 
 fn check_advisory_database(package: &str, version: &str) -> Option<Vec<Vulnerability>> {
     let advisories: &[(&str, &str, &str, VulnerabilitySeverity, &str, &str, &str)] = &[
-        ("lodash", "<4.17.21", "CVE-2021-23337", VulnerabilitySeverity::High, "Command injection via template", "https://npmjs.com/advisories/1673", "4.17.21"),
-        ("minimist", "<1.2.6", "CVE-2022-21222", VulnerabilitySeverity::Medium, "Prototype pollution", "https://npmjs.com/advisories/2392", "1.2.6"),
-        ("axios", "<0.21.1", "CVE-2021-3749", VulnerabilitySeverity::High, "SSRF vulnerability", "https://npmjs.com/advisories/1594", "0.21.1"),
-        ("ws", "<7.4.6", "CVE-2021-32615", VulnerabilitySeverity::Medium, "DoS via large WebSocket message", "https://npmjs.com/advisories/1748", "7.4.6"),
-        ("node-forge", "<1.3.0", "CVE-2022-24772", VulnerabilitySeverity::High, "Prototype pollution", "https://npmjs.com/advisories/2501", "1.3.0"),
-        ("minimatch", "<3.0.5", "CVE-2022-3517", VulnerabilitySeverity::High, "ReDoS via pattern", "https://npmjs.com/advisories/2513", "3.0.5"),
-        ("json-schema", "<0.4.0", "CVE-2021-27787", VulnerabilitySeverity::High, "Prototype pollution", "https://npmjs.com/advisories/1671", "0.4.0"),
+        (
+            "lodash",
+            "<4.17.21",
+            "CVE-2021-23337",
+            VulnerabilitySeverity::High,
+            "Command injection via template",
+            "https://npmjs.com/advisories/1673",
+            "4.17.21",
+        ),
+        (
+            "minimist",
+            "<1.2.6",
+            "CVE-2022-21222",
+            VulnerabilitySeverity::Medium,
+            "Prototype pollution",
+            "https://npmjs.com/advisories/2392",
+            "1.2.6",
+        ),
+        (
+            "axios",
+            "<0.21.1",
+            "CVE-2021-3749",
+            VulnerabilitySeverity::High,
+            "SSRF vulnerability",
+            "https://npmjs.com/advisories/1594",
+            "0.21.1",
+        ),
+        (
+            "ws",
+            "<7.4.6",
+            "CVE-2021-32615",
+            VulnerabilitySeverity::Medium,
+            "DoS via large WebSocket message",
+            "https://npmjs.com/advisories/1748",
+            "7.4.6",
+        ),
+        (
+            "node-forge",
+            "<1.3.0",
+            "CVE-2022-24772",
+            VulnerabilitySeverity::High,
+            "Prototype pollution",
+            "https://npmjs.com/advisories/2501",
+            "1.3.0",
+        ),
+        (
+            "minimatch",
+            "<3.0.5",
+            "CVE-2022-3517",
+            VulnerabilitySeverity::High,
+            "ReDoS via pattern",
+            "https://npmjs.com/advisories/2513",
+            "3.0.5",
+        ),
+        (
+            "json-schema",
+            "<0.4.0",
+            "CVE-2021-27787",
+            VulnerabilitySeverity::High,
+            "Prototype pollution",
+            "https://npmjs.com/advisories/1671",
+            "0.4.0",
+        ),
     ];
 
     let mut found = Vec::new();
     for (pkg, affected, cve, severity, title, url, patch) in advisories {
         if *pkg == package && version_matches(version, affected) {
             found.push(Vulnerability {
-                package: package.to_string(), version: version.to_string(),
-                severity: *severity, title: title.to_string(),
-                cve: Some(cve.to_string()), url: Some(url.to_string()),
+                package: package.to_string(),
+                version: version.to_string(),
+                severity: *severity,
+                title: title.to_string(),
+                cve: Some(cve.to_string()),
+                url: Some(url.to_string()),
                 patch_version: Some(patch.to_string()),
             });
         }
@@ -279,13 +358,19 @@ fn version_matches(version: &str, range: &str) -> bool {
 
 fn semver_less_than(a: &str, b: &str) -> bool {
     let parse = |s: &str| -> Vec<u32> {
-        s.split('.').filter_map(|p| p.split('-').next().and_then(|n| n.parse().ok())).collect()
+        s.split('.')
+            .filter_map(|p| p.split('-').next().and_then(|n| n.parse().ok()))
+            .collect()
     };
     let va = parse(a);
     let vb = parse(b);
     for i in 0..va.len().min(vb.len()) {
-        if va[i] < vb[i] { return true; }
-        if va[i] > vb[i] { return false; }
+        if va[i] < vb[i] {
+            return true;
+        }
+        if va[i] > vb[i] {
+            return false;
+        }
     }
     va.len() < vb.len()
 }
@@ -294,12 +379,25 @@ pub fn format_vulnerability_report(vulns: &[Vulnerability]) -> String {
     if vulns.is_empty() {
         return "  \x1b[32m✓\x1b[0m No known vulnerabilities found".to_string();
     }
-    let mut out = format!("  \x1b[33m⚠\x1b[0m Found {} vulnerabilities\n\n", vulns.len());
+    let mut out = format!(
+        "  \x1b[33m⚠\x1b[0m Found {} vulnerabilities\n\n",
+        vulns.len()
+    );
     for v in vulns {
-        out.push_str(&format!("  {}{}  {} {}\x1b[0m\n", v.severity.color(), v.severity.label(), v.package, v.version));
+        out.push_str(&format!(
+            "  {}{}  {} {}\x1b[0m\n",
+            v.severity.color(),
+            v.severity.label(),
+            v.package,
+            v.version
+        ));
         out.push_str(&format!("    {}\n", v.title));
-        if let Some(ref cve) = v.cve { out.push_str(&format!("    CVE: {}\n", cve)); }
-        if let Some(ref url) = v.url { out.push_str(&format!("    URL: {}\n", url)); }
+        if let Some(ref cve) = v.cve {
+            out.push_str(&format!("    CVE: {}\n", cve));
+        }
+        if let Some(ref url) = v.url {
+            out.push_str(&format!("    URL: {}\n", url));
+        }
         out.push('\n');
     }
     out
@@ -332,7 +430,9 @@ pub struct LicenseViolation {
 pub fn scan_licenses(root: &Path) -> Vec<LicenseInfo> {
     let mut licenses = Vec::new();
     let nm = root.join("node_modules");
-    if !nm.is_dir() { return licenses; }
+    if !nm.is_dir() {
+        return licenses;
+    }
     scan_node_modules(&nm, &mut licenses);
     licenses
 }
@@ -341,16 +441,18 @@ fn scan_node_modules(dir: &Path, licenses: &mut Vec<LicenseInfo>) {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_dir() { continue; }
+            if !path.is_dir() {
+                continue;
+            }
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with('@') {
                 if let Ok(sub_entries) = std::fs::read_dir(&path) {
                     for sub in sub_entries.flatten() {
                         let sub_path = sub.path();
-                        if sub_path.is_dir() {
-                            if let Some(info) = read_package_license(&sub_path) {
-                                licenses.push(info);
-                            }
+                        if sub_path.is_dir()
+                            && let Some(info) = read_package_license(&sub_path)
+                        {
+                            licenses.push(info);
                         }
                     }
                 }
@@ -365,22 +467,41 @@ fn scan_node_modules(dir: &Path, licenses: &mut Vec<LicenseInfo>) {
 
 fn read_package_license(pkg_dir: &Path) -> Option<LicenseInfo> {
     let pkg_json = pkg_dir.join("package.json");
-    if !pkg_json.is_file() { return None; }
+    if !pkg_json.is_file() {
+        return None;
+    }
     let content = std::fs::read_to_string(&pkg_json).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
     Some(LicenseInfo {
-        package: json.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        version: json.get("version").and_then(|v| v.as_str()).unwrap_or("0.0.0").to_string(),
-        license: json.get("license").and_then(|v| {
-            v.as_str().map(|s| s.to_string())
-                .or_else(|| v.as_object().and_then(|o| o.get("type")).and_then(|t| t.as_str()).map(|s| s.to_string()))
-        }).unwrap_or_else(|| "UNKNOWN".to_string()),
+        package: json
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        version: json
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0.0.0")
+            .to_string(),
+        license: json
+            .get("license")
+            .and_then(|v| {
+                v.as_str().map(|s| s.to_string()).or_else(|| {
+                    v.as_object()
+                        .and_then(|o| o.get("type"))
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.to_string())
+                })
+            })
+            .unwrap_or_else(|| "UNKNOWN".to_string()),
         path: pkg_dir.to_path_buf(),
     })
 }
 
 pub fn check_license_compliance(
-    licenses: &[LicenseInfo], whitelist: &[&str], blacklist: &[&str],
+    licenses: &[LicenseInfo],
+    whitelist: &[&str],
+    blacklist: &[&str],
 ) -> LicenseCheckResult {
     let mut violations = Vec::new();
     for info in licenses {
@@ -388,7 +509,8 @@ pub fn check_license_compliance(
         for bl in blacklist {
             if license_upper.contains(&bl.to_uppercase()) {
                 violations.push(LicenseViolation {
-                    package: info.package.clone(), license: info.license.clone(),
+                    package: info.package.clone(),
+                    license: info.license.clone(),
                     reason: format!("License '{}' is blacklisted", info.license),
                 });
                 break;
@@ -397,31 +519,56 @@ pub fn check_license_compliance(
         if !whitelist.is_empty() {
             if info.license == "UNKNOWN" {
                 violations.push(LicenseViolation {
-                    package: info.package.clone(), license: info.license.clone(),
+                    package: info.package.clone(),
+                    license: info.license.clone(),
                     reason: "License is UNKNOWN — not in whitelist".to_string(),
                 });
-            } else if !whitelist.iter().any(|w| license_upper.contains(&w.to_uppercase())) {
+            } else if !whitelist
+                .iter()
+                .any(|w| license_upper.contains(&w.to_uppercase()))
+            {
                 violations.push(LicenseViolation {
-                    package: info.package.clone(), license: info.license.clone(),
+                    package: info.package.clone(),
+                    license: info.license.clone(),
                     reason: format!("License '{}' is not in whitelist", info.license),
                 });
             }
         }
     }
     let compliant = violations.is_empty();
-    if compliant { info!("License check: all {} packages compliant", licenses.len()); }
-    else { warn!("License check: {} violations out of {} packages", violations.len(), licenses.len()); }
-    LicenseCheckResult { compliant, licenses: licenses.to_vec(), violations }
+    if compliant {
+        info!("License check: all {} packages compliant", licenses.len());
+    } else {
+        warn!(
+            "License check: {} violations out of {} packages",
+            violations.len(),
+            licenses.len()
+        );
+    }
+    LicenseCheckResult {
+        compliant,
+        licenses: licenses.to_vec(),
+        violations,
+    }
 }
 
 pub fn format_license_report(result: &LicenseCheckResult) -> String {
     let mut out = String::new();
     if result.compliant {
-        out.push_str(&format!("  \x1b[32m✓\x1b[0m All {} packages have compliant licenses\n", result.licenses.len()));
+        out.push_str(&format!(
+            "  \x1b[32m✓\x1b[0m All {} packages have compliant licenses\n",
+            result.licenses.len()
+        ));
     } else {
-        out.push_str(&format!("  \x1b[33m⚠\x1b[0m {} license violations found\n\n", result.violations.len()));
+        out.push_str(&format!(
+            "  \x1b[33m⚠\x1b[0m {} license violations found\n\n",
+            result.violations.len()
+        ));
         for v in &result.violations {
-            out.push_str(&format!("  \x1b[31m✗\x1b[0m {} — {}\n", v.package, v.reason));
+            out.push_str(&format!(
+                "  \x1b[31m✗\x1b[0m {} — {}\n",
+                v.package, v.reason
+            ));
         }
     }
     let mut by_type: HashMap<String, usize> = HashMap::new();
@@ -430,9 +577,18 @@ pub fn format_license_report(result: &LicenseCheckResult) -> String {
     }
     out.push_str("\n  License summary:\n");
     let mut sorted: Vec<_> = by_type.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|a| std::cmp::Reverse(a.1));
     for (license, count) in sorted {
-        out.push_str(&format!("    {} ({}): {} packages\n", license, if license == "UNKNOWN" { "\x1b[33m" } else { "\x1b[32m" }, count));
+        out.push_str(&format!(
+            "    {} ({}): {} packages\n",
+            license,
+            if license == "UNKNOWN" {
+                "\x1b[33m"
+            } else {
+                "\x1b[32m"
+            },
+            count
+        ));
     }
     out
 }
@@ -484,8 +640,18 @@ mod tests {
     #[test]
     fn test_license_check() {
         let licenses = vec![
-            LicenseInfo { package: "react".into(), version: "18.0.0".into(), license: "MIT".into(), path: PathBuf::from("nm/react") },
-            LicenseInfo { package: "gpl-pkg".into(), version: "1.0.0".into(), license: "GPL-3.0".into(), path: PathBuf::from("nm/gpl") },
+            LicenseInfo {
+                package: "react".into(),
+                version: "18.0.0".into(),
+                license: "MIT".into(),
+                path: PathBuf::from("nm/react"),
+            },
+            LicenseInfo {
+                package: "gpl-pkg".into(),
+                version: "1.0.0".into(),
+                license: "GPL-3.0".into(),
+                path: PathBuf::from("nm/gpl"),
+            },
         ];
         let result = check_license_compliance(&licenses, &["MIT", "Apache-2.0"], &["GPL"]);
         assert!(!result.compliant);

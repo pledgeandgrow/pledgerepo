@@ -3,7 +3,7 @@
 ## Project Overview
 
 PledgePack is a Rust-native bundler and dev server, similar in scope to Turbopack.
-It supports React, Solid, Svelte, Vue, and TypeScript frameworks.
+It supports React, Solid, Svelte, Vue, Astro, Next.js, TanStack, PledgeStack, and TypeScript frameworks.
 The project also includes a Next.js-like full-stack framework where the backend
 is implemented in Rust instead of Node.js or TypeScript — enabling faster builds,
 lower memory usage, and native performance for SSR/routing/API routes.
@@ -14,7 +14,7 @@ lower memory usage, and native performance for SSR/routing/API routes.
 |---|-------|---------|----------|---------|
 | 1 | `serde` | 1 (derive) | Serialization | core, cli, dev-server, cache, resolver, js-plugin-host, optimizer, adapter-react |
 | 2 | `serde_json` | 1 | Serialization | core, cli, dev-server, cache, resolver, js-plugin-host, optimizer, adapter-react |
-| 3 | `bincode` | 1 | Binary serialization | core, cache |
+| 3 | `bincode` | 2 (serde) | Binary serialization | core, cache |
 | 4 | `tokio` | 1 (full) | Async runtime | core, cli, dev-server, cache |
 | 5 | `axum` | 0.8 | HTTP server | cli, dev-server |
 | 6 | `tower-http` | 0.6 (fs, cors) | HTTP middleware | cli, dev-server |
@@ -30,7 +30,7 @@ lower memory usage, and native performance for SSR/routing/API routes.
 | 16 | `thiserror` | 2 | Typed errors | core |
 | 17 | `clap` | 4 (derive) | CLI parsing | cli |
 | 18 | `clap_complete` | 4 | Shell completions | cli |
-| 19 | `indicatif` | 0.17 | Progress bars | cli |
+| 19 | `indicatif` | 0.18 | Progress bars | cli |
 | 20 | `inquire` | 0.7 | Interactive prompts | cli |
 | 21 | `notify` | 8 | File watching | core, cli, dev-server |
 | 22 | `notify-debouncer-full` | 0.7 | Debounced file watching | core, dev-server |
@@ -44,7 +44,7 @@ lower memory usage, and native performance for SSR/routing/API routes.
 | 30 | `regex` | 1 | Regex engine | core |
 | 31 | `memmap2` | 0.9 | Memory-mapped I/O | core, cache |
 | 32 | `comfy-table` | 7 | CLI tables | core, cli |
-| 33 | `serde_yaml` | 0.9 | YAML parsing | core |
+| 33 | `serde_yml` | 0.0.12 | YAML parsing | core |
 | 34 | `miette` | 7 (fancy) | Error diagnostics | core, cli |
 | 35 | `clap_mangen` | 0.2 | Man page generation | cli |
 | 36 | `humansize` | 2 | File size formatting | core |
@@ -52,42 +52,45 @@ lower memory usage, and native performance for SSR/routing/API routes.
 | 38 | `opener` | 0.7 | Cross-platform browser opening | dev-server |
 | 39 | `local-ip-address` | 0.6 | Network IP detection | dev-server |
 | 40 | `schemars` | 1 | JSON Schema generation (config) | core, cli |
+| 41 | `grass` | 0.13 | Pure Rust Sass/SCSS compiler | core |
+| 42 | `toml` | 0.8 | TOML parsing | core |
+| 43 | `ureq` | 2 (json) | HTTP client (plugin registry) | core |
 
 ## Sub-crate Local Dependencies (not in workspace)
 
 | # | Crate | Version | Used By | Purpose |
 |---|-------|---------|---------|---------|
-| 41 | `reqwest` | 0.12 | core, dev-server | HTTP client (webhooks, proxy) |
-| 42 | `rustls` | 0.23 | dev-server | TLS |
-| 43 | `rustls-pemfile` | 2 | dev-server | TLS cert parsing |
-| 44 | `tokio-rustls` | 0.26 | dev-server | Async TLS |
-| 45 | `futures-util` | 0.3 | dev-server | Async utilities |
-| 46 | `flate2` | 1 | core | Gzip compression |
-| 47 | `brotli` | 7 | core | Brotli compression |
-| 48 | `chrono` | 0.4 | core | Date/time formatting |
-| 49 | `dialoguer` | 0.11 | cli | Interactive dialogs |
-| 50 | `console` | 0.15 | cli | Terminal styling |
-| 51 | `atty` | 0.2 | cli | TTY detection |
-| 52 | `boa_engine` | 0.20 | js-plugin-host | JS engine for plugins |
-| 53 | `windows-sys` | 0.59 | dev-server (Windows only) | Win32 API |
-| 54 | `bytemuck` | 1.21 | dev-server (Windows only) | Byte casting |
+| 44 | `reqwest` | 0.12 (rustls-tls) | dev-server | HTTP client (proxy). Uses rustls-tls, no openssl dependency |
+| 45 | `rustls` | 0.23 | dev-server | TLS |
+| 46 | `rustls-pemfile` | 2 | dev-server | TLS cert parsing |
+| 47 | `tokio-rustls` | 0.26 | dev-server | Async TLS |
+| 48 | `futures-util` | 0.3 | dev-server | Async utilities |
+| 49 | `flate2` | 1 | core | Gzip compression |
+| 50 | `brotli` | 7 | core | Brotli compression |
+| 51 | `chrono` | 0.4 | core | Date/time formatting |
+| 52 | `dialoguer` | 0.11 | cli | Interactive dialogs |
+| 53 | `console` | 0.15 | cli | Terminal styling |
+| 54 | `atty` | 0.2 | cli | TTY detection |
+| 55 | `boa_engine` | 0.20 | js-plugin-host | JS engine for plugins |
+| 56 | `windows-sys` | 0.61 | dev-server (Windows only) | Win32 API |
+| 57 | `bytemuck` | 1.21 | dev-server (Windows only) | Byte casting |
 
 ## Internal Crates (path dependencies)
 
 | # | Crate | Path | Purpose |
 |---|-------|------|---------|
-| 55 | `pledgepack-core` | `crates/core` | Build engine, transforms, config, module graph |
-| 56 | `pledgepack-cache` | `crates/cache` | Function-level incremental cache with disk persistence |
-| 57 | `pledgepack-resolver` | `crates/resolver` | Module resolution |
-| 58 | `pledgepack-dev-server` | `crates/dev-server` | Dev server with HMR, WebSocket, proxy |
-| 59 | `pledgepack-optimizer` | `crates/optimizer` | Tree shaking, minification, chunk splitting |
-| 60 | `pledgepack-js-plugin-host` | `crates/js-plugin-host` | JS plugin runtime (Boa engine) |
-| 61 | `pledgepack-adapter-react` | `crates/adapter-react` | React Fast Refresh adapter |
-| 62 | `pledgepack-adapter-solid` | `crates/adapter-solid` | Solid HMR adapter |
-| 63 | `pledgepack-adapter-next` | `crates/adapter-next` | Next.js compatibility adapter |
-| 64 | `pledgepack-adapter-tanstack` | `crates/adapter-tanstack` | TanStack router adapter |
-| 65 | `pledgepack-adapter-pledgestack` | `crates/adapter-pledgestack` | PledgeStack framework adapter (React frontend + Rust backend, .rs/.psx) |
-| 66 | `pledgepack-native-sys` | `native-sys` | Zig FFI (native graph operations) |
+| 58 | `pledgepack-core` | `crates/core` | Build engine, transforms, config, module graph |
+| 59 | `pledgepack-cache` | `crates/cache` | Function-level incremental cache with disk persistence |
+| 60 | `pledgepack-resolver` | `crates/resolver` | Module resolution |
+| 61 | `pledgepack-dev-server` | `crates/dev-server` | Dev server with HMR, WebSocket, proxy |
+| 62 | `pledgepack-optimizer` | `crates/optimizer` | Tree shaking, minification, chunk splitting |
+| 63 | `pledgepack-js-plugin-host` | `crates/js-plugin-host` | JS plugin runtime (Boa engine) |
+| 64 | `pledgepack-adapter-react` | `crates/adapter-react` | React Fast Refresh adapter |
+| 65 | `pledgepack-adapter-solid` | `crates/adapter-solid` | Solid HMR adapter |
+| 66 | `pledgepack-adapter-next` | `crates/adapter-next` | Next.js compatibility adapter |
+| 67 | `pledgepack-adapter-tanstack` | `crates/adapter-tanstack` | TanStack router adapter |
+| 68 | `pledgepack-adapter-pledgestack` | `crates/adapter-pledgestack` | PledgeStack framework adapter (React frontend + Rust backend, .rs/.psx) |
+| 69 | `pledgepack-native-sys` | `native-sys` | Zig FFI (native graph operations) |
 
 ## Crates Added During Integration Sessions
 
@@ -130,12 +133,13 @@ panic = "abort"
 strip = true
 
 [profile.dev]
-opt-level = 1
+opt-level = 0
+incremental = true
 ```
 
 ## Summary
 
-- **54 external crates** + **12 internal crates** = **66 total packages**
+- **57 external crates** + **12 internal crates** = **69 total packages**
 - **13 crates** added during integration sessions
 - All additions are pure replacements of manual code or new capabilities
 - No dependency conflicts or version mismatches

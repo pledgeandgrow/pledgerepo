@@ -9,7 +9,7 @@ use crate::module::{ModuleId, ModuleKind};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
 /// Serializable representation of a single module in the graph
@@ -53,13 +53,7 @@ impl SerializableModuleGraph {
     }
 
     /// Add a module to the graph
-    pub fn add_module(
-        &mut self,
-        id: ModuleId,
-        path: PathBuf,
-        kind: ModuleKind,
-        content_hash: u64,
-    ) {
+    pub fn add_module(&mut self, id: ModuleId, path: PathBuf, kind: ModuleKind, content_hash: u64) {
         let kind_str = match kind {
             ModuleKind::Tsx => "tsx",
             ModuleKind::TypeScript => "ts",
@@ -103,28 +97,22 @@ impl SerializableModuleGraph {
 
     /// Add a static dependency edge
     pub fn add_dependency(&mut self, from: ModuleId, to: ModuleId) {
-        if let Some(module) = self.modules.get_mut(&from) {
-            if !module.dependencies.contains(&to) {
-                module.dependencies.push(to);
-            }
+        if let Some(module) = self.modules.get_mut(&from)
+            && !module.dependencies.contains(&to)
+        {
+            module.dependencies.push(to);
         }
-        self.reverse_deps
-            .entry(to)
-            .or_default()
-            .push(from);
+        self.reverse_deps.entry(to).or_default().push(from);
     }
 
     /// Add a dynamic import edge
     pub fn add_dynamic_dependency(&mut self, from: ModuleId, to: ModuleId) {
-        if let Some(module) = self.modules.get_mut(&from) {
-            if !module.dynamic_dependencies.contains(&to) {
-                module.dynamic_dependencies.push(to);
-            }
+        if let Some(module) = self.modules.get_mut(&from)
+            && !module.dynamic_dependencies.contains(&to)
+        {
+            module.dynamic_dependencies.push(to);
         }
-        self.reverse_deps
-            .entry(to)
-            .or_default()
-            .push(from);
+        self.reverse_deps.entry(to).or_default().push(from);
     }
 
     /// Set entry modules
@@ -156,13 +144,13 @@ impl SerializableModuleGraph {
         }
 
         // Also mark modules that were removed (their dependents need rebuild)
-        for (id, _) in &previous.modules {
-            if !self.modules.contains_key(id) {
-                if let Some(rev_deps) = previous.reverse_deps.get(id) {
-                    for dep_id in rev_deps {
-                        if self.modules.contains_key(dep_id) {
-                            changed.insert(*dep_id);
-                        }
+        for id in previous.modules.keys() {
+            if !self.modules.contains_key(id)
+                && let Some(rev_deps) = previous.reverse_deps.get(id)
+            {
+                for dep_id in rev_deps {
+                    if self.modules.contains_key(dep_id) {
+                        changed.insert(*dep_id);
                     }
                 }
             }
@@ -223,13 +211,16 @@ impl SerializableModuleGraph {
             std::fs::read(path)?
         };
 
-        let (graph, _) = bincode::serde::decode_from_slice::<SerializableModuleGraph, _>(&data, bincode::config::standard())?;
+        let (graph, _) = bincode::serde::decode_from_slice::<SerializableModuleGraph, _>(
+            &data,
+            bincode::config::standard(),
+        )?;
         info!("Module graph loaded: {} modules", graph.modules.len());
         Ok(graph)
     }
 
     /// Check if a graph snapshot exists on disk
-    pub fn exists_on_disk(path: &PathBuf) -> bool {
+    pub fn exists_on_disk(path: &Path) -> bool {
         path.exists()
     }
 }

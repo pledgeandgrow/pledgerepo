@@ -9,9 +9,9 @@
 //   - Hover info for module exports
 //   - Document symbols for module structure
 
+use regex::Regex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use regex::Regex;
 use std::sync::OnceLock;
 
 // ─── LSP types ────────────────────────────────────────────────────────
@@ -181,8 +181,14 @@ impl LspServerState {
             return Some(LspLocation {
                 uri: path_to_uri(&resolved),
                 range: LspRange {
-                    start: LspPosition { line: 0, character: 0 },
-                    end: LspPosition { line: 0, character: 0 },
+                    start: LspPosition {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: LspPosition {
+                        line: 0,
+                        character: 0,
+                    },
                 },
             });
         }
@@ -244,29 +250,32 @@ impl LspServerState {
 
         // Check for unresolved imports
         for (line_idx, line) in content.lines().enumerate() {
-            if let Some(import_path) = extract_import_path(line) {
-                if self.resolve_import(&import_path, &file_path).is_none() {
-                    // Find the position of the import path in the line
-                    let char_pos = line.find(&import_path).unwrap_or(0);
-                    let end_pos = char_pos + import_path.len();
+            if let Some(import_path) = extract_import_path(line)
+                && self.resolve_import(&import_path, &file_path).is_none()
+            {
+                // Find the position of the import path in the line
+                let char_pos = line.find(&import_path).unwrap_or(0);
+                let end_pos = char_pos + import_path.len();
 
-                    diagnostics.push(LspDiagnostic {
-                        range: LspRange {
-                            start: LspPosition {
-                                line: line_idx as u32,
-                                character: char_pos as u32,
-                            },
-                            end: LspPosition {
-                                line: line_idx as u32,
-                                character: end_pos as u32,
-                            },
+                diagnostics.push(LspDiagnostic {
+                    range: LspRange {
+                        start: LspPosition {
+                            line: line_idx as u32,
+                            character: char_pos as u32,
                         },
-                        severity: DiagnosticSeverity::Error,
-                        code: Some("unresolved-import".to_string()),
-                        source: Some("pledge".to_string()),
-                        message: format!("Cannot find module '{}' or its corresponding type declarations.", import_path),
-                    });
-                }
+                        end: LspPosition {
+                            line: line_idx as u32,
+                            character: end_pos as u32,
+                        },
+                    },
+                    severity: DiagnosticSeverity::Error,
+                    code: Some("unresolved-import".to_string()),
+                    source: Some("pledge".to_string()),
+                    message: format!(
+                        "Cannot find module '{}' or its corresponding type declarations.",
+                        import_path
+                    ),
+                });
             }
         }
 
@@ -285,11 +294,7 @@ impl LspServerState {
             if let Some(resolved) = self.resolve_import(&import_path, &file_path) {
                 let exports = extract_exports_from_file(&resolved);
                 if !exports.is_empty() {
-                    let doc = format!(
-                        "**{}**\n\nExports: {}",
-                        import_path,
-                        exports.join(", ")
-                    );
+                    let doc = format!("**{}**\n\nExports: {}", import_path, exports.join(", "));
                     return Some(LspHover {
                         contents: doc,
                         range: None,
@@ -316,91 +321,138 @@ impl LspServerState {
             let trimmed = line.trim();
 
             // export function name()
-            if let Some(rest) = trimmed.strip_prefix("export function ") {
-                if let Some(name) = rest.split(|c: char| c == '(' || c.is_whitespace()).next() {
-                    if !name.is_empty() {
-                        symbols.push(LspSymbol {
-                            name: name.to_string(),
-                            kind: SymbolKind::Function,
-                            range: LspRange {
-                                start: LspPosition { line: line_idx as u32, character: 0 },
-                                end: LspPosition { line: line_idx as u32, character: line.len() as u32 },
-                            },
-                            selection_range: LspRange {
-                                start: LspPosition { line: line_idx as u32, character: line.find(name).unwrap_or(0) as u32 },
-                                end: LspPosition { line: line_idx as u32, character: (line.find(name).unwrap_or(0) + name.len()) as u32 },
-                            },
-                            children: Vec::new(),
-                        });
-                    }
-                }
+            if let Some(rest) = trimmed.strip_prefix("export function ")
+                && let Some(name) = rest.split(|c: char| c == '(' || c.is_whitespace()).next()
+                && !name.is_empty()
+            {
+                symbols.push(LspSymbol {
+                    name: name.to_string(),
+                    kind: SymbolKind::Function,
+                    range: LspRange {
+                        start: LspPosition {
+                            line: line_idx as u32,
+                            character: 0,
+                        },
+                        end: LspPosition {
+                            line: line_idx as u32,
+                            character: line.len() as u32,
+                        },
+                    },
+                    selection_range: LspRange {
+                        start: LspPosition {
+                            line: line_idx as u32,
+                            character: line.find(name).unwrap_or(0) as u32,
+                        },
+                        end: LspPosition {
+                            line: line_idx as u32,
+                            character: (line.find(name).unwrap_or(0) + name.len()) as u32,
+                        },
+                    },
+                    children: Vec::new(),
+                });
             }
 
             // export const/let/var name = ...
             if let Some(rest) = trimmed.strip_prefix("export ") {
                 for kw in &["const ", "let ", "var "] {
                     if let Some(rest2) = rest.strip_prefix(kw) {
-                        if let Some(name) = rest2.split(|c: char| c == '=' || c.is_whitespace()).next() {
-                            if !name.is_empty() {
-                                symbols.push(LspSymbol {
-                                    name: name.to_string(),
-                                    kind: SymbolKind::Constant,
-                                    range: LspRange {
-                                        start: LspPosition { line: line_idx as u32, character: 0 },
-                                        end: LspPosition { line: line_idx as u32, character: line.len() as u32 },
+                        if let Some(name) =
+                            rest2.split(|c: char| c == '=' || c.is_whitespace()).next()
+                            && !name.is_empty()
+                        {
+                            symbols.push(LspSymbol {
+                                name: name.to_string(),
+                                kind: SymbolKind::Constant,
+                                range: LspRange {
+                                    start: LspPosition {
+                                        line: line_idx as u32,
+                                        character: 0,
                                     },
-                                    selection_range: LspRange {
-                                        start: LspPosition { line: line_idx as u32, character: line.find(name).unwrap_or(0) as u32 },
-                                        end: LspPosition { line: line_idx as u32, character: (line.find(name).unwrap_or(0) + name.len()) as u32 },
+                                    end: LspPosition {
+                                        line: line_idx as u32,
+                                        character: line.len() as u32,
                                     },
-                                    children: Vec::new(),
-                                });
-                            }
+                                },
+                                selection_range: LspRange {
+                                    start: LspPosition {
+                                        line: line_idx as u32,
+                                        character: line.find(name).unwrap_or(0) as u32,
+                                    },
+                                    end: LspPosition {
+                                        line: line_idx as u32,
+                                        character: (line.find(name).unwrap_or(0) + name.len())
+                                            as u32,
+                                    },
+                                },
+                                children: Vec::new(),
+                            });
                         }
                         break;
                     }
                 }
 
                 // export class Name
-                if let Some(rest2) = rest.strip_prefix("class ") {
-                    if let Some(name) = rest2.split(|c: char| c == '{' || c.is_whitespace()).next() {
-                        if !name.is_empty() {
-                            symbols.push(LspSymbol {
-                                name: name.to_string(),
-                                kind: SymbolKind::Class,
-                                range: LspRange {
-                                    start: LspPosition { line: line_idx as u32, character: 0 },
-                                    end: LspPosition { line: line_idx as u32, character: line.len() as u32 },
-                                },
-                                selection_range: LspRange {
-                                    start: LspPosition { line: line_idx as u32, character: line.find(name).unwrap_or(0) as u32 },
-                                    end: LspPosition { line: line_idx as u32, character: (line.find(name).unwrap_or(0) + name.len()) as u32 },
-                                },
-                                children: Vec::new(),
-                            });
-                        }
-                    }
+                if let Some(rest2) = rest.strip_prefix("class ")
+                    && let Some(name) = rest2.split(|c: char| c == '{' || c.is_whitespace()).next()
+                    && !name.is_empty()
+                {
+                    symbols.push(LspSymbol {
+                        name: name.to_string(),
+                        kind: SymbolKind::Class,
+                        range: LspRange {
+                            start: LspPosition {
+                                line: line_idx as u32,
+                                character: 0,
+                            },
+                            end: LspPosition {
+                                line: line_idx as u32,
+                                character: line.len() as u32,
+                            },
+                        },
+                        selection_range: LspRange {
+                            start: LspPosition {
+                                line: line_idx as u32,
+                                character: line.find(name).unwrap_or(0) as u32,
+                            },
+                            end: LspPosition {
+                                line: line_idx as u32,
+                                character: (line.find(name).unwrap_or(0) + name.len()) as u32,
+                            },
+                        },
+                        children: Vec::new(),
+                    });
                 }
 
                 // export interface Name
-                if let Some(rest2) = rest.strip_prefix("interface ") {
-                    if let Some(name) = rest2.split(|c: char| c == '{' || c.is_whitespace()).next() {
-                        if !name.is_empty() {
-                            symbols.push(LspSymbol {
-                                name: name.to_string(),
-                                kind: SymbolKind::Interface,
-                                range: LspRange {
-                                    start: LspPosition { line: line_idx as u32, character: 0 },
-                                    end: LspPosition { line: line_idx as u32, character: line.len() as u32 },
-                                },
-                                selection_range: LspRange {
-                                    start: LspPosition { line: line_idx as u32, character: line.find(name).unwrap_or(0) as u32 },
-                                    end: LspPosition { line: line_idx as u32, character: (line.find(name).unwrap_or(0) + name.len()) as u32 },
-                                },
-                                children: Vec::new(),
-                            });
-                        }
-                    }
+                if let Some(rest2) = rest.strip_prefix("interface ")
+                    && let Some(name) = rest2.split(|c: char| c == '{' || c.is_whitespace()).next()
+                    && !name.is_empty()
+                {
+                    symbols.push(LspSymbol {
+                        name: name.to_string(),
+                        kind: SymbolKind::Interface,
+                        range: LspRange {
+                            start: LspPosition {
+                                line: line_idx as u32,
+                                character: 0,
+                            },
+                            end: LspPosition {
+                                line: line_idx as u32,
+                                character: line.len() as u32,
+                            },
+                        },
+                        selection_range: LspRange {
+                            start: LspPosition {
+                                line: line_idx as u32,
+                                character: line.find(name).unwrap_or(0) as u32,
+                            },
+                            end: LspPosition {
+                                line: line_idx as u32,
+                                character: (line.find(name).unwrap_or(0) + name.len()) as u32,
+                            },
+                        },
+                        children: Vec::new(),
+                    });
                 }
             }
         }
@@ -444,19 +496,19 @@ impl LspServerState {
             let node_modules = self.root.join("node_modules");
             let resolved = node_modules.join(import_path);
             // Check for package.json "main" or "module" field
-            if let Ok(pkg_json) = std::fs::read_to_string(resolved.join("package.json")) {
-                if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&pkg_json) {
-                    if let Some(module) = pkg["module"].as_str() {
-                        let path = resolved.join(module);
-                        if path.exists() {
-                            return Some(path);
-                        }
+            if let Ok(pkg_json) = std::fs::read_to_string(resolved.join("package.json"))
+                && let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&pkg_json)
+            {
+                if let Some(module) = pkg["module"].as_str() {
+                    let path = resolved.join(module);
+                    if path.exists() {
+                        return Some(path);
                     }
-                    if let Some(main) = pkg["main"].as_str() {
-                        let path = resolved.join(main);
-                        if path.exists() {
-                            return Some(path);
-                        }
+                }
+                if let Some(main) = pkg["main"].as_str() {
+                    let path = resolved.join(main);
+                    if path.exists() {
+                        return Some(path);
                     }
                 }
             }
@@ -537,27 +589,36 @@ fn extract_import_path(line: &str) -> Option<String> {
     let trimmed = line.trim();
 
     // import ... from "path" or import ... from 'path'
-    let import_from_re = IMPORT_FROM_RE.get_or_init(|| {
-        Regex::new(r#"^\s*import\s+.*?\s+from\s+['"]([^'"]+)['"]"#).unwrap()
-    });
+    let import_from_re = IMPORT_FROM_RE
+        .get_or_init(|| Regex::new(r#"^\s*import\s+.*?\s+from\s+['"]([^'"]+)['"]"#).unwrap());
     if let Some(caps) = import_from_re.captures(trimmed) {
-        return Some(caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default());
+        return Some(
+            caps.get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default(),
+        );
     }
 
     // import "path" (side-effect import)
-    let import_side_effect_re = IMPORT_SIDE_EFFECT_RE.get_or_init(|| {
-        Regex::new(r#"^\s*import\s+['"]([^'"]+)['"]"#).unwrap()
-    });
+    let import_side_effect_re = IMPORT_SIDE_EFFECT_RE
+        .get_or_init(|| Regex::new(r#"^\s*import\s+['"]([^'"]+)['"]"#).unwrap());
     if let Some(caps) = import_side_effect_re.captures(trimmed) {
-        return Some(caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default());
+        return Some(
+            caps.get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default(),
+        );
     }
 
     // require("path") or require('path')
-    let require_re = REQUIRE_RE.get_or_init(|| {
-        Regex::new(r#"require\s*\(\s*['"]([^'"]+)['"]\s*\)"#).unwrap()
-    });
+    let require_re =
+        REQUIRE_RE.get_or_init(|| Regex::new(r#"require\s*\(\s*['"]([^'"]+)['"]\s*\)"#).unwrap());
     if let Some(caps) = require_re.captures(trimmed) {
-        return Some(caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default());
+        return Some(
+            caps.get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default(),
+        );
     }
 
     None
@@ -569,12 +630,21 @@ fn extract_exports_from_file(path: &Path) -> Vec<String> {
         for line in content.lines() {
             let trimmed = line.trim();
             if let Some(rest) = trimmed.strip_prefix("export ") {
-                for kw in &["function ", "const ", "let ", "var ", "class ", "interface "] {
+                for kw in &[
+                    "function ",
+                    "const ",
+                    "let ",
+                    "var ",
+                    "class ",
+                    "interface ",
+                ] {
                     if let Some(rest2) = rest.strip_prefix(kw) {
-                        if let Some(name) = rest2.split(|c: char| c == '(' || c == '=' || c == '{' || c.is_whitespace()).next() {
-                            if !name.is_empty() {
-                                exports.push(name.to_string());
-                            }
+                        if let Some(name) = rest2
+                            .split(|c: char| c == '(' || c == '=' || c == '{' || c.is_whitespace())
+                            .next()
+                            && !name.is_empty()
+                        {
+                            exports.push(name.to_string());
                         }
                         break;
                     }
@@ -650,10 +720,26 @@ export interface MyInterface { foo: string; }
 
         let symbols = state.document_symbols(uri);
         assert_eq!(symbols.len(), 4);
-        assert!(symbols.iter().any(|s| s.name == "myFunc" && s.kind == SymbolKind::Function));
-        assert!(symbols.iter().any(|s| s.name == "MY_CONST" && s.kind == SymbolKind::Constant));
-        assert!(symbols.iter().any(|s| s.name == "MyClass" && s.kind == SymbolKind::Class));
-        assert!(symbols.iter().any(|s| s.name == "MyInterface" && s.kind == SymbolKind::Interface));
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "myFunc" && s.kind == SymbolKind::Function)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "MY_CONST" && s.kind == SymbolKind::Constant)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "MyClass" && s.kind == SymbolKind::Class)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "MyInterface" && s.kind == SymbolKind::Interface)
+        );
     }
 
     #[test]
@@ -665,10 +751,16 @@ export interface MyInterface { foo: string; }
 
         let mut state = LspServerState::new(&temp_dir, HashMap::new());
         let uri = "file:///test.ts";
-        let content = format!(r#"import {{ target }} from "{}";"#, target_path.file_name().unwrap().to_string_lossy());
+        let content = format!(
+            r#"import {{ target }} from "{}";"#,
+            target_path.file_name().unwrap().to_string_lossy()
+        );
         state.open_document(uri, &content);
 
-        let pos = LspPosition { line: 0, character: content.find("target.ts").unwrap_or(20) as u32 };
+        let pos = LspPosition {
+            line: 0,
+            character: content.find("target.ts").unwrap_or(20) as u32,
+        };
         let def = state.goto_definition(uri, &pos);
         // May or may not resolve depending on path matching, but should not panic
         let _ = def;
@@ -684,7 +776,10 @@ export interface MyInterface { foo: string; }
         let uri = &path_to_uri(&test_file);
         state.open_document(uri, "import { ");
 
-        let pos = LspPosition { line: 0, character: 8 };
+        let pos = LspPosition {
+            line: 0,
+            character: 8,
+        };
         let completions = state.completion(uri, &pos);
         // Should suggest files in the directory
         assert!(!completions.is_empty());

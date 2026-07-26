@@ -323,7 +323,10 @@ editor.focus();
 /// Serve the playground on the given port
 pub fn serve_playground(port: u16) -> Result<()> {
     let html = generate_playground_html();
-    println!("  \x1b[36m→\x1b[0m Playground ready at \x1b[1mhttp://localhost:{}\x1b[0m", port);
+    println!(
+        "  \x1b[36m→\x1b[0m Playground ready at \x1b[1mhttp://localhost:{}\x1b[0m",
+        port
+    );
     println!("  \x1b[90m→\x1b[0m Press Ctrl+C to stop");
 
     // Write to temp file and open browser
@@ -348,15 +351,13 @@ pub fn serve_playground(port: u16) -> Result<()> {
 
     // Simple HTTP server
     let listener = std::net::TcpListener::bind(format!("127.0.0.1:{}", port))?;
-    for stream in listener.incoming() {
-        if let Ok(mut stream) = stream {
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
-                html.len(),
-                html
-            );
-            let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
-        }
+    for mut stream in listener.incoming().flatten() {
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+            html.len(),
+            html
+        );
+        let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
     }
 
     Ok(())

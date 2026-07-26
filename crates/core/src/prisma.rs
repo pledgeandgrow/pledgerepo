@@ -72,7 +72,12 @@ pub fn parse_schema(source: &str) -> Result<PrismaSchema> {
 
         // Block start: `model User {` or `datasource db {` or `enum Status {`
         if line.ends_with('{') {
-            let parts: Vec<&str> = line.strip_suffix('{').unwrap_or(line).trim().splitn(2, ' ').collect();
+            let parts: Vec<&str> = line
+                .strip_suffix('{')
+                .unwrap_or(line)
+                .trim()
+                .splitn(2, ' ')
+                .collect();
             if parts.len() >= 2 {
                 current_block = Some((parts[0].to_string(), parts[1].to_string()));
                 match parts[0] {
@@ -145,18 +150,19 @@ pub fn parse_schema(source: &str) -> Result<PrismaSchema> {
                     if let Some(ref mut model) = current_model {
                         if line.starts_with("@@map(") {
                             model.map = parse_paren_content(line);
-                        } else if !line.starts_with("@@") {
-                            if let Some(field) = parse_field_line(line) {
-                                model.fields.push(field);
-                            }
+                        } else if !line.starts_with("@@")
+                            && let Some(field) = parse_field_line(line)
+                        {
+                            model.fields.push(field);
                         }
                     }
                 }
                 "enum" => {
-                    if let Some(ref mut en) = current_enum {
-                        if !line.starts_with("//") && !line.is_empty() {
-                            en.values.push(line.to_string());
-                        }
+                    if let Some(ref mut en) = current_enum
+                        && !line.starts_with("//")
+                        && !line.is_empty()
+                    {
+                        en.values.push(line.to_string());
                     }
                 }
                 _ => {}
@@ -182,11 +188,11 @@ fn parse_field_value(line: &str, key: &str) -> Option<String> {
 }
 
 fn parse_paren_content(s: &str) -> Option<String> {
-    if let Some(start) = s.find('(') {
-        if let Some(end) = s.rfind(')') {
-            let inner = s[start + 1..end].trim();
-            return Some(inner.trim_matches('"').to_string());
-        }
+    if let Some(start) = s.find('(')
+        && let Some(end) = s.rfind(')')
+    {
+        let inner = s[start + 1..end].trim();
+        return Some(inner.trim_matches('"').to_string());
     }
     None
 }
@@ -201,7 +207,10 @@ fn parse_field_line(line: &str) -> Option<PrismaField> {
     let type_str = parts[1];
     let is_optional = type_str.ends_with('?');
     let is_list = type_str.ends_with("[]");
-    let type_name = type_str.trim_end_matches('?').trim_end_matches("[]").to_string();
+    let type_name = type_str
+        .trim_end_matches('?')
+        .trim_end_matches("[]")
+        .to_string();
 
     let mut field = PrismaField {
         name,
@@ -261,7 +270,11 @@ pub fn generate_types(schema: &PrismaSchema) -> String {
             if field.is_autoincrement {
                 continue;
             }
-            let ts_type = prisma_type_to_ts(&field.type_name, field.is_list, field.is_optional || field.default.is_some());
+            let ts_type = prisma_type_to_ts(
+                &field.type_name,
+                field.is_list,
+                field.is_optional || field.default.is_some(),
+            );
             ts.push_str(&format!("  {}: {};\n", field.name, ts_type));
         }
         ts.push_str("}\n\n");
@@ -277,7 +290,9 @@ pub fn generate_types(schema: &PrismaSchema) -> String {
 
     ts.push_str("export interface PrismaModel<T> {\n");
     ts.push_str("  findUnique(args: { where: { id: string } }): Promise<T | null>;\n");
-    ts.push_str("  findMany(args?: { where?: Partial<T>; take?: number; skip?: number }): Promise<T[]>;\n");
+    ts.push_str(
+        "  findMany(args?: { where?: Partial<T>; take?: number; skip?: number }): Promise<T[]>;\n",
+    );
     ts.push_str("  create(args: { data: T & Record<string, unknown> }): Promise<T>;\n");
     ts.push_str("  update(args: { where: { id: string }; data: Partial<T> }): Promise<T>;\n");
     ts.push_str("  delete(args: { where: { id: string } }): Promise<T>;\n");
@@ -351,7 +366,8 @@ export function createQueryLogger(prisma: any) {
   });
   return prisma;
 }
-"#.to_string()
+"#
+    .to_string()
 }
 
 /// Validate a Prisma schema and return warnings
@@ -442,9 +458,25 @@ enum Role {
             models: vec![PrismaModel {
                 name: "User".to_string(),
                 fields: vec![
-                    PrismaField { name: "id".to_string(), type_name: "Int".to_string(), is_id: true, is_autoincrement: true, ..Default::default() },
-                    PrismaField { name: "email".to_string(), type_name: "String".to_string(), is_unique: true, ..Default::default() },
-                    PrismaField { name: "name".to_string(), type_name: "String".to_string(), is_optional: true, ..Default::default() },
+                    PrismaField {
+                        name: "id".to_string(),
+                        type_name: "Int".to_string(),
+                        is_id: true,
+                        is_autoincrement: true,
+                        ..Default::default()
+                    },
+                    PrismaField {
+                        name: "email".to_string(),
+                        type_name: "String".to_string(),
+                        is_unique: true,
+                        ..Default::default()
+                    },
+                    PrismaField {
+                        name: "name".to_string(),
+                        type_name: "String".to_string(),
+                        is_optional: true,
+                        ..Default::default()
+                    },
                 ],
                 ..Default::default()
             }],

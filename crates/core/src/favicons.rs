@@ -182,9 +182,24 @@ mod tests {
     #[test]
     fn test_generate_favicon_html() {
         let outputs = vec![
-            FaviconOutput { size: 32, data: vec![], filename: "favicon-32.png".to_string(), mime_type: "image/png" },
-            FaviconOutput { size: 180, data: vec![], filename: "apple-touch-icon.png".to_string(), mime_type: "image/png" },
-            FaviconOutput { size: 0, data: vec![], filename: "favicon.ico".to_string(), mime_type: "image/x-icon" },
+            FaviconOutput {
+                size: 32,
+                data: vec![],
+                filename: "favicon-32.png".to_string(),
+                mime_type: "image/png",
+            },
+            FaviconOutput {
+                size: 180,
+                data: vec![],
+                filename: "apple-touch-icon.png".to_string(),
+                mime_type: "image/png",
+            },
+            FaviconOutput {
+                size: 0,
+                data: vec![],
+                filename: "favicon.ico".to_string(),
+                mime_type: "image/x-icon",
+            },
         ];
         let html = generate_favicon_html(&outputs);
         assert!(html.contains("rel=\"icon\""));

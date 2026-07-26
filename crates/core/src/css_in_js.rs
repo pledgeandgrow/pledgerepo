@@ -37,10 +37,11 @@ impl CssInJsFramework {
 
 /// Detect CSS-in-JS framework from source code
 pub fn detect_css_in_js(source: &str) -> CssInJsFramework {
-    if source.contains("styled.") || source.contains("styled(") {
-        if source.contains("from 'styled-components'") || source.contains("from \"styled-components\"") {
-            return CssInJsFramework::StyledComponents;
-        }
+    if (source.contains("styled.") || source.contains("styled("))
+        && (source.contains("from 'styled-components'")
+            || source.contains("from \"styled-components\""))
+    {
+        return CssInJsFramework::StyledComponents;
     }
     if source.contains("from '@emotion/") || source.contains("from \"@emotion/") {
         return CssInJsFramework::Emotion;
@@ -69,10 +70,7 @@ pub fn extract_styled_components(source: &str, file_path: &str) -> ExtractionRes
     let mut code = source.to_string();
 
     // Pattern: styled.tag`...` or styled(Component)`...`
-    let patterns = [
-        ("styled.", "tag"),
-        ("styled(", "component"),
-    ];
+    let patterns = [("styled.", "tag"), ("styled(", "component")];
 
     for (prefix, mode) in &patterns {
         let mut search_pos = 0;
@@ -96,7 +94,8 @@ pub fn extract_styled_components(source: &str, file_path: &str) -> ExtractionRes
                     if let Some(backtick) = rest.find('`') {
                         if let Some(end_tick) = rest[backtick + 1..].find('`') {
                             let template = rest[backtick + 1..backtick + 1 + end_tick].to_string();
-                            let full_end = abs_pos + prefix.len() + tag_end + backtick + 1 + end_tick + 1;
+                            let full_end =
+                                abs_pos + prefix.len() + tag_end + backtick + 1 + end_tick + 1;
                             (tag_name, template, full_end, true)
                         } else {
                             (String::new(), String::new(), 0, false)
@@ -122,10 +121,18 @@ pub fn extract_styled_components(source: &str, file_path: &str) -> ExtractionRes
                         let rest = &after[close + 1..];
                         if let Some(backtick) = rest.find('`') {
                             if let Some(end_tick) = rest[backtick + 1..].find('`') {
-                                let template = rest[backtick + 1..backtick + 1 + end_tick].to_string();
+                                let template =
+                                    rest[backtick + 1..backtick + 1 + end_tick].to_string();
                                 let hash = hash_css(file_path, &template);
                                 let class_name = format!("sc-{}", hash);
-                                let full_end = abs_pos + prefix.len() + close + 1 + backtick + 1 + end_tick + 1;
+                                let full_end = abs_pos
+                                    + prefix.len()
+                                    + close
+                                    + 1
+                                    + backtick
+                                    + 1
+                                    + end_tick
+                                    + 1;
                                 (hash, class_name, template, full_end, true)
                             } else {
                                 (String::new(), String::new(), String::new(), 0, false)
@@ -154,7 +161,11 @@ pub fn extract_styled_components(source: &str, file_path: &str) -> ExtractionRes
     // Process css`` template literal from emotion/styled-components
     code = extract_css_template_calls(&code, file_path, &mut css, &mut class_names);
 
-    ExtractionResult { code, css, class_names }
+    ExtractionResult {
+        code,
+        css,
+        class_names,
+    }
 }
 
 /// Extract CSS from emotion `css`...`` template literals
@@ -172,7 +183,11 @@ pub fn extract_emotion(source: &str, file_path: &str) -> ExtractionResult {
     css.push_str(&styled_result.css);
     class_names.extend(styled_result.class_names);
 
-    ExtractionResult { code, css, class_names }
+    ExtractionResult {
+        code,
+        css,
+        class_names,
+    }
 }
 
 /// Extract CSS from vanilla-extract style() and globalStyle() calls
@@ -233,7 +248,10 @@ pub fn extract_vanilla_extract(source: &str, file_path: &str) -> ExtractionResul
         let (selector, obj_str, full_end, has_match) = {
             let after = &code[abs_pos + 12..];
             let selector_end = after.find(',').unwrap_or(after.find(')').unwrap_or(0));
-            let selector = after[..selector_end].trim().trim_matches(|c| c == '\'' || c == '"' || c == '`').to_string();
+            let selector = after[..selector_end]
+                .trim()
+                .trim_matches(|c| c == '\'' || c == '"' || c == '`')
+                .to_string();
             let rest = &after[selector_end..];
             if let Some(brace) = rest.find('{') {
                 let mut depth = 1;
@@ -266,7 +284,11 @@ pub fn extract_vanilla_extract(source: &str, file_path: &str) -> ExtractionResul
         }
     }
 
-    ExtractionResult { code, css, class_names }
+    ExtractionResult {
+        code,
+        css,
+        class_names,
+    }
 }
 
 /// Process css`...` template literal calls
@@ -317,11 +339,13 @@ fn js_object_to_css(obj_str: &str, selector: &str) -> String {
 
     // Split into property declarations by commas and newlines
     // This handles both multi-line and single-line objects
-    let parts: Vec<&str> = obj_str.split(|c| c == ',' || c == '\n').collect();
+    let parts: Vec<&str> = obj_str.split([',', '\n']).collect();
     for part in parts {
         let trimmed = part.trim();
         if let Some(colon) = trimmed.find(':') {
-            let key = trimmed[..colon].trim().trim_matches(|c| c == '\'' || c == '"');
+            let key = trimmed[..colon]
+                .trim()
+                .trim_matches(|c| c == '\'' || c == '"');
             let value = trimmed[colon + 1..]
                 .trim()
                 .trim_matches(|c: char| c == '\'' || c == '"')

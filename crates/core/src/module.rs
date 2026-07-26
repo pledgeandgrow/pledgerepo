@@ -62,9 +62,8 @@ impl ModuleKind {
             ".glsl" | ".frag" | ".vert" | ".comp" | ".wgsl" => Self::Shader,
             ".psx" => Self::Psx,
             ".ps" => Self::Ps,
-            ".png" | ".jpg" | ".jpeg" | ".gif" | ".svg" | ".webp" | ".ico" |
-            ".woff" | ".woff2" | ".ttf" | ".otf" | ".eot" |
-            ".mp4" | ".webm" | ".mp3" | ".wav" | ".pdf" => Self::Asset,
+            ".png" | ".jpg" | ".jpeg" | ".gif" | ".svg" | ".webp" | ".ico" | ".woff" | ".woff2"
+            | ".ttf" | ".otf" | ".eot" | ".mp4" | ".webm" | ".mp3" | ".wav" | ".pdf" => Self::Asset,
             _ => Self::Unknown,
         }
     }

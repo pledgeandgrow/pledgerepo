@@ -7,12 +7,12 @@
 //   41. Plugin lifecycle hooks — watchStart/watchChange/watchEnd
 //   42. Plugin parallel execution via rayon
 
+use dashmap::DashMap;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use dashmap::DashMap;
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 // ─── Feature 38: Plugin hot reload ────────────────────────────────────
 
@@ -75,7 +75,11 @@ impl PluginHotReloader {
     pub fn check_for_changes(&self) -> Vec<String> {
         let mut reloaded = Vec::new();
 
-        let plugin_ids: Vec<String> = self.plugin_sources.iter().map(|e| e.key().clone()).collect();
+        let plugin_ids: Vec<String> = self
+            .plugin_sources
+            .iter()
+            .map(|e| e.key().clone())
+            .collect();
 
         for plugin_id in &plugin_ids {
             let source = match self.plugin_sources.get(plugin_id) {
@@ -97,10 +101,10 @@ impl PluginHotReloader {
                     drop(source);
                     if let Some(mut source) = self.plugin_sources.get_mut(plugin_id) {
                         source.content_hash = new_hash.into();
-                        if let Ok(metadata) = std::fs::metadata(&source.path) {
-                            if let Ok(modified) = metadata.modified() {
-                                source.last_modified = modified;
-                            }
+                        if let Ok(metadata) = std::fs::metadata(&source.path)
+                            && let Ok(modified) = metadata.modified()
+                        {
+                            source.last_modified = modified;
                         }
                     }
 
@@ -136,7 +140,10 @@ impl PluginHotReloader {
         let mut debouncer = match new_debouncer(
             Duration::from_millis(200),
             None,
-            move |result: Result<Vec<notify_debouncer_full::DebouncedEvent>, Vec<notify::Error>>| {
+            move |result: Result<
+                Vec<notify_debouncer_full::DebouncedEvent>,
+                Vec<notify::Error>,
+            >| {
                 if let Ok(events) = result {
                     for event in events {
                         for p in &event.paths {
@@ -150,7 +157,11 @@ impl PluginHotReloader {
         ) {
             Ok(d) => d,
             Err(e) => {
-                tracing::warn!("Failed to create debounced watcher for plugin {}: {}", callback_plugin_id, e);
+                tracing::warn!(
+                    "Failed to create debounced watcher for plugin {}: {}",
+                    callback_plugin_id,
+                    e
+                );
                 return;
             }
         };
@@ -187,10 +198,10 @@ impl PluginHotReloader {
                         let new_hash = blake3::hash(&content);
                         if let Some(mut source) = self.plugin_sources.get_mut(plugin_id) {
                             source.content_hash = new_hash.into();
-                            if let Ok(metadata) = std::fs::metadata(&path) {
-                                if let Ok(modified) = metadata.modified() {
-                                    source.last_modified = modified;
-                                }
+                            if let Ok(metadata) = std::fs::metadata(&path)
+                                && let Ok(modified) = metadata.modified()
+                            {
+                                source.last_modified = modified;
                             }
                         }
                     }
@@ -309,9 +320,17 @@ impl ResourceUsage {
         }
     }
 
-    pub fn check_path_access(&self, path: &Path, limits: &SandboxLimits) -> Result<(), SandboxError> {
+    pub fn check_path_access(
+        &self,
+        path: &Path,
+        limits: &SandboxLimits,
+    ) -> Result<(), SandboxError> {
         let allowed = limits.allowed_paths.iter().any(|allowed| {
-            path.starts_with(allowed) || path.to_string_lossy().as_ref().contains(&allowed.to_string_lossy().as_ref().to_string())
+            path.starts_with(allowed)
+                || path
+                    .to_string_lossy()
+                    .as_ref()
+                    .contains(&allowed.to_string_lossy().as_ref().to_string())
         });
         if !allowed {
             Err(SandboxError::PathAccessDenied {
@@ -446,10 +465,7 @@ impl PluginDependencyResolver {
         let mut imports = Vec::new();
         for entry in self.bundled.iter() {
             let dep = entry.value();
-            imports.push(format!(
-                r#"    "{}": "bundle:{}""#,
-                dep.name, entry.key()
-            ));
+            imports.push(format!(r#"    "{}": "bundle:{}""#, dep.name, entry.key()));
         }
         format!("{{\n  \"imports\": {{\n{}\n  }}\n}}", imports.join(",\n"))
     }
@@ -622,8 +638,8 @@ pub struct PluginTransformResult {
 pub fn execute_parallel_transforms(
     tasks: Vec<PluginTransformTask>,
     transform_fn: impl Fn(&PluginTransformTask) -> Result<(String, Option<String>), String>
-        + Send
-        + Sync,
+    + Send
+    + Sync,
 ) -> Vec<PluginTransformResult> {
     use rayon::prelude::*;
 
@@ -662,9 +678,9 @@ pub fn group_independent_tasks(tasks: Vec<PluginTransformTask>) -> Vec<Vec<Plugi
 
     for task in tasks {
         // Find a group where no task has the same file_path
-        let group_idx = groups.iter().position(|group| {
-            !group.iter().any(|t| t.file_path == task.file_path)
-        });
+        let group_idx = groups
+            .iter()
+            .position(|group| !group.iter().any(|t| t.file_path == task.file_path));
 
         match group_idx {
             Some(idx) => groups[idx].push(task),
@@ -744,8 +760,16 @@ mod tests {
             ..Default::default()
         };
         let usage = ResourceUsage::new();
-        assert!(usage.check_path_access(&Path::new("./src/index.ts"), &limits).is_ok());
-        assert!(usage.check_path_access(&Path::new("/etc/passwd"), &limits).is_err());
+        assert!(
+            usage
+                .check_path_access(Path::new("./src/index.ts"), &limits)
+                .is_ok()
+        );
+        assert!(
+            usage
+                .check_path_access(Path::new("/etc/passwd"), &limits)
+                .is_err()
+        );
     }
 
     #[test]
@@ -784,13 +808,9 @@ mod tests {
         let counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counter_clone = counter.clone();
 
-        registry.register(
-            "test-plugin",
-            LifecycleHook::WatchStart,
-            move |_ctx| {
-                counter_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            },
-        );
+        registry.register("test-plugin", LifecycleHook::WatchStart, move |_ctx| {
+            counter_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        });
 
         assert_eq!(registry.hook_count(LifecycleHook::WatchStart), 1);
 
@@ -829,7 +849,10 @@ mod tests {
         ];
 
         let results = execute_parallel_transforms(tasks, |task| {
-            Ok((format!("// transformed by {}\n{}", task.plugin_id, task.source), None))
+            Ok((
+                format!("// transformed by {}\n{}", task.plugin_id, task.source),
+                None,
+            ))
         });
 
         assert_eq!(results.len(), 2);

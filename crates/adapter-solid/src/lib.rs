@@ -6,12 +6,12 @@
 //   - Solid-specific transform options (no React runtime)
 
 use anyhow::Result;
-use pledgepack_core::module::ModuleKind;
 use oxc::allocator::Allocator;
+use oxc::codegen::{Codegen, CodegenOptions};
 use oxc::parser::{Parser, ParserReturn};
 use oxc::span::SourceType;
-use oxc::transformer::{Transformer, TransformOptions, JsxRuntime};
-use oxc::codegen::{Codegen, CodegenOptions};
+use oxc::transformer::{JsxRuntime, TransformOptions, Transformer};
+use pledgepack_core::module::ModuleKind;
 use std::path::Path;
 
 pub struct SolidAdapter;
@@ -33,21 +33,29 @@ impl SolidAdapter {
         let allocator = Allocator::default();
         let path = Path::new(file_path);
 
-        let source_type = SourceType::from_path(path).unwrap_or_else(|_| {
-            match kind {
-                ModuleKind::Tsx | ModuleKind::Psx => SourceType::tsx(),
-                ModuleKind::TypeScript => SourceType::ts(),
-                ModuleKind::Jsx => SourceType::jsx(),
-                _ => SourceType::mjs(),
-            }
+        let source_type = SourceType::from_path(path).unwrap_or_else(|_| match kind {
+            ModuleKind::Tsx | ModuleKind::Psx => SourceType::tsx(),
+            ModuleKind::TypeScript => SourceType::ts(),
+            ModuleKind::Jsx => SourceType::jsx(),
+            _ => SourceType::mjs(),
         });
 
-        let ParserReturn { mut program, errors: parser_errors, panicked, .. } =
-            Parser::new(&allocator, source, source_type).parse();
+        let ParserReturn {
+            mut program,
+            diagnostics: parser_errors,
+            panicked,
+            ..
+        } = Parser::new(&allocator, source, source_type).parse();
 
         if panicked {
-            anyhow::bail!("Failed to parse {}: {}", file_path,
-                parser_errors.first().map(|e| e.to_string()).unwrap_or("unknown".into()));
+            anyhow::bail!(
+                "Failed to parse {}: {}",
+                file_path,
+                parser_errors
+                    .first()
+                    .map(|e| e.to_string())
+                    .unwrap_or("unknown".into())
+            );
         }
 
         // Solid uses automatic JSX runtime pointing to solid-js/jsx-runtime
@@ -62,12 +70,12 @@ impl SolidAdapter {
             .with_check_syntax_error(false)
             .build(&program);
 
+        let scoping = semantic_result.semantic.into_scoping();
         let transformer = Transformer::new(&allocator, path, &options);
-        let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
-        let transform_result = transformer.build_with_symbols_and_scopes(symbols, scopes, &mut program);
+        let transform_result = transformer.build_with_scoping(scoping, &mut program);
 
-        if !transform_result.errors.is_empty() {
-            for err in &transform_result.errors {
+        if !transform_result.diagnostics.is_empty() {
+            for err in &transform_result.diagnostics {
                 tracing::warn!("Solid transform error in {}: {:?}", file_path, err);
             }
         }
@@ -83,7 +91,8 @@ impl SolidAdapter {
 
         // Inject Solid HMR boundary in dev mode with reactive scope preservation
         if !is_production {
-            code.push_str(r#"
+            code.push_str(
+                r#"
 // Solid HMR — reactive scope preservation
 if (import.meta.hot && typeof window !== 'undefined') {
   import.meta.hot.accept((newModule) => {
@@ -103,7 +112,8 @@ if (import.meta.hot && typeof window !== 'undefined') {
     }
   });
 }
-"#);
+"#,
+            );
         }
 
         Ok(code)

@@ -99,8 +99,18 @@ impl Default for WebAppManifest {
             background_color: "#ffffff".to_string(),
             theme_color: "#000000".to_string(),
             icons: vec![
-                ManifestIcon { src: "/icons/icon-192.png".to_string(), sizes: "192x192".to_string(), type_: "image/png".to_string(), purpose: "any maskable".to_string() },
-                ManifestIcon { src: "/icons/icon-512.png".to_string(), sizes: "512x512".to_string(), type_: "image/png".to_string(), purpose: "any maskable".to_string() },
+                ManifestIcon {
+                    src: "/icons/icon-192.png".to_string(),
+                    sizes: "192x192".to_string(),
+                    type_: "image/png".to_string(),
+                    purpose: "any maskable".to_string(),
+                },
+                ManifestIcon {
+                    src: "/icons/icon-512.png".to_string(),
+                    sizes: "512x512".to_string(),
+                    type_: "image/png".to_string(),
+                    purpose: "any maskable".to_string(),
+                },
             ],
         }
     }
@@ -249,8 +259,16 @@ self.addEventListener('fetch', (event) => {{
         cache_name = config.cache_name,
         precache = precache_array,
         runtime = runtime_rules.join(",\n"),
-        skip_waiting = if config.skip_waiting { "\n  self.skipWaiting();" } else { "" },
-        clients_claim = if config.clients_claim { "\n  self.clients.claim();" } else { "" },
+        skip_waiting = if config.skip_waiting {
+            "\n  self.skipWaiting();"
+        } else {
+            ""
+        },
+        clients_claim = if config.clients_claim {
+            "\n  self.clients.claim();"
+        } else {
+            ""
+        },
         offline = offline_block
     )
 }

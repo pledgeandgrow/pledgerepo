@@ -59,8 +59,14 @@ pub fn lint_html(html: &str, config: &A11yConfig) -> Result<Vec<A11yViolation>> 
     if violations.is_empty() {
         info!("a11y lint: no violations found");
     } else {
-        let errors = violations.iter().filter(|v| v.severity == Severity::Error).count();
-        let warnings = violations.iter().filter(|v| v.severity == Severity::Warning).count();
+        let errors = violations
+            .iter()
+            .filter(|v| v.severity == Severity::Error)
+            .count();
+        let warnings = violations
+            .iter()
+            .filter(|v| v.severity == Severity::Warning)
+            .count();
         warn!("a11y lint: {} error(s), {} warning(s)", errors, warnings);
     }
 
@@ -122,7 +128,8 @@ fn check_aria_labels(html: &str) -> Vec<A11yViolation> {
                         violations.push(A11yViolation {
                             rule: "button-aria-label".to_string(),
                             element: tag.to_string(),
-                            message: "Interactive button missing aria-label and text content".to_string(),
+                            message: "Interactive button missing aria-label and text content"
+                                .to_string(),
                             severity: Severity::Error,
                         });
                     }
@@ -143,10 +150,22 @@ fn check_color_contrast(html: &str) -> Vec<A11yViolation> {
 
     // Check for color: #999 or lighter on dark backgrounds (simplified)
     let low_contrast_patterns = [
-        ("color: #ccc", "Very light text color may have insufficient contrast"),
-        ("color: #ddd", "Very light text color may have insufficient contrast"),
-        ("color: #eee", "Very light text color may have insufficient contrast"),
-        ("color: #999", "Medium gray text may have insufficient contrast"),
+        (
+            "color: #ccc",
+            "Very light text color may have insufficient contrast",
+        ),
+        (
+            "color: #ddd",
+            "Very light text color may have insufficient contrast",
+        ),
+        (
+            "color: #eee",
+            "Very light text color may have insufficient contrast",
+        ),
+        (
+            "color: #999",
+            "Medium gray text may have insufficient contrast",
+        ),
     ];
 
     for (pattern, message) in &low_contrast_patterns {
@@ -165,17 +184,17 @@ fn check_color_contrast(html: &str) -> Vec<A11yViolation> {
 
 /// Check for <html lang> attribute
 fn check_html_lang(html: &str) -> Vec<A11yViolation> {
-    if let Some(html_tag_start) = html.find("<html") {
-        if let Some(html_tag_end) = html[html_tag_start..].find('>') {
-            let tag = &html[html_tag_start..html_tag_start + html_tag_end + 1];
-            if !tag.contains(" lang=") {
-                return vec![A11yViolation {
-                    rule: "html-lang".to_string(),
-                    element: tag.to_string(),
-                    message: "HTML element missing lang attribute".to_string(),
-                    severity: Severity::Error,
-                }];
-            }
+    if let Some(html_tag_start) = html.find("<html")
+        && let Some(html_tag_end) = html[html_tag_start..].find('>')
+    {
+        let tag = &html[html_tag_start..html_tag_start + html_tag_end + 1];
+        if !tag.contains(" lang=") {
+            return vec![A11yViolation {
+                rule: "html-lang".to_string(),
+                element: tag.to_string(),
+                message: "HTML element missing lang attribute".to_string(),
+                severity: Severity::Error,
+            }];
         }
     }
     Vec::new()
@@ -235,8 +254,16 @@ fn check_form_labels(html: &str) -> Vec<A11yViolation> {
 pub fn format_violations(violations: &[A11yViolation]) -> String {
     let mut output = String::new();
     for v in violations {
-        let icon = if v.severity == Severity::Error { "✗" } else { "⚠" };
-        let color = if v.severity == Severity::Error { "\x1b[31m" } else { "\x1b[33m" };
+        let icon = if v.severity == Severity::Error {
+            "✗"
+        } else {
+            "⚠"
+        };
+        let color = if v.severity == Severity::Error {
+            "\x1b[31m"
+        } else {
+            "\x1b[33m"
+        };
         output.push_str(&format!(
             "  {}{} {} \x1b[0m \x1b[90m{}\x1b[0m\n    {}\n",
             color, icon, v.rule, v.element, v.message,

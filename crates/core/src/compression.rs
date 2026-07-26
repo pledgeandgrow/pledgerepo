@@ -14,11 +14,7 @@ use std::path::Path;
 use tracing::info;
 
 /// Compress all files in a directory using gzip (.gz) and/or Brotli (.br)
-pub fn compress_directory(
-    dir: &Path,
-    gzip: bool,
-    brotli: bool,
-) -> Result<CompressionStats> {
+pub fn compress_directory(dir: &Path, gzip: bool, brotli: bool) -> Result<CompressionStats> {
     let mut stats = CompressionStats::default();
 
     let mut files_to_compress = Vec::new();
@@ -108,9 +104,15 @@ impl CompressionStats {
             .add_row(vec!["Files Compressed", &self.files_compressed.to_string()])
             .add_row(vec!["Original Size", &format_bytes(self.original_bytes)])
             .add_row(vec!["Gzip Size", &format_bytes(self.gzipped_bytes)])
-            .add_row(vec!["Gzip Ratio", &format!("{:.1}%", self.gzip_ratio() * 100.0)])
+            .add_row(vec![
+                "Gzip Ratio",
+                &format!("{:.1}%", self.gzip_ratio() * 100.0),
+            ])
             .add_row(vec!["Brotli Size", &format_bytes(self.brotli_bytes)])
-            .add_row(vec!["Brotli Ratio", &format!("{:.1}%", self.brotli_ratio() * 100.0)]);
+            .add_row(vec![
+                "Brotli Ratio",
+                &format!("{:.1}%", self.brotli_ratio() * 100.0),
+            ]);
         table.to_string()
     }
 }
@@ -145,8 +147,8 @@ fn collect_files(dir: &Path, files: &mut Vec<std::path::PathBuf>) -> Result<()> 
 
 /// Compress a file using gzip (real flate2 implementation)
 fn compress_gzip(input: &Path, output: &str) -> Result<usize> {
-    use flate2::write::GzEncoder;
     use flate2::Compression;
+    use flate2::write::GzEncoder;
     use std::io::BufReader;
 
     let input_file = File::open(input)?;

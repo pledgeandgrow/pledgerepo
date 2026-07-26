@@ -102,7 +102,12 @@ pub async fn build(options: BuildOptions) -> Result<BuildResult> {
 }
 
 /// Transform a single module programmatically
-pub fn transform(code: &str, id: &str, is_production: bool, config: &PledgeConfig) -> Result<TransformResult> {
+pub fn transform(
+    code: &str,
+    id: &str,
+    is_production: bool,
+    config: &PledgeConfig,
+) -> Result<TransformResult> {
     let kind = ModuleKind::from_extension(
         &std::path::Path::new(id)
             .extension()
@@ -137,7 +142,11 @@ pub fn resolve(specifier: &str, importer: &str, root: &std::path::Path) -> Resul
                 return Ok(candidate.canonicalize().unwrap_or(candidate));
             }
         }
-        return Err(anyhow::anyhow!("Cannot resolve '{}' from '{}'", specifier, importer));
+        return Err(anyhow::anyhow!(
+            "Cannot resolve '{}' from '{}'",
+            specifier,
+            importer
+        ));
     }
 
     // Handle absolute paths
@@ -156,7 +165,11 @@ pub fn resolve(specifier: &str, importer: &str, root: &std::path::Path) -> Resul
         let parts: Vec<&str> = specifier.splitn(3, '/').collect();
         if parts.len() >= 2 {
             let pkg = format!("{}/{}", parts[0], parts[1]);
-            let sub = if parts.len() > 2 { format!("/{}", parts[2]) } else { String::new() };
+            let sub = if parts.len() > 2 {
+                format!("/{}", parts[2])
+            } else {
+                String::new()
+            };
             (pkg, sub)
         } else {
             (specifier.to_string(), String::new())
@@ -174,45 +187,47 @@ pub fn resolve(specifier: &str, importer: &str, root: &std::path::Path) -> Resul
     if dep_dir.is_dir() {
         // Check exports field first
         let pkg_json_path = dep_dir.join("package.json");
-        if pkg_json_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&pkg_json_path) {
-                if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
-                    // Check exports for subpath
-                    if !subpath.is_empty() {
-                        if let Some(exports) = pkg.get("exports") {
-                            if let Some(obj) = exports.as_object() {
-                                let key = format!(".{}", subpath);
-                                if let Some(export_val) = obj.get(&key) {
-                                    let resolved = if let Some(s) = export_val.as_str() {
-                                        Some(s.to_string())
-                                    } else if let Some(conditions) = export_val.as_object() {
-                                        conditions.get("browser")
-                                            .or_else(|| conditions.get("module"))
-                                            .or_else(|| conditions.get("import"))
-                                            .or_else(|| conditions.get("default"))
-                                            .and_then(|v| v.as_str())
-                                            .map(|s| s.to_string())
-                                    } else {
-                                        None
-                                    };
-                                    if let Some(resolved_path) = resolved {
-                                        let full = dep_dir.join(resolved_path.trim_start_matches("./"));
-                                        if full.exists() {
-                                            return Ok(full.canonicalize().unwrap_or(full));
-                                        }
-                                    }
-                                }
-                            }
+        if pkg_json_path.exists()
+            && let Ok(content) = std::fs::read_to_string(&pkg_json_path)
+            && let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content)
+        {
+            // Check exports for subpath
+            if !subpath.is_empty()
+                && let Some(exports) = pkg.get("exports")
+                && let Some(obj) = exports.as_object()
+            {
+                let key = format!(".{}", subpath);
+                if let Some(export_val) = obj.get(&key) {
+                    let resolved = if let Some(s) = export_val.as_str() {
+                        Some(s.to_string())
+                    } else if let Some(conditions) = export_val.as_object() {
+                        conditions
+                            .get("browser")
+                            .or_else(|| conditions.get("module"))
+                            .or_else(|| conditions.get("import"))
+                            .or_else(|| conditions.get("default"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    } else {
+                        None
+                    };
+                    if let Some(resolved_path) = resolved {
+                        let full = dep_dir.join(resolved_path.trim_start_matches("./"));
+                        if full.exists() {
+                            return Ok(full.canonicalize().unwrap_or(full));
                         }
                     }
-                    // Fallback: module or main
-                    let main = pkg.get("module").or_else(|| pkg.get("main"))
-                        .and_then(|v| v.as_str()).unwrap_or("index.js");
-                    let main_path = dep_dir.join(main);
-                    if main_path.exists() {
-                        return Ok(main_path.canonicalize().unwrap_or(main_path));
-                    }
                 }
+            }
+            // Fallback: module or main
+            let main = pkg
+                .get("module")
+                .or_else(|| pkg.get("main"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("index.js");
+            let main_path = dep_dir.join(main);
+            if main_path.exists() {
+                return Ok(main_path.canonicalize().unwrap_or(main_path));
             }
         }
         // Fall back to index.js
@@ -235,5 +250,9 @@ pub fn resolve(specifier: &str, importer: &str, root: &std::path::Path) -> Resul
         return Ok(direct.canonicalize().unwrap_or(direct));
     }
 
-    Err(anyhow::anyhow!("Cannot resolve '{}' from '{}'", specifier, importer))
+    Err(anyhow::anyhow!(
+        "Cannot resolve '{}' from '{}'",
+        specifier,
+        importer
+    ))
 }
