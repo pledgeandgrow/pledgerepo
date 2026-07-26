@@ -136,6 +136,9 @@ toml = "1.1"
 # HTTP client for plugin registry
 ureq = { version = "3", features = ["json"] }
 
+# Temporary directories for tests
+tempfile = "3"
+
 # Internal crates
 pledgepack-core = { path = "crates/core" }
 pledgepack-cache = { path = "crates/cache" }
