@@ -789,3 +789,443 @@ fn path_matches_pattern(pattern: &str, pathname: &str) -> bool {
     }
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_app_dir(root: &Path, files: &[(&str, &str)]) -> RouteTable {
+        for (rel_path, content) in files {
+            let full = root.join("app").join(rel_path);
+            if let Some(parent) = full.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(&full, content).unwrap();
+        }
+        scan_app_dir(root, "app").unwrap()
+    }
+
+    #[test]
+    fn test_scan_simple_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[("page.tsx", "export default function Home() {}")],
+        );
+        assert_eq!(table.routes.len(), 1);
+        assert_eq!(table.routes[0].pattern, "/");
+        assert_eq!(table.routes[0].file, "app/page.tsx");
+        assert_eq!(table.routes[0].route_type, RouteType::Page);
+    }
+
+    #[test]
+    fn test_scan_nested_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[("about/page.tsx", "export default function About() {}")],
+        );
+        assert_eq!(table.routes.len(), 1);
+        assert_eq!(table.routes[0].pattern, "/about");
+        assert_eq!(table.routes[0].file, "app/about/page.tsx");
+    }
+
+    #[test]
+    fn test_scan_dynamic_param() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[(
+                "blog/[slug]/page.tsx",
+                "export default function BlogPost() {}",
+            )],
+        );
+        assert_eq!(table.routes.len(), 1);
+        assert_eq!(table.routes[0].pattern, "/blog/:slug");
+        assert!(matches!(
+            &table.routes[0].segments[1],
+            RouteSegment::Param(s) if s == "slug"
+        ));
+    }
+
+    #[test]
+    fn test_scan_catch_all() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[(
+                "docs/[...path]/page.tsx",
+                "export default function Doc() {}",
+            )],
+        );
+        assert_eq!(table.routes.len(), 1);
+        assert_eq!(table.routes[0].pattern, "/docs/*path");
+        assert!(matches!(
+            &table.routes[0].segments[1],
+            RouteSegment::CatchAll(s) if s == "path"
+        ));
+    }
+
+    #[test]
+    fn test_scan_optional_catch_all() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[(
+                "shop/[[...category]]/page.tsx",
+                "export default function Shop() {}",
+            )],
+        );
+        assert_eq!(table.routes.len(), 1);
+        assert_eq!(table.routes[0].pattern, "/shop/*category");
+        assert!(matches!(
+            &table.routes[0].segments[1],
+            RouteSegment::OptionalCatchAll(s) if s == "category"
+        ));
+    }
+
+    #[test]
+    fn test_scan_route_group() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[(
+                "(marketing)/page.tsx",
+                "export default function Marketing() {}",
+            )],
+        );
+        assert_eq!(table.routes.len(), 1);
+        assert_eq!(table.routes[0].pattern, "/");
+        assert!(matches!(
+            &table.routes[0].segments[0],
+            RouteSegment::Group(s) if s == "marketing"
+        ));
+    }
+
+    #[test]
+    fn test_scan_parallel_route() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[(
+                "@analytics/page.tsx",
+                "export default function Analytics() {}",
+            )],
+        );
+        assert_eq!(table.routes.len(), 1);
+        assert_eq!(table.routes[0].pattern, "/");
+        assert!(matches!(
+            &table.routes[0].segments[0],
+            RouteSegment::Slot(s) if s == "analytics"
+        ));
+    }
+
+    #[test]
+    fn test_scan_api_route() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[("api/hello/route.ts", "export function GET() {}")],
+        );
+        assert_eq!(table.routes.len(), 1);
+        assert_eq!(table.routes[0].pattern, "/api/hello");
+        assert_eq!(table.routes[0].route_type, RouteType::ApiRoute);
+    }
+
+    #[test]
+    fn test_scan_multiple_routes() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                ("page.tsx", "export default function Home() {}"),
+                ("about/page.tsx", "export default function About() {}"),
+                ("blog/[slug]/page.tsx", "export default function Post() {}"),
+                ("api/users/route.ts", "export function GET() {}"),
+            ],
+        );
+        assert_eq!(table.routes.len(), 4);
+    }
+
+    #[test]
+    fn test_scan_layout_detection() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                ("layout.tsx", "export default function RootLayout() {}"),
+                ("page.tsx", "export default function Home() {}"),
+                (
+                    "about/layout.tsx",
+                    "export default function AboutLayout() {}",
+                ),
+                ("about/page.tsx", "export default function About() {}"),
+            ],
+        );
+        assert!(table.root_layout.is_some());
+        let about_route = table.routes.iter().find(|r| r.pattern == "/about").unwrap();
+        assert!(about_route.layout.is_some());
+        let home_route = table.routes.iter().find(|r| r.pattern == "/").unwrap();
+        assert!(home_route.layout.is_some());
+    }
+
+    #[test]
+    fn test_scan_middleware_detection() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                ("middleware.ts", "export function middleware() {}"),
+                ("page.tsx", "export default function Home() {}"),
+            ],
+        );
+        assert!(table.middleware.is_some());
+    }
+
+    #[test]
+    fn test_scan_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                ("not-found.tsx", "export default function NotFound() {}"),
+                ("page.tsx", "export default function Home() {}"),
+            ],
+        );
+        assert!(table.not_found.is_some());
+    }
+
+    #[test]
+    fn test_scan_global_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                (
+                    "global-error.tsx",
+                    "export default function GlobalError() {}",
+                ),
+                ("page.tsx", "export default function Home() {}"),
+            ],
+        );
+        assert!(table.global_error.is_some());
+    }
+
+    #[test]
+    fn test_scan_empty_app_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("app")).unwrap();
+        let table = scan_app_dir(dir.path(), "app").unwrap();
+        assert!(table.routes.is_empty());
+        assert!(table.root_layout.is_none());
+    }
+
+    #[test]
+    fn test_scan_nonexistent_app_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = scan_app_dir(dir.path(), "app").unwrap();
+        assert!(table.routes.is_empty());
+    }
+
+    #[test]
+    fn test_route_segment_to_pattern() {
+        assert_eq!(
+            RouteSegment::Static("about".to_string()).to_pattern(),
+            "about"
+        );
+        assert_eq!(
+            RouteSegment::Param("slug".to_string()).to_pattern(),
+            ":slug"
+        );
+        assert_eq!(
+            RouteSegment::CatchAll("path".to_string()).to_pattern(),
+            "*path"
+        );
+        assert_eq!(
+            RouteSegment::OptionalCatchAll("cat".to_string()).to_pattern(),
+            "*cat"
+        );
+        assert_eq!(RouteSegment::Group("grp".to_string()).to_pattern(), "");
+        assert_eq!(RouteSegment::Slot("slot".to_string()).to_pattern(), "");
+    }
+
+    #[test]
+    fn test_route_segment_is_url_segment() {
+        assert!(RouteSegment::Static("a".to_string()).is_url_segment());
+        assert!(RouteSegment::Param("p".to_string()).is_url_segment());
+        assert!(!RouteSegment::Group("g".to_string()).is_url_segment());
+        assert!(!RouteSegment::Slot("s".to_string()).is_url_segment());
+    }
+
+    #[test]
+    fn test_path_matches_pattern_static() {
+        assert!(path_matches_pattern("/", "/"));
+        assert!(!path_matches_pattern("/", "/about"));
+        assert!(path_matches_pattern("/about", "/about"));
+        assert!(!path_matches_pattern("/about", "/blog"));
+    }
+
+    #[test]
+    fn test_path_matches_pattern_dynamic() {
+        assert!(path_matches_pattern("/blog/:slug", "/blog/hello-world"));
+        assert!(path_matches_pattern("/blog/:slug", "/blog/123"));
+        assert!(!path_matches_pattern("/blog/:slug", "/blog"));
+        assert!(!path_matches_pattern("/blog/:slug", "/blog/a/b"));
+    }
+
+    #[test]
+    fn test_path_matches_pattern_catch_all() {
+        assert!(path_matches_pattern("/docs/*path", "/docs/a"));
+        assert!(path_matches_pattern("/docs/*path", "/docs/a/b/c"));
+        assert!(path_matches_pattern("/docs/*path", "/docs"));
+    }
+
+    #[test]
+    fn test_route_table_match_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                ("page.tsx", "export default function Home() {}"),
+                ("about/page.tsx", "export default function About() {}"),
+                ("blog/[slug]/page.tsx", "export default function Post() {}"),
+            ],
+        );
+        assert!(table.match_path("/").is_some());
+        assert!(table.match_path("/about").is_some());
+        assert!(table.match_path("/blog/my-post").is_some());
+        assert!(table.match_path("/nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_generate_router_module_contains_imports() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                ("page.tsx", "export default function Home() {}"),
+                ("about/page.tsx", "export default function About() {}"),
+            ],
+        );
+        let module = table.generate_router_module();
+        assert!(module.contains("import Page0 from \"/app/page.tsx\""));
+        assert!(module.contains("import Page1 from \"/app/about/page.tsx\""));
+        assert!(module.contains("export function render(pathname)"));
+        assert!(module.contains("export function getApiHandler(pathname, method)"));
+    }
+
+    #[test]
+    fn test_generate_router_module_api_namespace_import() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                ("page.tsx", "export default function Home() {}"),
+                ("api/hello/route.ts", "export function GET() {}"),
+            ],
+        );
+        let module = table.generate_router_module();
+        assert!(module.contains("import * as Api1 from \"/app/api/hello/route.ts\""));
+        assert!(module.contains("handler: Api1"));
+    }
+
+    #[test]
+    fn test_generate_router_module_skips_api_in_render() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                ("page.tsx", "export default function Home() {}"),
+                ("api/hello/route.ts", "export function GET() {}"),
+            ],
+        );
+        let module = table.generate_router_module();
+        assert!(module.contains("if (route.type === \"api\") continue;"));
+    }
+
+    #[test]
+    fn test_generate_router_module_build_relative_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[("page.tsx", "export default function Home() {}")],
+        );
+        let module = table.generate_router_module_build("../../");
+        assert!(module.contains("import Page0 from \"../../app/page.tsx\""));
+    }
+
+    #[test]
+    fn test_generate_router_module_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                ("page.tsx", "export default function Home() {}"),
+                ("not-found.tsx", "export default function NotFound() {}"),
+            ],
+        );
+        let module = table.generate_router_module();
+        assert!(module.contains("import NotFound from \"/app/not-found.tsx\""));
+        assert!(module.contains("const notFound = NotFound"));
+    }
+
+    #[test]
+    fn test_generate_router_module_middleware() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                ("page.tsx", "export default function Home() {}"),
+                ("middleware.ts", "export function middleware() {}"),
+            ],
+        );
+        let module = table.generate_router_module();
+        assert!(module.contains("import Middleware from \"/app/middleware.ts\""));
+        assert!(module.contains("const middleware = Middleware"));
+    }
+
+    #[test]
+    fn test_route_sorting_static_before_dynamic() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                ("blog/[slug]/page.tsx", "export default function Post() {}"),
+                (
+                    "blog/latest/page.tsx",
+                    "export default function Latest() {}",
+                ),
+            ],
+        );
+        let latest_idx = table
+            .routes
+            .iter()
+            .position(|r| r.pattern == "/blog/latest");
+        let slug_idx = table.routes.iter().position(|r| r.pattern == "/blog/:slug");
+        assert!(latest_idx < slug_idx);
+    }
+
+    #[test]
+    fn test_psx_file_support() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[("page.psx", "export default function Home() {}")],
+        );
+        assert_eq!(table.routes.len(), 1);
+        assert_eq!(table.routes[0].file, "app/page.psx");
+    }
+
+    #[test]
+    fn test_private_dirs_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = create_app_dir(
+            dir.path(),
+            &[
+                ("page.tsx", "export default function Home() {}"),
+                ("_components/Button.tsx", "export function Button() {}"),
+            ],
+        );
+        assert_eq!(table.routes.len(), 1);
+    }
+}

@@ -474,13 +474,13 @@ fn to_pascal_case(s: &str) -> String {
 
 // ─── Feature 33: YAML/CSV/TSV imports ─────────────────────────────────
 
-/// Transform YAML to ES module with named exports using serde_yml for proper
+/// Transform YAML to ES module with named exports using noyalib for proper
 /// parsing of nested structures, lists, anchors, and multi-line strings.
 pub fn transform_yaml(source: &str) -> String {
-    let parsed: serde_json::Value = match serde_yml::from_str(source) {
+    let parsed: serde_json::Value = match noyalib::from_str(source) {
         Ok(v) => v,
         Err(_) => {
-            // Fallback: if serde_yml fails, produce empty default export
+            // Fallback: if noyalib fails, produce empty default export
             return "export default {};".to_string();
         }
     };

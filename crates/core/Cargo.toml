@@ -61,7 +61,7 @@ notify-debouncer-full = { workspace = true }
 notify = { workspace = true }
 
 # YAML parsing
-serde_yml = { workspace = true }
+noyalib = { workspace = true }
 
 # Source-context error diagnostics
 miette = { workspace = true }
@@ -80,6 +80,9 @@ toml = { workspace = true }
 
 # HTTP client for plugin registry
 ureq = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

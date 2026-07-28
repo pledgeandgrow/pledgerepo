@@ -3,7 +3,7 @@
 Performance benchmarks comparing PledgePack against Vite, Turbopack, esbuild, and webpack.
 
 > All benchmarks run on Windows 11 (x86_64), 32GB RAM, NVMe SSD.
-> PledgePack v0.2.7 · Vite 6.0 · Turbopack (Next.js 15) · esbuild 0.24 · webpack 5.97
+> PledgePack v0.2.8 · Vite 6.0 · Turbopack (Next.js 15) · esbuild 0.24 · webpack 5.97
 
 ---
 

@@ -4,6 +4,33 @@ Development history of the Pledge build system enhancements.
 
 ---
 
+## Unreleased
+
+### Summary
+Next.js adapter rewrite with full App Router support and API route namespace import fix.
+
+### Features
+- **Complete Next.js adapter rewrite** — Full App Router support including layouts, loading/error boundaries, not-found pages, middleware, API routes (route.ts), and PSX file support. Route table with static-before-dynamic sorting, catch-all and optional catch-all segments.
+
+### Bug Fixes
+- **Fixed route.ts API route imports** — API route handlers (route.ts) use named exports (GET, POST, etc.) but were imported as default exports. Changed to namespace imports (`import * as ApiN`) and added `getApiHandler()` to the generated router module. API routes are now skipped in `render()` and properly handled via `getApiHandler()`.
+
+### Tests
+- **Added 24 router tests** — Coverage for route segment patterns, path matching (static, dynamic, catch-all), route table matching, router module generation (imports, API namespace imports, not-found, middleware), route sorting (static before dynamic), PSX file support, and private directory skipping.
+
+### Files Changed
+- `crates/adapter-next/src/lib.rs` — Complete rewrite with full App Router support
+- `crates/core/src/router.rs` — API route namespace imports, `getApiHandler()` in router module, skip API routes in `render()`
+- `crates/adapter-next/Cargo.toml` — Added `tempfile` dev-dependency
+- `crates/core/Cargo.toml` — Added `tempfile` dev-dependency
+- `Cargo.toml` — Version bump 0.2.7 → 0.2.8, added `tempfile` to workspace dependencies
+- `package.json` — Version bump 0.2.7 → 0.2.8
+- `docs/BENCHMARK.md` — Version update to 0.2.8
+- `release.toml` — Removed stale README.md version replacement
+- `docs/CHANGELOG.md` — This entry
+
+---
+
 ## Release 0.2.7 (2026-07-25)
 
 ### Summary

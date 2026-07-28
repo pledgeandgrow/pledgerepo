@@ -9,7 +9,12 @@ no-default-features = false
 [advisories]
 # Check for security advisories from RustSec
 db-urls = ["https://github.com/rustsec/advisory-db"]
-ignore = []
+ignore = [
+    # bincode is unmaintained but is a transitive dep with no safe upgrade
+    "RUSTSEC-2025-0141",
+    # paste is no longer maintained, transitive via boa engine, no safe upgrade
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 # Allow these licenses
@@ -26,13 +31,9 @@ allow = [
     "CC0-1.0",
     "0BSD",
     "Unlicense",
-]
-
-# Deny these licenses
-deny = [
-    "GPL-2.0",
-    "GPL-3.0",
-    "AGPL-3.0",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+    "NCSA",
 ]
 
 # Confidence threshold for license detection

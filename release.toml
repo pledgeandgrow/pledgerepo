@@ -36,7 +36,3 @@ file = "package.json"
 search = '"version": ".*"'
 replace = '"version": "{{version}}"'
 
-[[pre-release-replacements]]
-file = "README.md"
-search = "version = \"0\\.1\\.0\""
-replace = "version = \"{{version}}\""

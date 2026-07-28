@@ -626,7 +626,7 @@ fn parse_dir_name(name: &str) -> DirInfo {
         if parse_intercept(name).is_some() {
             // Intercepting route — extract the actual route name after the intercept prefix
             let rest = &name[intercept_prefix_len(name)..];
-            if rest.starts_with('[') {
+            if rest.starts_with('[') && rest.ends_with(']') {
                 return parse_dynamic(rest);
             }
             return DirInfo {
@@ -649,7 +649,7 @@ fn parse_dir_name(name: &str) -> DirInfo {
     if name.starts_with("(..)") || name.starts_with("(...)") {
         let prefix_len = intercept_prefix_len(name);
         let rest = &name[prefix_len..];
-        if rest.starts_with('[') {
+        if rest.starts_with('[') && rest.ends_with(']') {
             return parse_dynamic(rest);
         }
         return DirInfo {

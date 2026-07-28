@@ -356,13 +356,13 @@ pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
             Err(e) => anyhow::bail!("Failed to read key: {}", e),
         };
 
-        // Parse cert and key
-        let cert_chain = rustls_pemfile::certs(&mut cert.as_slice())
+        // Parse cert and key using rustls-pki-types PemObject API
+        use rustls_pki_types::pem::PemObject;
+        let cert_chain = rustls_pki_types::CertificateDer::pem_slice_iter(&cert)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| anyhow::anyhow!("Failed to parse cert: {}", e))?;
-        let key_der = rustls_pemfile::private_key(&mut key.as_slice())
-            .map_err(|e| anyhow::anyhow!("Failed to parse key: {}", e))?
-            .ok_or_else(|| anyhow::anyhow!("No private key found in key file"))?;
+        let key_der = rustls_pki_types::PrivateKeyDer::from_pem_slice(&key)
+            .map_err(|e| anyhow::anyhow!("Failed to parse key: {}", e))?;
 
         let mut tls_config = rustls::ServerConfig::builder()
             .with_no_client_auth()

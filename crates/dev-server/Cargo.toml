@@ -21,7 +21,7 @@ pledgepack-native-sys = { path = "../../native-sys" }
 oxc = { workspace = true }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 rustls = "0.23"
-rustls-pemfile = "2"
+rustls-pki-types = { version = "1", features = ["alloc"] }
 tokio-rustls = "0.26"
 futures-util = "0.3"
 similar = { workspace = true }

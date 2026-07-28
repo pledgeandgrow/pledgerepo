@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.7"
+version = "0.2.8"
 edition = "2024"
 license = "MIT"
 authors = ["Pledge and Grow"]
@@ -103,8 +103,8 @@ memmap2 = "0.9"
 # CLI tables
 comfy-table = "7"
 
-# YAML parsing
-serde_yml = "0.0.13"
+# YAML parsing (pure Rust, zero unsafe, YAML 1.2 compliant)
+noyalib = "0.0.15"
 
 # Source-context error diagnostics
 miette = { version = "7", features = ["fancy"] }

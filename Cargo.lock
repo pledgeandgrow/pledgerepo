@@ -2967,14 +2967,17 @@ dependencies = [
 
 [[package]]
 name = "noyalib"
-version = "0.0.5"
+version = "0.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e493c05128df7a83b9676b709d590e0ebc285c7ed3152bc679668e8c1e506af5"
+checksum = "9014fb34654ac4f54a4ff52d5207b1e4a764604fced568c3a1d71ee99d1fc300"
 dependencies = [
  "indexmap",
+ "itoa",
  "memchr",
  "rustc-hash",
+ "ryu",
  "serde",
+ "serde_ignored",
  "smallvec",
 ]
 
@@ -3850,7 +3853,7 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
 name = "pledgepack-adapter-next"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "pledgepack-core",
@@ -3862,7 +3865,7 @@ dependencies = [
 
 [[package]]
 name = "pledgepack-adapter-pledgestack"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "pledgepack-core",
@@ -3873,7 +3876,7 @@ dependencies = [
 
 [[package]]
 name = "pledgepack-adapter-react"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "oxc",
@@ -3885,7 +3888,7 @@ dependencies = [
 
 [[package]]
 name = "pledgepack-adapter-solid"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "oxc",
@@ -3895,7 +3898,7 @@ dependencies = [
 
 [[package]]
 name = "pledgepack-adapter-tanstack"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "pledgepack-core",
@@ -3906,7 +3909,7 @@ dependencies = [
 
 [[package]]
 name = "pledgepack-cache"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "bincode",
@@ -3921,7 +3924,7 @@ dependencies = [
 
 [[package]]
 name = "pledgepack-cli"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "axum",
@@ -3963,7 +3966,7 @@ dependencies = [
 
 [[package]]
 name = "pledgepack-core"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "base64 0.23.0",
@@ -3984,6 +3987,7 @@ dependencies = [
  "miette",
  "notify",
  "notify-debouncer-full",
+ "noyalib",
  "oxc",
  "pledgepack-cache",
  "pledgepack-native-sys",
@@ -3992,8 +3996,8 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "serde_yml",
  "sha2",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "toml",
@@ -4003,7 +4007,7 @@ dependencies = [
 
 [[package]]
 name = "pledgepack-dev-server"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "axum",
@@ -4021,7 +4025,7 @@ dependencies = [
  "rcgen",
  "reqwest",
  "rustls",
- "rustls-pemfile",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "similar",
@@ -4035,7 +4039,7 @@ dependencies = [
 
 [[package]]
 name = "pledgepack-js-plugin-host"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "boa_engine",
@@ -4047,14 +4051,14 @@ dependencies = [
 
 [[package]]
 name = "pledgepack-native-sys"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "pledgepack-optimizer"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "globset",
@@ -4066,7 +4070,7 @@ dependencies = [
 
 [[package]]
 name = "pledgepack-resolver"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "dashmap 6.2.1",
@@ -4774,15 +4778,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustls-pemfile"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dce314e5fee3f39953d46bb63bb8a46d40c2f8fb7cc5a3b6cab2bde9721d6e50"
-dependencies = [
- "rustls-pki-types",
-]
-
-[[package]]
 name = "rustls-pki-types"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4996,6 +4991,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_ignored"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "115dffd5f3853e06e746965a20dcbae6ee747ae30b543d91b0e089668bb07798"
+dependencies = [
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "serde_json"
 version = "1.0.150"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5037,16 +5042,6 @@ dependencies = [
  "form_urlencoded",
  "itoa",
  "ryu",
- "serde",
-]
-
-[[package]]
-name = "serde_yml"
-version = "0.0.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "909764a65f86829ccdb5eea9ab355843aa02c019a7bfd47465092953565caa05"
-dependencies = [
- "noyalib",
  "serde",
 ]
 
