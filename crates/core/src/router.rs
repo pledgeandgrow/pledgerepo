@@ -474,6 +474,7 @@ function matchRoute(pattern, pathname) {{
 
 export function render(pathname) {{
   for (const route of routes) {{
+    if (route.type === "api") continue;
     const params = matchRoute(route.pattern, pathname);
     if (params) {{
       let element = React.createElement(route.component, params);
@@ -494,6 +495,18 @@ export function render(pathname) {{
 }}
 
 export {{ routes, middleware }};
+
+export function getApiHandler(pathname, method) {{
+  for (const route of routes) {{
+    if (route.type !== "api") continue;
+    const params = matchRoute(route.pattern, pathname);
+    if (params) {{
+      const handler = route.handler && route.handler[method];
+      if (handler) return {{ handler, params }};
+    }}
+  }}
+  return null;
+}}
 "#
         )
     }
@@ -539,6 +552,7 @@ function matchRoute(pattern, pathname) {{
 
 export function render(pathname) {{
   for (const route of routes) {{
+    if (route.type === "api") continue;
     const params = matchRoute(route.pattern, pathname);
     if (params) {{
       let element = React.createElement(route.component, params);
@@ -559,6 +573,18 @@ export function render(pathname) {{
 }}
 
 export {{ routes, middleware }};
+
+export function getApiHandler(pathname, method) {{
+  for (const route of routes) {{
+    if (route.type !== "api") continue;
+    const params = matchRoute(route.pattern, pathname);
+    if (params) {{
+      const handler = route.handler && route.handler[method];
+      if (handler) return {{ handler, params }};
+    }}
+  }}
+  return null;
+}}
 "#
         )
     }
@@ -567,6 +593,17 @@ export {{ routes, middleware }};
     fn generate_imports(&self, prefix: &str) -> String {
         let mut imports = String::new();
         for (i, route) in self.routes.iter().enumerate() {
+            if route.route_type == RouteType::ApiRoute {
+                // API route handlers use named exports (GET, POST, etc.) —
+                // import as namespace, not default
+                let import_name = format!("Api{}", i);
+                imports.push_str(&format!(
+                    "import * as {} from \"{}{}\";\n",
+                    import_name, prefix, route.file
+                ));
+                continue;
+            }
+
             let import_name = format!("Page{}", i);
             imports.push_str(&format!(
                 "import {} from \"{}{}\";\n",
@@ -628,6 +665,22 @@ export {{ routes, middleware }};
     fn generate_routes_js(&self) -> String {
         let mut routes_js = String::new();
         for (i, route) in self.routes.iter().enumerate() {
+            let type_str = match route.route_type {
+                RouteType::Page => "\"page\"",
+                RouteType::ApiRoute => "\"api\"",
+            };
+
+            if route.route_type == RouteType::ApiRoute {
+                // API routes use namespace import — handler is the module object
+                // with named exports (GET, POST, PUT, DELETE, etc.)
+                let handler_name = format!("Api{}", i);
+                routes_js.push_str(&format!(
+                    "  {{ pattern: \"{}\", handler: {}, layout: null, template: null, loading: null, error: null, head: null, type: {} }},\n",
+                    route.pattern, handler_name, type_str
+                ));
+                continue;
+            }
+
             let import_name = format!("Page{}", i);
             let layout_str = route
                 .layout
@@ -659,10 +712,6 @@ export {{ routes, middleware }};
                 .map(|_| format!("Head{}", i))
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "null".to_string());
-            let type_str = match route.route_type {
-                RouteType::Page => "\"page\"",
-                RouteType::ApiRoute => "\"api\"",
-            };
 
             routes_js.push_str(&format!(
                 "  {{ pattern: \"{}\", component: {}, layout: {}, template: {}, loading: {}, error: {}, head: {}, type: {} }},\n",
