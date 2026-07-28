@@ -410,17 +410,17 @@ fn watch_linux(
 
         if ret == 0 {
             // Timeout — flush debounced event
-            if let (Some(path), Some(time)) = (&debounce_path, debounce_time) {
-                if time.elapsed() > debounce_dur {
-                    if should_watch(path, config) {
-                        let _ = tx.send(FileEvent {
-                            path: path.clone(),
-                            kind: EventKind::Modify,
-                        });
-                    }
-                    debounce_path = None;
-                    debounce_time = None;
+            if let (Some(path), Some(time)) = (&debounce_path, debounce_time)
+                && time.elapsed() > debounce_dur
+            {
+                if should_watch(path, config) {
+                    let _ = tx.send(FileEvent {
+                        path: path.clone(),
+                        kind: EventKind::Modify,
+                    });
                 }
+                debounce_path = None;
+                debounce_time = None;
             }
             continue;
         }
@@ -490,13 +490,13 @@ fn watch_linux(
 
                 if should_watch(&full_path, config) {
                     let now = Instant::now();
-                    if let (Some(prev_path), Some(prev_time)) = (&debounce_path, debounce_time) {
-                        if prev_path != &full_path || now.duration_since(prev_time) > debounce_dur {
-                            let _ = tx.send(FileEvent {
-                                path: prev_path.clone(),
-                                kind,
-                            });
-                        }
+                    if let (Some(prev_path), Some(prev_time)) = (&debounce_path, debounce_time)
+                        && (prev_path != &full_path || now.duration_since(prev_time) > debounce_dur)
+                    {
+                        let _ = tx.send(FileEvent {
+                            path: prev_path.clone(),
+                            kind,
+                        });
                     }
                     debounce_path = Some(full_path.clone());
                     debounce_time = Some(now);
@@ -515,17 +515,17 @@ fn watch_linux(
         }
 
         // Flush debounced event if enough time has passed
-        if let (Some(path), Some(time)) = (&debounce_path, debounce_time) {
-            if time.elapsed() > debounce_dur {
-                if should_watch(path, config) {
-                    let _ = tx.send(FileEvent {
-                        path: path.clone(),
-                        kind: EventKind::Modify,
-                    });
-                }
-                debounce_path = None;
-                debounce_time = None;
+        if let (Some(path), Some(time)) = (&debounce_path, debounce_time)
+            && time.elapsed() > debounce_dur
+        {
+            if should_watch(path, config) {
+                let _ = tx.send(FileEvent {
+                    path: path.clone(),
+                    kind: EventKind::Modify,
+                });
             }
+            debounce_path = None;
+            debounce_time = None;
         }
     }
 
@@ -619,14 +619,12 @@ fn watch_macos(
                             let now = Instant::now();
                             if let (Some(prev_path), Some(prev_time)) =
                                 (&debounce_path, debounce_time)
+                                && (prev_path != path || now.duration_since(prev_time) > debounce_dur)
                             {
-                                if prev_path != path || now.duration_since(prev_time) > debounce_dur
-                                {
-                                    let _ = tx.send(FileEvent {
-                                        path: prev_path.clone(),
-                                        kind: EventKind::Modify,
-                                    });
-                                }
+                                let _ = tx.send(FileEvent {
+                                    path: prev_path.clone(),
+                                    kind: EventKind::Modify,
+                                });
                             }
                             debounce_path = Some(path.clone());
                             debounce_time = Some(now);
@@ -639,17 +637,17 @@ fn watch_macos(
             }
             Err(_) => {
                 // Timeout — flush debounced event
-                if let (Some(path), Some(time)) = (&debounce_path, debounce_time) {
-                    if time.elapsed() > debounce_dur {
-                        if should_watch(path, config) {
-                            let _ = tx.send(FileEvent {
-                                path: path.clone(),
-                                kind: EventKind::Modify,
-                            });
-                        }
-                        debounce_path = None;
-                        debounce_time = None;
+                if let (Some(path), Some(time)) = (&debounce_path, debounce_time)
+                    && time.elapsed() > debounce_dur
+                {
+                    if should_watch(path, config) {
+                        let _ = tx.send(FileEvent {
+                            path: path.clone(),
+                            kind: EventKind::Modify,
+                        });
                     }
+                    debounce_path = None;
+                    debounce_time = None;
                 }
             }
         }

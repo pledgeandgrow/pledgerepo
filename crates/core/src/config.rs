@@ -850,6 +850,9 @@ pub struct I18nConfig {
     /// Message file pattern (default: "./messages.${locale}.json")
     #[serde(default = "default_message_pattern")]
     pub message_pattern: String,
+    /// Enable compile-time i18n key extraction from t('key') calls (#13)
+    #[serde(default)]
+    pub extract: bool,
 }
 
 impl Default for I18nConfig {
@@ -859,6 +862,7 @@ impl Default for I18nConfig {
             locales: Vec::new(),
             default_locale: default_locale(),
             message_pattern: default_message_pattern(),
+            extract: false,
         }
     }
 }

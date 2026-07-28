@@ -85,6 +85,8 @@ pub struct BuildEngine {
     auto_entries: Vec<String>,
     /// Module IDs of the actual entry points (not all modules)
     entry_module_ids: Vec<ModuleId>,
+    /// Accumulated i18n translation catalog from all modules (#13)
+    i18n_catalog: crate::i18n::TranslationCatalog,
 }
 
 #[derive(Debug, Clone)]
@@ -173,6 +175,7 @@ impl BuildEngine {
             is_incremental,
             auto_entries: Vec::new(),
             entry_module_ids: Vec::new(),
+            i18n_catalog: crate::i18n::TranslationCatalog::default(),
         }
     }
 
@@ -926,7 +929,7 @@ document.addEventListener("click", function(e) {
 
     /// Transform a single module (parse + compile)
     #[allow(dead_code)]
-    async fn transform_module(&self, module: &ResolvedModule) -> Result<CachedOutput> {
+    async fn transform_module(&mut self, module: &ResolvedModule) -> Result<CachedOutput> {
         let source_str = String::from_utf8_lossy(&module.source).to_string();
 
         // Use SIMD scanning to find imports/exports
@@ -960,6 +963,15 @@ document.addEventListener("click", function(e) {
             transform_output.code
         };
 
+        // i18n key extraction (#13): extract t('key') calls from TSX/TS/JSX
+        if self.config.i18n.enabled && self.config.i18n.extract {
+            let extraction = crate::i18n::extract_i18n_keys(&source_str, file_path);
+            for key in extraction.keys {
+                let key_str = key.key.clone();
+                self.i18n_catalog.keys.entry(key_str).or_default().push(key);
+            }
+        }
+
         // Build-time string encryption (#109)
         let code = if self.config.encrypt.enabled {
             crate::encrypt::encrypt_strings(&code, &self.config.encrypt)
@@ -985,7 +997,7 @@ document.addEventListener("click", function(e) {
     /// Returns transformed outputs keyed by module ID.
     /// Respects build.parallel config (#120) to limit concurrency.
     pub fn transform_modules_parallel(
-        &self,
+        &mut self,
         modules: Vec<(ModuleId, ResolvedModule)>,
     ) -> Result<Vec<(ModuleId, CachedOutput)>> {
         let is_production = self.config.mode == crate::config::BuildMode::Production;
@@ -1003,7 +1015,7 @@ document.addEventListener("click", function(e) {
                     .unwrap()
             });
 
-        let results: Vec<Result<(ModuleId, CachedOutput)>> = pool.install(|| {
+        let results: Vec<Result<(ModuleId, CachedOutput, Option<crate::i18n::TranslationCatalog>)>> = pool.install(|| {
             modules
                 .par_iter()
                 .map(|(id, module)| {
@@ -1034,6 +1046,23 @@ document.addEventListener("click", function(e) {
                         transform_output.code
                     };
 
+                    // i18n key extraction (#13): extract t('key') calls from TSX/TS/JSX
+                    let i18n_keys = if config.i18n.enabled && config.i18n.extract {
+                        let extraction = crate::i18n::extract_i18n_keys(&source_str, file_path);
+                        if !extraction.keys.is_empty() {
+                            let mut catalog = crate::i18n::TranslationCatalog::default();
+                            for key in extraction.keys {
+                                let key_str = key.key.clone();
+                                catalog.keys.entry(key_str).or_default().push(key);
+                            }
+                            Some(catalog)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
                     // Build-time string encryption (#109)
                     let code = if config.encrypt.enabled {
                         crate::encrypt::encrypt_strings(&code, &config.encrypt)
@@ -1055,6 +1084,7 @@ document.addEventListener("click", function(e) {
                             is_worker: transform_output.is_worker,
                             dynamic_imports: transform_output.dynamic_imports,
                         },
+                        i18n_keys,
                     ))
                 })
                 .collect()
@@ -1063,7 +1093,11 @@ document.addEventListener("click", function(e) {
         // Collect results, propagating errors
         let mut outputs = Vec::with_capacity(results.len());
         for result in results {
-            outputs.push(result?);
+            let (id, output, i18n_keys) = result?;
+            if let Some(catalog) = i18n_keys {
+                self.i18n_catalog.merge(catalog);
+            }
+            outputs.push((id, output));
         }
         Ok(outputs)
     }
@@ -1120,6 +1154,11 @@ document.addEventListener("click", function(e) {
     /// Get the function-level cache (transformed outputs)
     pub fn function_cache(&self) -> &HashMap<u64, CachedOutput> {
         &self.function_cache
+    }
+
+    /// Get the extracted i18n translation catalog (#13)
+    pub fn i18n_catalog(&self) -> &crate::i18n::TranslationCatalog {
+        &self.i18n_catalog
     }
 
     /// Emit production build artifacts to the output directory.
@@ -1426,6 +1465,17 @@ document.addEventListener("click", function(e) {
         // Generate manifest.json with entry-to-chunk mapping
         let manifest_json = serde_json::to_string_pretty(&manifest_entries)?;
         std::fs::write(out_dir.join("manifest.json"), manifest_json)?;
+
+        // Write i18n translation catalog (#13) if i18n extraction is enabled and keys were extracted
+        if self.config.i18n.enabled && self.config.i18n.extract && !self.i18n_catalog.is_empty() {
+            let catalog_path = out_dir.join("i18n-catalog.json");
+            std::fs::write(&catalog_path, self.i18n_catalog.to_json())?;
+            info!(
+                "i18n: extracted {} translation keys → {}",
+                self.i18n_catalog.len(),
+                catalog_path.display()
+            );
+        }
 
         // Generate index.html with CSS links, module preloads, and multi-script entry
         let css_links: String = css_files
@@ -1931,6 +1981,17 @@ document.addEventListener("click", function(e) {
             css_link, js_filename
         );
         std::fs::write(out_dir.join("index.html"), html)?;
+
+        // Write i18n translation catalog (#13) if i18n extraction is enabled and keys were extracted
+        if self.config.i18n.enabled && self.config.i18n.extract && !self.i18n_catalog.is_empty() {
+            let catalog_path = out_dir.join("i18n-catalog.json");
+            std::fs::write(&catalog_path, self.i18n_catalog.to_json())?;
+            info!(
+                "i18n: extracted {} translation keys → {}",
+                self.i18n_catalog.len(),
+                catalog_path.display()
+            );
+        }
 
         Ok(())
     }

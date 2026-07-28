@@ -213,6 +213,7 @@ fn transform_js(
     let codegen_result = Codegen::new()
         .with_options(CodegenOptions {
             minify: is_production,
+            source_map_path: config.source_maps.then(|| Path::new(file_path).to_path_buf()),
             ..CodegenOptions::default()
         })
         .build(&program);
@@ -277,22 +278,30 @@ fn transform_js(
 
     // Generate source map if enabled, respecting source_map_mode config
     let source_map = if config.source_maps {
-        use base64::Engine;
         let mode = &config.build.source_map_mode;
+        let oxc_map = codegen_result.map.as_ref().map(|m| m.to_json_string());
+
         match mode.as_str() {
             "hidden" | "nosources" => {
                 // hidden: generate map but don't add sourceMappingURL comment
                 // nosources: generate map without source content
-                Some(generate_source_map_mode(
-                    file_path,
-                    source,
-                    &codegen_result.code,
-                    mode,
-                ))
+                if let Some(ref map_json) = oxc_map {
+                    Some(apply_source_map_mode(map_json, mode))
+                } else {
+                    Some(generate_source_map_mode(
+                        file_path,
+                        source,
+                        &codegen_result.code,
+                        mode,
+                    ))
+                }
             }
             "inline" => {
                 // inline: embed source map as base64 data URI in the code
-                let map = generate_source_map(file_path, source, &codegen_result.code);
+                let map = oxc_map.unwrap_or_else(|| {
+                    generate_source_map(file_path, source, &codegen_result.code)
+                });
+                use base64::Engine;
                 let b64 = base64::engine::general_purpose::STANDARD.encode(map.as_bytes());
                 code.push_str(&format!(
                     "\n//# sourceMappingURL=data:application/json;base64,{}",
@@ -302,7 +311,22 @@ fn transform_js(
             }
             _ => {
                 // external (default): generate map, add sourceMappingURL comment
-                Some(generate_source_map(file_path, source, &codegen_result.code))
+                let map = if let Some(map_json) = oxc_map {
+                    map_json
+                } else {
+                    generate_source_map(file_path, source, &codegen_result.code)
+                };
+                let file_name = Path::new(file_path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown");
+                let map_name = file_name
+                    .replace(".tsx", ".js")
+                    .replace(".ts", ".js")
+                    .replace(".jsx", ".js")
+                    + ".map";
+                code.push_str(&format!("\n//# sourceMappingURL={}", map_name));
+                Some(map)
             }
         }
     } else {
@@ -859,6 +883,21 @@ fn generate_source_map(file_path: &str, original_source: &str, _generated_code: 
     });
 
     source_map.to_string()
+}
+
+/// Apply source map mode to an Oxc-generated source map JSON string.
+/// - "nosources": removes sourcesContent for security
+/// - "hidden": returns as-is (no sourceMappingURL comment is added by caller)
+fn apply_source_map_mode(map_json: &str, mode: &str) -> String {
+    if mode == "nosources"
+        && let Ok(mut map) = serde_json::from_str::<serde_json::Value>(map_json)
+    {
+        if let Some(obj) = map.as_object_mut() {
+            obj.remove("sourcesContent");
+        }
+        return map.to_string();
+    }
+    map_json.to_string()
 }
 
 /// Generate a source map with configurable nosources mode
