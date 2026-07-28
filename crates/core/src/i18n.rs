@@ -261,8 +261,7 @@ fn extract_i18n_keys_ast(source: &str, file_path: &str) -> Option<ExtractionResu
                         && let Some(oxc::ast::ast::JSXAttributeValue::StringLiteral(lit)) =
                             &attr.value
                     {
-                        let (line, column) =
-                            span_to_line_col(self.source, attr.span.start);
+                        let (line, column) = span_to_line_col(self.source, attr.span.start);
                         self.keys.push(ExtractedKey {
                             key: lit.value.to_string(),
                             file: self.file.to_string(),
@@ -319,9 +318,7 @@ fn extract_i18n_keys_ast(source: &str, file_path: &str) -> Option<ExtractionResu
     };
     visitor.visit_program(&program);
 
-    Some(ExtractionResult {
-        keys: visitor.keys,
-    })
+    Some(ExtractionResult { keys: visitor.keys })
 }
 
 /// Fallback: string-based extraction using regex-like patterns

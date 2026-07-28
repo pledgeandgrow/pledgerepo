@@ -213,7 +213,9 @@ fn transform_js(
     let codegen_result = Codegen::new()
         .with_options(CodegenOptions {
             minify: is_production,
-            source_map_path: config.source_maps.then(|| Path::new(file_path).to_path_buf()),
+            source_map_path: config
+                .source_maps
+                .then(|| Path::new(file_path).to_path_buf()),
             ..CodegenOptions::default()
         })
         .build(&program);

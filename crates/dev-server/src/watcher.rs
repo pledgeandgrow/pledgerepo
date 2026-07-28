@@ -619,7 +619,8 @@ fn watch_macos(
                             let now = Instant::now();
                             if let (Some(prev_path), Some(prev_time)) =
                                 (&debounce_path, debounce_time)
-                                && (prev_path != path || now.duration_since(prev_time) > debounce_dur)
+                                && (prev_path != path
+                                    || now.duration_since(prev_time) > debounce_dur)
                             {
                                 let _ = tx.send(FileEvent {
                                     path: prev_path.clone(),

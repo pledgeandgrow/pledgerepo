@@ -1015,7 +1015,13 @@ document.addEventListener("click", function(e) {
                     .unwrap()
             });
 
-        let results: Vec<Result<(ModuleId, CachedOutput, Option<crate::i18n::TranslationCatalog>)>> = pool.install(|| {
+        let results: Vec<
+            Result<(
+                ModuleId,
+                CachedOutput,
+                Option<crate::i18n::TranslationCatalog>,
+            )>,
+        > = pool.install(|| {
             modules
                 .par_iter()
                 .map(|(id, module)| {
