@@ -7,21 +7,33 @@ fn main() {
         .expect("failed to get parent of manifest dir");
     let lib_dir = root.join("zig-out").join("lib");
 
+    // Use CARGO_CFG_TARGET_OS (set by cargo for the TARGET, not host)
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+
+    // Force re-run when target changes
+    println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_OS");
+
     // On macOS, Zig's archive format is incompatible with Apple's linker.
     // Link the object file directly instead of the static library.
-    if cfg!(target_os = "macos") {
-        // Zig installs object files to zig-out/ (not zig-out/lib/)
+    if target_os == "macos" {
         let obj_candidates = [
             root.join("zig-out").join("pledge_native.o"),
             root.join("zig-out").join("lib").join("pledge_native.o"),
             root.join("zig-out").join("obj").join("pledge_native.o"),
         ];
+
+        eprintln!("[pledge-native-sys] target_os=macos, looking for .o file...");
+        for c in &obj_candidates {
+            eprintln!("[pledge-native-sys]   candidate: {} (exists={})", c.display(), c.exists());
+        }
+
         let obj_path = obj_candidates.iter().find(|p| p.exists());
 
         if let Some(obj) = obj_path {
+            eprintln!("[pledge-native-sys] linking object file: {}", obj.display());
             println!("cargo:rustc-link-arg={}", obj.display());
         } else {
-            // Fallback to static library if object file not found
+            eprintln!("[pledge-native-sys] no .o found, falling back to static lib");
             println!("cargo:rustc-link-search=native={}", lib_dir.display());
             println!("cargo:rustc-link-lib=static=pledge_native");
         }
@@ -32,7 +44,7 @@ fn main() {
     }
 
     // Link Windows libraries needed by Zig runtime
-    if cfg!(target_os = "windows") {
+    if target_os == "windows" {
         println!("cargo:rustc-link-lib=dylib=ntdll");
     }
 

@@ -74,7 +74,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          key: release-${{ matrix.target }}
+          key: release-${{ matrix.target }}-v2
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }} -p pledgepack-cli

@@ -110,7 +110,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          key: cross-${{ matrix.target }}
+          key: cross-${{ matrix.target }}-v2
 
       - name: Cross-compile
         run: cargo build --release --target ${{ matrix.target }} -p pledgepack-cli
