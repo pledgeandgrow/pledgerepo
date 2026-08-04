@@ -1545,7 +1545,36 @@ PLEDGE_API_URL=http://localhost:3000
 import { createRoot } from 'react-dom/client';
 
 function App() {
-  return <h1>Hello from PledgeStack!</h1>;
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: "100vh",
+      margin: 0,
+      fontFamily: "system-ui, -apple-system, sans-serif",
+      background: "#0d0d0d",
+    }}>
+      <h1 style={{
+        fontSize: "clamp(3rem, 10vw, 6rem)",
+        fontWeight: 800,
+        letterSpacing: "-0.04em",
+        margin: 0,
+        background: "linear-gradient(135deg, #6366f1, #a855f7)",
+        WebkitBackgroundClip: "text",
+        WebkitTextFillColor: "transparent",
+        backgroundClip: "text",
+      }}>PledgePack</h1>
+      <p style={{
+        fontSize: "clamp(1rem, 3vw, 1.5rem)",
+        color: "#888",
+        marginTop: "0.5rem",
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+      }}>PledgeStack</p>
+    </div>
+  );
 }
 
 const root = document.getElementById("root");
@@ -1559,7 +1588,12 @@ export default App;
                         r##"// Vue template
 const root = document.getElementById("root");
 if (root) {
-  root.innerHTML = `<h1 style="color:#6366f1;">__PLEDGE_PROJECT_NAME__</h1>`;
+  root.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0d0d0d;">
+      <h1 style="font-size:clamp(3rem,10vw,6rem);font-weight:800;letter-spacing:-0.04em;margin:0;background:linear-gradient(135deg,#42b883,#35495e);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">PledgePack</h1>
+      <p style="font-size:clamp(1rem,3vw,1.5rem);color:#888;margin-top:0.5rem;letter-spacing:0.1em;text-transform:uppercase;">Vue</p>
+    </div>
+  `;
 }
 export default {};
 "##
@@ -1568,7 +1602,12 @@ export default {};
                         r##"// Svelte template
 const root = document.getElementById("root");
 if (root) {
-  root.innerHTML = `<h1 style="color:#ff3e00;">__PLEDGE_PROJECT_NAME__</h1>`;
+  root.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0d0d0d;">
+      <h1 style="font-size:clamp(3rem,10vw,6rem);font-weight:800;letter-spacing:-0.04em;margin:0;background:linear-gradient(135deg,#ff3e00,#ff8e00);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">PledgePack</h1>
+      <p style="font-size:clamp(1rem,3vw,1.5rem);color:#888;margin-top:0.5rem;letter-spacing:0.1em;text-transform:uppercase;">Svelte</p>
+    </div>
+  `;
 }
 export default {};
 "##
@@ -1577,7 +1616,12 @@ export default {};
                         r##"// Solid template
 const root = document.getElementById("root");
 if (root) {
-  root.innerHTML = `<h1 style="color:#2c4f7c;">__PLEDGE_PROJECT_NAME__</h1>`;
+  root.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0d0d0d;">
+      <h1 style="font-size:clamp(3rem,10vw,6rem);font-weight:800;letter-spacing:-0.04em;margin:0;background:linear-gradient(135deg,#2c4f7c,#61dafb);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">PledgePack</h1>
+      <p style="font-size:clamp(1rem,3vw,1.5rem);color:#888;margin-top:0.5rem;letter-spacing:0.1em;text-transform:uppercase;">Solid</p>
+    </div>
+  `;
 }
 export default {};
 "##
@@ -1586,17 +1630,139 @@ export default {};
                         r#"// Vanilla template
 const root = document.getElementById("root");
 if (root) {
-  root.innerHTML = `<h1>__PLEDGE_PROJECT_NAME__</h1>`;
+  root.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0d0d0d;">
+      <h1 style="font-size:clamp(3rem,10vw,6rem);font-weight:800;letter-spacing:-0.04em;margin:0;color:#fbbf24;">PledgePack</h1>
+      <p style="font-size:clamp(1rem,3vw,1.5rem);color:#888;margin-top:0.5rem;letter-spacing:0.1em;text-transform:uppercase;">Vanilla</p>
+    </div>
+  `;
 }
 export default {};
 "#
+                    }
+                    "next" => {
+                        r##"// Next.js template
+import { createRoot } from 'react-dom/client';
+
+function App() {
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: "100vh",
+      margin: 0,
+      fontFamily: "system-ui, -apple-system, sans-serif",
+      background: "#0d0d0d",
+    }}>
+      <h1 style={{
+        fontSize: "clamp(3rem, 10vw, 6rem)",
+        fontWeight: 800,
+        letterSpacing: "-0.04em",
+        margin: 0,
+        background: "linear-gradient(135deg, #ffffff, #888888)",
+        WebkitBackgroundClip: "text",
+        WebkitTextFillColor: "transparent",
+        backgroundClip: "text",
+      }}>PledgePack</h1>
+      <p style={{
+        fontSize: "clamp(1rem, 3vw, 1.5rem)",
+        color: "#888",
+        marginTop: "0.5rem",
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+      }}>Next.js</p>
+    </div>
+  );
+}
+
+const root = document.getElementById("root");
+if (root) {
+  createRoot(root).render(<App />);
+}
+export default App;
+"##
+                    }
+                    "tanstack" => {
+                        r##"// TanStack template
+import { createRoot } from 'react-dom/client';
+
+function App() {
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: "100vh",
+      margin: 0,
+      fontFamily: "system-ui, -apple-system, sans-serif",
+      background: "#0d0d0d",
+    }}>
+      <h1 style={{
+        fontSize: "clamp(3rem, 10vw, 6rem)",
+        fontWeight: 800,
+        letterSpacing: "-0.04em",
+        margin: 0,
+        background: "linear-gradient(135deg, #00b4d8, #0077b6)",
+        WebkitBackgroundClip: "text",
+        WebkitTextFillColor: "transparent",
+        backgroundClip: "text",
+      }}>PledgePack</h1>
+      <p style={{
+        fontSize: "clamp(1rem, 3vw, 1.5rem)",
+        color: "#888",
+        marginTop: "0.5rem",
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+      }}>TanStack</p>
+    </div>
+  );
+}
+
+const root = document.getElementById("root");
+if (root) {
+  createRoot(root).render(<App />);
+}
+export default App;
+"##
                     }
                     _ => {
                         r##"// React template
 import { createRoot } from 'react-dom/client';
 
 function App() {
-  return <h1>Hello from Pledge!</h1>;
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: "100vh",
+      margin: 0,
+      fontFamily: "system-ui, -apple-system, sans-serif",
+      background: "#0d0d0d",
+    }}>
+      <h1 style={{
+        fontSize: "clamp(3rem, 10vw, 6rem)",
+        fontWeight: 800,
+        letterSpacing: "-0.04em",
+        margin: 0,
+        background: "linear-gradient(135deg, #6366f1, #a855f7)",
+        WebkitBackgroundClip: "text",
+        WebkitTextFillColor: "transparent",
+        backgroundClip: "text",
+      }}>PledgePack</h1>
+      <p style={{
+        fontSize: "clamp(1rem, 3vw, 1.5rem)",
+        color: "#888",
+        marginTop: "0.5rem",
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+      }}>React</p>
+    </div>
+  );
 }
 
 const root = document.getElementById("root");
@@ -1616,9 +1782,33 @@ export default App;
                     Some(
                         r##"export default function Home() {
   return (
-    <div style={{ padding: "2rem", fontFamily: "system-ui" }}>
-      <h1 style={{ color: "#6366f1" }}>__PLEDGE_PROJECT_NAME__</h1>
-      <p>Built with PledgeStack — React frontend + Rust backend</p>
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: "100vh",
+      margin: 0,
+      fontFamily: "system-ui, -apple-system, sans-serif",
+      background: "#0d0d0d",
+    }}>
+      <h1 style={{
+        fontSize: "clamp(3rem, 10vw, 6rem)",
+        fontWeight: 800,
+        letterSpacing: "-0.04em",
+        margin: 0,
+        background: "linear-gradient(135deg, #6366f1, #a855f7)",
+        WebkitBackgroundClip: "text",
+        WebkitTextFillColor: "transparent",
+        backgroundClip: "text",
+      }}>PledgePack</h1>
+      <p style={{
+        fontSize: "clamp(1rem, 3vw, 1.5rem)",
+        color: "#888",
+        marginTop: "0.5rem",
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+      }}>PledgeStack</p>
     </div>
   );
 }
