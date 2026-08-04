@@ -1,8 +1,19 @@
 [advisories]
-# The version field is deprecated, use `cargo audit` instead.
 # cargo-deny checks for known vulnerabilities in dependencies.
 version = 2
-ignore = []
+ignore = [
+    # rkyv 0.7 — OOB reads in archives with Rc/Arc. Transitive via parcel_sourcemap
+    # (lightningcss). Cannot upgrade until parcel_sourcemap releases a new version.
+    # Risk is low: only used for sourcemap encoding, not untrusted input.
+    "RUSTSEC-2026-0235",
+    # bincode 2.0.1 — flagged as unmaintained. This is the latest major version
+    # and is stable/feature-complete. No viable drop-in replacement with serde support.
+    # Will revisit if a maintained fork emerges.
+    "RUSTSEC-2025-0141",
+    # paste 1.0.15 — compile-time macro crate, no runtime code. Transitive via
+    # oxc and lightningcss. Zero security risk.
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 # Allow only OSI-approved licenses
