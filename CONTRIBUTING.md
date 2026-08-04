@@ -112,7 +112,7 @@ crates/
 ├── resolver/         # Module resolution
 ├── dev-server/       # Dev server + HMR
 ├── optimizer/        # Tree shaking, code splitting
-├── js-plugin-host/   # JS plugin system (boa_engine)
+├── js-plugin-host/   # JS plugin system (QuickJS via rquickjs)
 ├── adapter-react/    # React adapter
 ├── adapter-solid/    # Solid.js adapter
 ├── adapter-next/     # Next.js adapter

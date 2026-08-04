@@ -367,10 +367,10 @@ impl Default for AstPool {
 // Phase 4: Define the interface that plugins will use to access the AST.
 //
 // The full WASM plugin ABI (Phase 0: WIT contract, Phase 2: Wasmtime host)
-// is not yet implemented. The current plugin system uses Boa (JS engine)
+// is not yet implemented. The current plugin system uses QuickJS (JS engine)
 // via `js-plugin-host`. This trait defines the interface that:
 //
-// 1. The current Boa-based plugin host can implement (via JSON serialization)
+// 1. The current QuickJS-based plugin host can implement (via JSON serialization)
 // 2. The future WASM-based plugin host will implement (via WIT + Wasmtime)
 //
 // The key insight: plugins don't need the raw arena-allocated AST. They need
@@ -437,7 +437,7 @@ impl PluginAstSource for AstPool {
         //   1. Enable `oxc/serde` feature, OR
         //   2. Write an Oxc → ESTree converter (like oxc-parser's ESTree output)
         //
-        // The current approach is sufficient for the Boa-based plugin host,
+        // The current approach is sufficient for the QuickJS-based plugin host,
         // which can re-parse the source itself if it needs the full AST.
         let summary = self.with_program(handle, |program| {
             // Extract a structural summary from the AST using dynamic import detection

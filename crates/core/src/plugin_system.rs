@@ -992,7 +992,7 @@ impl SourceError {
             output.push_str(&format!(" {} | {}\n", line_num, self.source_line));
 
             // Draw caret pointer
-            let caret = "^".repeat(1);
+            let caret = "^";
             let spaces = " ".repeat(self.column.saturating_sub(1));
             output.push_str(&format!("  {} | {}{}\n", padding, spaces, caret));
         }

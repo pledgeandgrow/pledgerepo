@@ -4,72 +4,24 @@ Development history of the Pledge build system enhancements.
 
 ---
 
-## Unreleased
+## Release 0.3.0 (2026-08-04)
 
 ### Summary
-Major documentation update to reflect all 194 rival goals completion, Boa→QuickJS migration, OpenTelemetry/OTLP export, determinism verification, plugin signing/capability audit, Zig SIMD input hashing, generic/trait method tasks, custom environment plugins, and WASM plugin host re-addition with wasmtime v47.
+Boa→QuickJS migration complete. JS plugin host and test runner migrated from `boa_engine` to `rquickjs` (QuickJS bindings). CI/CD workflows added with security audit, cross-compilation, and automated GitHub Releases + npm publish.
+
+### Breaking Changes
+- **JS engine replaced**: `boa_engine` removed, replaced with `rquickjs` 0.12.2 (QuickJS bindings). ES2020 compliant, 10-100x faster than Boa, ~500KB binary.
+- **`JsRuntime` enum**: `Boa` variant replaced with `QuickJs`. `PLEDGE_JS_RUNTIME=boa` still accepted as alias for backward compat.
 
 ### Features
-- **Boa→QuickJS migration** — JS plugin host and test runner migrated from Boa engine to QuickJS (rquickjs 0.12.1). ES2020 compliant, 10-100x faster, ~500KB binary, stable API.
-- **WASM plugin host re-added** — wasmtime v47 with WASM Component Model, WIT contract frozen at v0.1.0. 8 hooks, 11 record types, sandboxed execution.
-- **OpenTelemetry/OTLP export** (G12.26) — `OtlpExporter` in `telemetry.rs` exports build spans via OTLP gRPC/HTTP. `TaskSpan` records with deterministic FNV-1a span IDs.
-- **Determinism provenance tracking** (G11.6) — `ProvenanceRecord` tracks input sources, environment, and tool versions for reproducible builds.
-- **Determinism lockfile** (G11.7) — `DeterminismLockfile` serializes provenance records for build reproducibility verification.
-- **Formal verification config** (G11.8) — `CreusotVerificationConfig` for cargo-creusot integration.
-- **Plugin signing verification** (G12.35) — `PluginSignature` + `PluginSigningVerifier` validates plugin signatures before execution.
-- **Plugin capability audit** (G12.36) — `PluginCapability` + `CapabilityAuditor` with approval/denial logic.
-- **Rich error messages** (G12.16) — `SourceError` with source context, caret pointers, `SuggestedFix` suggestions.
-- **Zig-generated input hashing hot path** (G2.14) — `#[task]` macro generates SIMD-accelerated hashing path using Zig native layer for 128-bit blake3 task IDs.
-- **Generic task support** (G2.15) — `#[task]` macro supports generic functions with type parameters in TaskId computation.
-- **Trait method tasks** (G2.16) — `#[task]` macro supports trait method implementations.
-- **Custom environment plugins** (G5.12) — `EnvironmentPlugin` and `EnvironmentPluginRegistry` for pluggable environment detection.
-
-### Completed Goals (all 398 goals — 100%)
-
-#### Foundation Roadmap (13/13 complete)
-- Phase 0: WIT plugin contract frozen at v0.1.1, WASM validation
-- Phase 1: Task graph substrate — `Task<T>`, `DependencyGraph`, `TaskEngine`, Zig `TaskGraph`
-- Phase 2: WASM plugin host — wasmtime v47, sandboxed, 9 hooks, AOT compilation
-- Phase 3: JS plugin shim — QuickJS (rquickjs 0.12.1), content-addressed caching
-- Phase 4: Shared AST — `AstPool` parse-once, dynamic import detection, i18n extraction
-- Phase 5: Async scheduler — `transform_via_task_engine()` with `tokio::task::JoinSet`
-- 7 polish items: plugin ordering, host imports, `renderChunk`, cache analytics, HMR debounce
-
-#### Rival Goals (194/194 complete)
-All 194 goals across 12 dimensions: Task type, `#[task]` macro, aggregation graph, caching, plugin ABI, dev server, observability, determinism, DX, ecosystem, speed, memory.
-
-#### PledgePack v3 Goals (85/85 complete)
-- G70: Build output verification (`pledge build --verify`)
-- G76: Dependency-graph-aware test re-run (`pledge test --watch`)
-- G77: Test parallelization across cores (rayon thread pool)
-- G78: Mutation testing (`pledge test --mutate`)
-- G79: Build progress streaming over WebSocket
-- G80: Config file hot reload without server restart
-- G81: Friendly error messages with "Did you mean...?" suggestions
-- G83: Docker image generation (`pledge build --docker`)
-- G84: Base path configuration (`base: '/my-app/'`)
-- G85: Zero-config Storybook integration (`pledge storybook`)
-
-#### PledgeJS Integration Goals (106/106 complete)
-- **PSX Transform Pipeline (1–10):** Oxc transform compatibility, Windows path resolution, `/__pledge_router` endpoint, port conflict handling, `<rust>`/`<style>` block extraction, `.ps` file handling, sourcemap `sourcesContent`, TypeScript path aliases, API route export preservation
-- **Dev Server & HMR (11–20):** Dev server startup, HMR WebSocket protocol, cache invalidation, graceful shutdown (SIGINT/SIGTERM), config double-reload fix, API route hot reload, rapid file save debounce, CSS HMR injection order, `.psx`/`.ps` direct serving blocked, `[pledgepack]` log prefix
-- **Build Output (21–30):** Output directory structure, PSX build transform, NAPI addon handling, route manifest format, `outDir` override, static export mode, ESM output, middleware bundling, convention files, cross-compiled NAPI ESM compatibility
-- **Framework Adapters (31–40):** React SSR, Vue SFC compiler, Svelte SSR, Solid JSX transform, framework auto-detection, React Fast Refresh, Vue/Svelte/Solid HMR, plain DOM HMR
-- **PSX Integration (42–50):** `<script>` framework hooks, `rust.*` RPC proxy, CSS scoping, layout composition, `<Suspense>`, error boundaries, `async load()`, island hydration, multi-language blocks
-- **Binary Distribution (51–60):** All-platform resolution, SHA-256 verification, postinstall proxy, pnpm hoisting, Alpine/musl, version verification, macOS ARM64, SIGINT handling, Linux ARM64
-- **E2E Testing (61–70):** Dev server serves index, build produces output, HMR updates page, API route response, PSX `<rust>` block, middleware, dynamic routes, layout composition, error boundaries, debug mode source maps
-- **Performance (71–80):** Dev server startup <500ms, transform latency <10ms, build time scaling, memory <50MB, cache hit rate >90%, HMR propagation, large project handling, transform speed, parallel concurrency, incremental build cache
-- **Error Handling (81–90):** Transform errors → overlay, structured JSON error format, missing files 404, timeout handling, `pledge doctor`, log level integration, circular imports, syntax error resilience, file deletion, file rename
-- **Cross-Platform & CI (91–100):** Windows backslash paths, macOS case-sensitive FS, CI matrix all platforms, CI cargo cache, Node.js 18/20/22, pnpm workspace, E2E in CI, Docker containers, Windows long paths, corporate firewall binding
-- **Bug Fixes (101–106):** Tree-shaking re-exports, CSS vendor prefixes, WASM build size, font asset hashing, plugin bridge error propagation, missing entry validation
+- **Boa→QuickJS migration** — JS plugin host and test runner migrated from Boa engine to QuickJS (rquickjs 0.12.2). ES2020 compliant, 10-100x faster, ~500KB binary, stable API.
+- **CI/CD pipelines** — GitHub Actions workflows for CI (test, clippy, audit, cross-compile) and release (5-platform binary builds, GitHub Release, npm publish).
+- **Security audit** — `cargo-audit` + `cargo-deny` for advisory and license compliance checks in CI.
+- **Rust toolchain pin** — `rust-toolchain.toml` pins stable Rust with clippy + rustfmt for reproducible builds.
 
 ### Documentation
-- Documentation consolidated: 18 files → 9 files
-- `ROADMAP.md` — New consolidated file (replaces GOALS.md, PLEDGEPACK_GOALS.md, FOUNDATION_ROADMAP.md, PLEDGEPACK_RIVAL_GOALS.md)
-- `ANALYSIS.md` — New consolidated file (replaces MOAT_ANALYSIS.md, COMPETITOR_ANALYSIS.md, ENGINE_DESIGN_COMPARISON.md, TURBO_TASKS_ANALYSIS.md, CURRENT_STATE_AUDIT.md)
-- `ARCHITECTURE.md` — Expanded with BUILD_SYSTEM.md and DEV_SERVER.md content
-- `CHANGELOG.md`, `CONNECTION.md`, `BENCHMARK.md`, `LIMITATIONS.md`, `dependencies.md`, `PHASE0_WIT_DESIGN.md` — kept as-is
-- All Boa engine references replaced with QuickJS (rquickjs 0.12.1)
+- All Boa engine references replaced with QuickJS (rquickjs 0.12.2) across README, ARCHITECTURE, ANALYSIS, LIMITATIONS, CONNECTION, CONTRIBUTING, and WIT docs.
+- Historical CHANGELOG entries (pre-0.3.0) retained as-is for accurate project history.
 
 ---
 

@@ -118,7 +118,7 @@ PledgeStack is a **framework layer** — it orchestrates React rendering and rou
 - **DO NOT** implement HMR WebSocket (PledgePack handles WebSocket, HMR diff, module invalidation)
 - **DO NOT** implement file watcher (PledgePack uses native inotify/FSEvents/ReadDirectoryChangesW)
 - **DO NOT** implement build cache (memory cache, disk cache, remote cache, git-based invalidation)
-- **DO NOT** implement test runner (PledgePack has full Vitest-compatible runner with Boa JS engine)
+- **DO NOT** implement test runner (PledgePack has full Vitest-compatible runner with QuickJS engine)
 - **DO NOT** implement bundle analyzer (PledgePack generates interactive HTML treemap)
 - **DO NOT** implement output format conversion (ESM → CJS/IIFE/UMD)
 - **DO NOT** implement compression (gzip/brotli output generation)
@@ -436,7 +436,7 @@ Inside each archive: a single binary named `pledge` (Unix) or `pledge.exe` (Wind
 - `crates/core/src/module_graph.rs` — Module dependency graph
 - `crates/core/src/router.rs` — File-based routing scanner (`scan_app_dir`)
 - `crates/core/src/plugin_system.rs` — Plugin hot reload, lifecycle hooks, parallel execution
-- `crates/js-plugin-host/src/lib.rs` — JS plugin host (Boa engine) with Vite-compatible hooks
+- `crates/js-plugin-host/src/lib.rs` — JS plugin host (QuickJS via rquickjs) with Vite-compatible hooks
 - `crates/core/src/html.rs` — HTML entry processing
 - `crates/core/src/edge.rs` — Edge bundle generation
 - `bin/pledge.js` — JS shim that resolves and spawns native binary

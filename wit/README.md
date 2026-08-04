@@ -11,7 +11,7 @@ The WIT (WASM Interface Type) contract defines the plugin ABI for PledgePack. Th
 | Tier | ABI | Cache | Sandbox | Target |
 |---|---|---|---|---|
 | **First-class** | WASM component (this WIT contract) | Fine-grained — hook output is a cached task node | Yes (WASM sandbox) | Plugin authors who want speed + cache + portability |
-| **Second-class** | JS shim (Boa/V8) | Coarse — opaque blob cached at module level | No (JS runtime) | Existing Vite/Rollup plugin ecosystem |
+| **Second-class** | JS shim (QuickJS/V8) | Coarse — opaque blob cached at module level | No (JS runtime) | Existing Vite/Rollup plugin ecosystem |
 
 Both tiers implement the same hook shapes. The JS shim wraps Vite/Rollup plugins and translates their output to the WIT contract's types.
 

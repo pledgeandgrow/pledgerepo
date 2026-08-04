@@ -53,7 +53,7 @@ Neither piece alone is a moat. The **combination** is the moat, because:
 
 | Sub-claim | Current state | Verdict |
 |---|---|---|
-| Plugin ABI | Two-tier: **WASM first-class** via wasmtime v47 (`crates/wasm-plugin-host/`) with WIT contract frozen at v0.1.0. **JS second-class** via QuickJS/rquickjs 0.12.1 (`crates/js-plugin-host/`). 8 hooks. | **Done.** 28 WASM tests, 4 JS caching tests. |
+| Plugin ABI | Two-tier: **WASM first-class** via wasmtime v47 (`crates/wasm-plugin-host/`) with WIT contract frozen at v0.1.0. **JS second-class** via QuickJS/rquickjs 0.12.2 (`crates/js-plugin-host/`). 8 hooks. | **Done.** 28 WASM tests, 4 JS caching tests. |
 | Plugin transforms in pipeline | `WasmPluginHostBridge` and `JsPluginHostBridge` both provide closures wired into `BuildEngine` via `wire_plugin_transform()`, `wire_plugin_resolve()`, `wire_plugin_load()`. | **Done.** Both tiers wired with all hooks. |
 | Plugin output as cached node | JS: content-addressed `transform_cache: HashMap<[u8; 32], TransformResult>` with blake3 keys. WASM: `cache_key` available for future `TaskId` integration. | **Partial.** JS caching done. WASM cache_key → TaskId is future work. |
 | Frozen contract | `wit/world.wit` frozen at v0.1.0. 8 hooks, 11 record types, cache-key in every output. | **Done.** |
@@ -87,7 +87,7 @@ Neither piece alone is a moat. The **combination** is the moat, because:
 
 1. ✅ ~~Flat HashMap instead of a task graph~~ — `Task<T>`, `TaskEngine`, `DependencyGraph`, `AggregationGraph`, `ZigTaskGraph` all implemented.
 2. ✅ ~~Plugins not in the transform pipeline~~ — Both WASM and JS plugins wired with all hooks.
-3. ✅ ~~Boa JS as the plugin runtime~~ — Replaced with QuickJS (rquickjs 0.12.1). WASM plugin host added via wasmtime v47.
+3. ✅ ~~Boa JS as the plugin runtime~~ — Replaced with QuickJS (rquickjs 0.12.2). WASM plugin host added via wasmtime v47.
 4. ✅ ~~Transform is not a cached task~~ — `parse_module()` → `Task<ParsedModule>`, `transform_with_ast()` → `Task<TransformTaskOutput>`.
 5. ✅ ~~Rayon batch parallelism, not async task scheduling~~ — `transform_via_task_engine()` with `tokio::task::JoinSet` is the DEFAULT path.
 
@@ -244,7 +244,7 @@ Neither piece alone is a moat. The **combination** is the moat, because:
 
 ### Plugin System
 
-- ✅ Two-tier: WASM (wasmtime v47, sandboxed, WIT v0.1.0, 28 tests) + JS (QuickJS/rquickjs 0.12.1, 4 caching tests)
+- ✅ Two-tier: WASM (wasmtime v47, sandboxed, WIT v0.1.0, 28 tests) + JS (QuickJS/rquickjs 0.12.2, 4 caching tests)
 - ✅ All Vite-compatible hooks: `resolveId`, `load`, `transform`, `transformIndexHtml`, `configureServer`, `buildStart`, `buildEnd`, `generateBundle`
 - ✅ Both tiers wired into build pipeline via `wire_plugin_transform()`, `wire_plugin_resolve()`, `wire_plugin_load()`
 - ✅ Host imports: `getConfig`, `emitFile`, `resolveImport`

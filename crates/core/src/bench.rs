@@ -379,10 +379,7 @@ pub fn bench_memory_10k_modules() -> MemoryBenchResult {
 
 /// Run all speed benchmarks and return results
 pub fn run_speed_benchmarks(root: &Path) -> Result<Vec<BenchResult>> {
-    let mut results = Vec::new();
-
-    // G12.1: Cold start
-    results.push(bench_cold_start(root)?);
+    let mut results = vec![bench_cold_start(root)?];
 
     // G12.2: Warm incremental (simulated)
     results.push(bench_warm_incremental(root, 1000)?);

@@ -1,10 +1,10 @@
-// Test Runner — Vitest-compatible test execution via boa_engine
+// Test Runner — Vitest-compatible test execution via rquickjs (QuickJS)
 //
 // Provides:
 //   - describe/it/test API registration
 //   - expect() assertion library with snapshot support
 //   - beforeAll/beforeEach/afterAll/afterEach hooks
-//   - Real JS execution via boa_engine
+//   - Real JS execution via QuickJS (rquickjs bindings)
 //   - Pass/fail/skip reporting
 //   - Code coverage collection
 //   - Setup files support
@@ -14,8 +14,8 @@
 //   - UI mode (HTML report generation)
 
 use anyhow::Result;
-use boa_engine::object::ObjectInitializer;
-use boa_engine::{Context, JsValue, NativeFunction, Source, js_string};
+use rquickjs::prelude::{Func, Opt, Rest};
+use rquickjs::{Context, Ctx, Object, Runtime};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -267,105 +267,105 @@ pub fn run_test_file_with_config(
     root: &Path,
 ) -> Result<TestSummary> {
     let source = std::fs::read_to_string(file_path)?;
-    let mut context = Context::default();
+    let runtime = Runtime::new()?;
+    let context = Context::full(&runtime)?;
 
-    // Set up the test harness (describe, it, test, expect, hooks)
-    setup_test_harness(&mut context);
-
-    // Inject console.log
-    setup_console(&mut context);
-
-    // Inject a simple module system (stub require/import)
-    setup_module_shim(&mut context, file_path);
-
-    // Set up test environment (jsdom/happy-dom shims)
-    setup_test_environment(&mut context, &config.environment);
-
-    // Run setup files before the test file
-    for setup_file in &config.setup_files {
-        let setup_path = root.join(setup_file);
-        if setup_path.exists()
-            && let Ok(setup_source) = std::fs::read_to_string(&setup_path)
-        {
-            let setup_js = strip_typescript(&setup_source);
-            let _ = context.eval(Source::from_bytes(setup_js.as_str()));
-        }
-    }
+    let mut results = Vec::new();
+    let mut errors = Vec::new();
 
     // Set up snapshot support
     let snapshot_store = Arc::new(Mutex::new(SnapshotStore::load(
         &root.join(&config.snapshot_dir),
         file_path,
     )));
-    setup_snapshot_api(&mut context, &snapshot_store, config.update_snapshots);
 
     // Set up coverage tracking if enabled
     let coverage_data = Arc::new(Mutex::new(Vec::<(String, usize, usize)>::new()));
-    if config.coverage {
-        setup_coverage_tracking(&mut context, &coverage_data, file_path);
-    }
 
-    // If globals mode, register test functions as globals
-    if config.globals {
-        // Already registered as globals by setup_test_harness
-    }
-
-    // Strip TypeScript types and ESM syntax for boa compatibility
     let js_source = strip_typescript(&source);
 
-    // Evaluate the test file
-    let eval_result = context.eval(Source::from_bytes(js_source.as_str()));
+    // Everything runs inside the context closure
+    let results_json: String = context.with(|ctx| {
+        // Set up the test harness (describe, it, test, expect, hooks)
+        setup_test_harness(&ctx);
 
-    let mut results = Vec::new();
-    let mut errors = Vec::new();
+        // Inject console.log
+        setup_console(&ctx);
 
-    if let Err(e) = eval_result {
-        errors.push(format!("File evaluation error: {}", e));
-    }
+        // Inject a simple module system (stub require/import)
+        setup_module_shim(&ctx, file_path);
 
-    // Collect test results from the global __pledge_test_results array
-    if let Ok(results_val) = context.eval(Source::from_bytes(
-        r#"JSON.stringify((typeof __pledge_test_results !== 'undefined') ? __pledge_test_results : [])"#
-    ))
-        && let Ok(json_str) = results_val.to_string(&mut context) {
-            let json_str = json_str.to_std_string_escaped();
-            if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&json_str)
-                && let Some(tests) = arr.as_array() {
-                    for test in tests {
-                        let name = test.get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
-                            .to_string();
-                        let suite = test.get("suite")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let status_str = test.get("status")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("skipped");
-                        let error = test.get("error")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-                        let duration = test.get("duration")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0) as u128;
+        // Set up test environment (jsdom/happy-dom shims)
+        setup_test_environment(&ctx, &config.environment);
 
-                        let status = match status_str {
-                            "passed" => TestStatus::Passed,
-                            "failed" => TestStatus::Failed,
-                            _ => TestStatus::Skipped,
-                        };
-
-                        results.push(TestResult {
-                            name,
-                            suite,
-                            status,
-                            error,
-                            duration_ms: duration,
-                        });
-                    }
-                }
+        // Run setup files before the test file
+        for setup_file in &config.setup_files {
+            let setup_path = root.join(setup_file);
+            if setup_path.exists()
+                && let Ok(setup_source) = std::fs::read_to_string(&setup_path)
+            {
+                let setup_js = strip_typescript(&setup_source);
+                let _ = ctx.eval::<(), _>(setup_js.as_str());
+            }
         }
+
+        // Set up snapshot API
+        setup_snapshot_api(&ctx, &snapshot_store, config.update_snapshots);
+
+        // Set up coverage tracking if enabled
+        if config.coverage {
+            setup_coverage_tracking(&ctx, &coverage_data, file_path);
+        }
+
+        // Evaluate the test file
+        if let Err(e) = ctx.eval::<(), _>(js_source.as_str()) {
+            errors.push(format!("File evaluation error: {}", e));
+        }
+
+        // Collect test results from the global __pledge_test_results array
+        ctx.eval::<String, _>(
+            r#"JSON.stringify((typeof __pledge_test_results !== 'undefined') ? __pledge_test_results : [])"#
+        ).unwrap_or_else(|_| "[]".to_string())
+    });
+
+    // Parse results JSON
+    if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&results_json)
+        && let Some(tests) = arr.as_array()
+    {
+        for test in tests {
+            let name = test.get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let suite = test.get("suite")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let status_str = test.get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("skipped");
+            let error = test.get("error")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let duration = test.get("duration")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u128;
+
+            let status = match status_str {
+                "passed" => TestStatus::Passed,
+                "failed" => TestStatus::Failed,
+                _ => TestStatus::Skipped,
+            };
+
+            results.push(TestResult {
+                name,
+                suite,
+                status,
+                error,
+                duration_ms: duration,
+            });
+        }
+    }
 
     // If there were eval errors and no results, add them as failed tests
     for err in errors {
@@ -443,76 +443,76 @@ pub struct TestSummary {
     pub results: Vec<TestResult>,
 }
 
-/// Run a test file in the boa_engine JS runtime (legacy, no config)
+/// Run a test file in the QuickJS runtime (legacy, no config)
 pub fn run_test_file(file_path: &Path) -> Result<TestSummary> {
     let source = std::fs::read_to_string(file_path)?;
-    let mut context = Context::default();
-
-    // Set up the test harness (describe, it, test, expect, hooks)
-    setup_test_harness(&mut context);
-
-    // Inject console.log
-    setup_console(&mut context);
-
-    // Inject a simple module system (stub require/import)
-    setup_module_shim(&mut context, file_path);
-
-    // Strip TypeScript types and ESM syntax for boa compatibility
-    let js_source = strip_typescript(&source);
-
-    // Evaluate the test file
-    let eval_result = context.eval(Source::from_bytes(js_source.as_str()));
+    let runtime = Runtime::new()?;
+    let context = Context::full(&runtime)?;
 
     let mut results = Vec::new();
     let mut errors = Vec::new();
 
-    if let Err(e) = eval_result {
-        errors.push(format!("File evaluation error: {}", e));
-    }
+    let js_source = strip_typescript(&source);
 
-    // Collect test results from the global __pledge_test_results array
-    if let Ok(results_val) = context.eval(Source::from_bytes(
-        r#"JSON.stringify((typeof __pledge_test_results !== 'undefined') ? __pledge_test_results : [])"#
-    ))
-        && let Ok(json_str) = results_val.to_string(&mut context) {
-            let json_str = json_str.to_std_string_escaped();
-            if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&json_str)
-                && let Some(tests) = arr.as_array() {
-                    for test in tests {
-                        let name = test.get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
-                            .to_string();
-                        let suite = test.get("suite")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let status_str = test.get("status")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("skipped");
-                        let error = test.get("error")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-                        let duration = test.get("duration")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0) as u128;
+    let results_json: String = context.with(|ctx| {
+        // Set up the test harness (describe, it, test, expect, hooks)
+        setup_test_harness(&ctx);
 
-                        let status = match status_str {
-                            "passed" => TestStatus::Passed,
-                            "failed" => TestStatus::Failed,
-                            _ => TestStatus::Skipped,
-                        };
+        // Inject console.log
+        setup_console(&ctx);
 
-                        results.push(TestResult {
-                            name,
-                            suite,
-                            status,
-                            error,
-                            duration_ms: duration,
-                        });
-                    }
-                }
+        // Inject a simple module system (stub require/import)
+        setup_module_shim(&ctx, file_path);
+
+        // Evaluate the test file
+        if let Err(e) = ctx.eval::<(), _>(js_source.as_str()) {
+            errors.push(format!("File evaluation error: {}", e));
         }
+
+        // Collect test results
+        ctx.eval::<String, _>(
+            r#"JSON.stringify((typeof __pledge_test_results !== 'undefined') ? __pledge_test_results : [])"#
+        ).unwrap_or_else(|_| "[]".to_string())
+    });
+
+    // Parse results JSON
+    if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&results_json)
+        && let Some(tests) = arr.as_array()
+    {
+        for test in tests {
+            let name = test.get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let suite = test.get("suite")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let status_str = test.get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("skipped");
+            let error = test.get("error")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let duration = test.get("duration")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u128;
+
+            let status = match status_str {
+                "passed" => TestStatus::Passed,
+                "failed" => TestStatus::Failed,
+                _ => TestStatus::Skipped,
+            };
+
+            results.push(TestResult {
+                name,
+                suite,
+                status,
+                error,
+                duration_ms: duration,
+            });
+        }
+    }
 
     // If there were eval errors and no results, add them as failed tests
     for err in errors {
@@ -554,7 +554,7 @@ pub fn run_test_file(file_path: &Path) -> Result<TestSummary> {
 }
 
 /// Set up the test harness in the JS context
-fn setup_test_harness(context: &mut Context) {
+fn setup_test_harness(ctx: &Ctx) {
     let harness_code = r#"
         var __pledge_test_results = [];
         var __pledge_current_suite = "";
@@ -787,45 +787,36 @@ fn setup_test_harness(context: &mut Context) {
         };
     "#;
 
-    let _ = context.eval(Source::from_bytes(harness_code));
+    let _ = ctx.eval::<(), _>(harness_code);
 }
 
 /// Set up console.log support
-fn setup_console(context: &mut Context) {
-    let console_log = NativeFunction::from_copy_closure(|_this, args, ctx| {
-        let msg = args
-            .iter()
-            .map(|v| {
-                v.to_string(ctx)
-                    .map(|s| s.to_std_string_escaped())
-                    .unwrap_or_default()
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-        tracing::info!("[test console] {}", msg);
-        Ok(JsValue::undefined())
-    });
-
-    let console = ObjectInitializer::new(context)
-        .function(console_log, js_string!("log"), 0)
-        .build();
-
-    let _ = context.register_global_property(
-        js_string!("console"),
-        console,
-        boa_engine::property::Attribute::all(),
-    );
+fn setup_console(ctx: &Ctx) {
+    let globals = ctx.globals();
+    let console = Object::new(ctx.clone()).unwrap();
+    console
+        .set(
+            "log",
+            Func::new(|args: Rest<String>| {
+                tracing::info!("[test console] {}", args.0.join(" "));
+            }),
+        )
+        .unwrap();
+    globals.set("console", console).unwrap();
 }
 
 /// Set up a minimal module shim so import/export statements don't crash
-fn setup_module_shim(context: &mut Context, _file_path: &Path) {
-    // Provide a minimal `require` function
-    let require_fn =
-        NativeFunction::from_copy_closure(|_this, _args, _ctx| Ok(JsValue::undefined()));
-    let _ = context.register_global_callable(js_string!("require"), 1, require_fn);
+fn setup_module_shim(ctx: &Ctx, _file_path: &Path) {
+    // Provide a minimal `require` function that returns undefined
+    let _ = ctx.globals().set(
+        "require",
+        Func::new(|_arg: Opt<String>| {
+            // No-op: require() returns undefined in the test environment
+        }),
+    );
 }
 
-/// Strip TypeScript-specific syntax for boa_engine compatibility
+/// Strip TypeScript-specific syntax for QuickJS compatibility
 /// Removes: type annotations, interfaces, enums, export/import type, as assertions
 fn strip_typescript(source: &str) -> String {
     let mut result = String::with_capacity(source.len());
@@ -917,7 +908,7 @@ fn strip_typescript(source: &str) -> String {
 }
 
 /// Set up test environment (jsdom/happy-dom shims or node defaults)
-fn setup_test_environment(context: &mut Context, environment: &str) {
+fn setup_test_environment(ctx: &Ctx, environment: &str) {
     let env_code = match environment {
         "jsdom" => {
             r#"
@@ -999,11 +990,11 @@ fn setup_test_environment(context: &mut Context, environment: &str) {
         "#
         }
     };
-    let _ = context.eval(Source::from_bytes(env_code));
+    let _ = ctx.eval::<(), _>(env_code);
 }
 
 /// Set up snapshot testing API (toMatchSnapshot, toMatchInlineSnapshot)
-fn setup_snapshot_api(context: &mut Context, _store: &Arc<Mutex<SnapshotStore>>, update: bool) {
+fn setup_snapshot_api(ctx: &Ctx, _store: &Arc<Mutex<SnapshotStore>>, update: bool) {
     // Inject __pledge_snapshot_data as a global object that expect() can access
     let snapshot_code = format!(
         r#"
@@ -1023,7 +1014,7 @@ fn setup_snapshot_api(context: &mut Context, _store: &Arc<Mutex<SnapshotStore>>,
         "#,
         if update { "true" } else { "false" }
     );
-    let _ = context.eval(Source::from_bytes(snapshot_code.as_str()));
+    let _ = ctx.eval::<(), _>(snapshot_code.as_str());
 
     // Add toMatchSnapshot and toMatchInlineSnapshot to the expect prototype
     let snapshot_extension = r#"
@@ -1058,13 +1049,13 @@ fn setup_snapshot_api(context: &mut Context, _store: &Arc<Mutex<SnapshotStore>>,
             return result;
         };
     "#;
-    let _ = context.eval(Source::from_bytes(snapshot_extension));
+    let _ = ctx.eval::<(), _>(snapshot_extension);
 }
 
 type CoverageData = Arc<Mutex<Vec<(String, usize, usize)>>>;
 
 /// Set up coverage tracking instrumentation
-fn setup_coverage_tracking(context: &mut Context, _coverage_data: &CoverageData, file_path: &Path) {
+fn setup_coverage_tracking(ctx: &Ctx, _coverage_data: &CoverageData, file_path: &Path) {
     let file_str = file_path.to_string_lossy().replace('\\', "/");
     let coverage_code = format!(
         r#"
@@ -1103,5 +1094,5 @@ fn setup_coverage_tracking(context: &mut Context, _coverage_data: &CoverageData,
         "#,
         file_str
     );
-    let _ = context.eval(Source::from_bytes(coverage_code.as_str()));
+    let _ = ctx.eval::<(), _>(coverage_code.as_str());
 }

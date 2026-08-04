@@ -80,15 +80,15 @@ fn find_chunk_boundary(data: &[u8], min_size: usize, max_size: usize) -> usize {
     let mask: u32 = 0x0000_0fff; // 12-bit mask for ~4KB average chunk size
     let mut hash: u32 = 0;
 
-    for i in 0..data.len() {
+    for (i, &byte) in data.iter().enumerate() {
         if i >= max_size {
             return max_size;
         }
         if i < min_size {
-            hash = hash.wrapping_mul(31).wrapping_add(data[i] as u32);
+            hash = hash.wrapping_mul(31).wrapping_add(byte as u32);
             continue;
         }
-        hash = hash.wrapping_mul(31).wrapping_add(data[i] as u32);
+        hash = hash.wrapping_mul(31).wrapping_add(byte as u32);
         if (hash & mask) == 0 {
             return i + 1;
         }
@@ -137,6 +137,12 @@ pub struct Prefetcher {
     queue: Vec<String>,
 }
 
+impl Default for Prefetcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Prefetcher {
     pub fn new() -> Self {
         Self {
@@ -163,6 +169,7 @@ impl Prefetcher {
     }
 
     /// Get the next key to prefetch
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<String> {
         self.queue.pop()
     }
@@ -241,6 +248,12 @@ pub struct DedupCache {
     key_to_content: HashMap<String, String>,
     /// Reference counts for content
     ref_counts: HashMap<String, u32>,
+}
+
+impl Default for DedupCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DedupCache {
@@ -515,6 +528,12 @@ pub struct CacheWarmer {
     keys: Vec<String>,
 }
 
+impl Default for CacheWarmer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CacheWarmer {
     pub fn new() -> Self {
         Self { keys: Vec::new() }
@@ -590,6 +609,12 @@ pub struct WarmStats {
 pub struct MultiTierCache {
     /// Ordered list of remote caches (tried in order)
     tiers: Vec<Arc<crate::remote::RemoteCache>>,
+}
+
+impl Default for MultiTierCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MultiTierCache {

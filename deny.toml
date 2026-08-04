@@ -1,0 +1,39 @@
+[advisories]
+# The version field is deprecated, use `cargo audit` instead.
+# cargo-deny checks for known vulnerabilities in dependencies.
+version = 2
+ignore = []
+
+[licenses]
+# Allow only OSI-approved licenses
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    "0BSD",
+    "Unlicense",
+]
+# Deny unlicensed crates
+unlicensed = "deny"
+# Deny copyleft licenses (GPL, AGPL, LGPL)
+copyleft = "deny"
+# Allow specific exceptions
+exceptions = []
+
+[bans]
+# Warn on duplicate versions of the same crate
+multiple-versions = "warn"
+# Warn on wildcards in Cargo.toml
+wildcards = "warn"
+
+[sources]
+# Only allow crates from crates.io
+unknown-registry = "deny"
+unknown-git = "allow"  # Allow git deps (e.g., relative-path if needed)

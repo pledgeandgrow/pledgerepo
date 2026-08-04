@@ -22,7 +22,7 @@
 - Phase 0: WIT plugin contract frozen at v0.1.1, WASM validation complete
 - Phase 1: Task graph substrate — `Task<T>`, `DependencyGraph`, `TaskEngine`, Zig `TaskGraph`
 - Phase 2: WASM plugin host — wasmtime v47, sandboxed, 9 hooks, AOT compilation
-- Phase 3: JS plugin shim — QuickJS (rquickjs 0.12.1), content-addressed caching
+- Phase 3: JS plugin shim — QuickJS (rquickjs 0.12.2), content-addressed caching
 - Phase 4: Shared AST — `AstPool` parse-once, dynamic import detection, i18n extraction
 - Phase 5: Async scheduler — `transform_via_task_engine()` with `tokio::task::JoinSet`
 - Polish: Plugin ordering, host imports, `renderChunk` hook, cache analytics, HMR debounce

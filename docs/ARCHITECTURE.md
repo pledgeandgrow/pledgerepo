@@ -6,7 +6,7 @@ Pledge is a hybrid Rust + Zig bundler that uses:
 - **Zig** for hot paths (file I/O, module graph, SIMD scanning, hashing) via C ABI
 - **Rust** for orchestration (build engine, resolver, cache, dev server, optimizer, plugin host)
 - **Oxc** for JavaScript/TypeScript/JSX transformation (replacing SWC/esbuild)
-- **QuickJS** (rquickjs 0.12.1) for JS plugin execution (Vite-compatible plugin API, ES2020 compliant)
+- **QuickJS** (rquickjs 0.12.2) for JS plugin execution (Vite-compatible plugin API, ES2020 compliant)
 
 ## Data Flow
 
@@ -323,7 +323,7 @@ Source string
 
 ### JS Plugin Host (`crates/js-plugin-host/src/lib.rs`)
 - **Vite-compatible hooks**: `resolveId`, `load`, `transform`, `transformIndexHtml`, `configureServer`, `buildStart`, `buildEnd`, `generateBundle`
-- **Embedded JS runtime**: **QuickJS** (rquickjs 0.12.1) — ES2020 compliant, 10-100x faster than Boa, ~500KB binary
+- **Embedded JS runtime**: **QuickJS** (rquickjs 0.12.2) — ES2020 compliant, 10-100x faster than Boa, ~500KB binary
 - **Console support**: `console.log()` injected for plugin debugging
 - **Plugin parsing**: Scans JS/TS source for hook definitions, evaluates source in JS context
 - **Hook execution**: `transform()` hook calls JS function and parses JSON result
@@ -671,7 +671,7 @@ All assets       → AssetManifest with content-hashed output paths
 
 ```
 1. Plugin discovery — scan configured plugin paths
-2. Plugin loading — WASM plugins via wasmtime v47, JS plugins via QuickJS (rquickjs 0.12.1)
+2. Plugin loading — WASM plugins via wasmtime v47, JS plugins via QuickJS (rquickjs 0.12.2)
 3. Hot reload — PluginHotReloader watches for file changes, reloads without restart
 4. Sandboxing — SandboxLimits (memory, CPU time) + SandboxedFs (filesystem access)
 5. Dependency resolution — PluginDependencyResolver with import maps for npm packages
@@ -1112,7 +1112,7 @@ interface ImportMeta {
 ## Test Runner (`crates/js-plugin-host/src/test_runner.rs`)
 
 ### Overview
-The built-in test runner provides a Vitest-compatible testing experience using the **QuickJS** (rquickjs 0.12.1) embedded JS runtime. Tests are run without external dependencies (no Node.js, Jest, or Vitest required).
+The built-in test runner provides a Vitest-compatible testing experience using the **QuickJS** (rquickjs 0.12.2) embedded JS runtime. Tests are run without external dependencies (no Node.js, Jest, or Vitest required).
 
 ### Configuration
 In `pledge.config.ts`:

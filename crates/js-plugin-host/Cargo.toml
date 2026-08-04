@@ -9,5 +9,5 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
-boa_engine = "0.20"
+rquickjs = "0.12"
 pledgepack-core = { workspace = true }

@@ -14,11 +14,11 @@ use std::collections::HashMap;
 // ─── G10.4: V8 isolate pooling ───────────────────────────────────────
 
 /// G10.4: Pool of JS runtime contexts (isolate pooling).
-/// Instead of recreating the Boa context for each plugin call,
+/// Instead of recreating the QuickJS context for each plugin call,
 /// keep contexts alive and reuse them.
 pub struct IsolatePool {
-    /// Available contexts in the pool
-    pool: Vec<boa_engine::Context>,
+    /// Available (Runtime, Context) pairs in the pool
+    pool: Vec<(rquickjs::Runtime, rquickjs::Context)>,
     /// Maximum pool size
     max_size: usize,
     /// Total contexts created
@@ -37,23 +37,23 @@ impl IsolatePool {
         }
     }
 
-    /// Get a context from the pool, or create a new one
-    pub fn acquire(&mut self) -> boa_engine::Context {
-        if let Some(ctx) = self.pool.pop() {
+    /// Get a (Runtime, Context) pair from the pool, or create a new one
+    pub fn acquire(&mut self) -> (rquickjs::Runtime, rquickjs::Context) {
+        if let Some((rt, ctx)) = self.pool.pop() {
             self.reused += 1;
-            ctx
+            (rt, ctx)
         } else {
             self.created += 1;
-            boa_engine::Context::default()
+            let rt = rquickjs::Runtime::new().expect("Failed to create QuickJS runtime");
+            let ctx = rquickjs::Context::full(&rt).expect("Failed to create QuickJS context");
+            (rt, ctx)
         }
     }
 
-    /// Return a context to the pool for reuse
-    pub fn release(&mut self, ctx: boa_engine::Context) {
+    /// Return a (Runtime, Context) pair to the pool for reuse
+    pub fn release(&mut self, pair: (rquickjs::Runtime, rquickjs::Context)) {
         if self.pool.len() < self.max_size {
-            // Reset context state for reuse
-            // In a real V8 implementation, this would reset the isolate
-            self.pool.push(ctx);
+            self.pool.push(pair);
         }
     }
 
@@ -99,20 +99,20 @@ pub enum OutputSchema {
 
 /// G10.5: Detect the output schema of a plugin's transform result
 pub fn detect_output_schema(json: &str) -> OutputSchema {
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(json) {
-        if let Some(obj) = value.as_object() {
-            if obj.contains_key("code") && obj.contains_key("id") && obj.contains_key("external") {
-                return OutputSchema::ResolveResult;
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(json)
+        && let Some(obj) = value.as_object()
+    {
+        if obj.contains_key("code") && obj.contains_key("id") && obj.contains_key("external") {
+            return OutputSchema::ResolveResult;
+        }
+        if obj.contains_key("code") && obj.contains_key("html") {
+            return OutputSchema::HtmlTransform;
+        }
+        if obj.contains_key("code") {
+            if obj.contains_key("map") {
+                return OutputSchema::TransformOutput;
             }
-            if obj.contains_key("code") && obj.contains_key("html") {
-                return OutputSchema::HtmlTransform;
-            }
-            if obj.contains_key("code") {
-                if obj.contains_key("map") {
-                    return OutputSchema::TransformOutput;
-                }
-                return OutputSchema::LoadResult;
-            }
+            return OutputSchema::LoadResult;
         }
     }
     OutputSchema::Unknown
@@ -254,7 +254,7 @@ pub fn analyze_vite_plugin(source: &str, plugin_name: &str) -> MigrationAnalysis
             "Requires moderate effort. Node.js API calls need WASM polyfills.".to_string()
         }
         MigrationDifficulty::Hard => {
-            "Complex plugin. Consider keeping as JS plugin with Boa runtime.".to_string()
+            "Complex plugin. Consider keeping as JS plugin with QuickJS runtime.".to_string()
         }
         MigrationDifficulty::VeryHard => {
             "Very complex. Recommend keeping as JS plugin. WASM migration not practical."
@@ -283,6 +283,12 @@ pub struct PluginBatcher {
     combined_source: String,
     /// Plugin names in the batch
     plugin_names: Vec<String>,
+}
+
+impl Default for PluginBatcher {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PluginBatcher {
@@ -405,11 +411,9 @@ pub fn can_transpile_to_wasm(source: &str) -> bool {
     }
 
     // Must have at least one allowed hook
-    let has_allowed = allowed_hooks.iter().any(|hook| {
+    allowed_hooks.iter().any(|hook| {
         source.contains(&format!("{}:", hook)) || source.contains(&format!("{}(", hook))
-    });
-
-    has_allowed
+    })
 }
 
 /// G10.8: Generate a WASM-compatible Rust skeleton from a JS plugin
@@ -494,8 +498,8 @@ fn to_pascal_case(s: &str) -> String {
 /// G10.9: JS runtime backend selection
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum JsRuntime {
-    /// Boa interpreter (current default) — pure Rust, no JIT
-    Boa,
+    /// QuickJS interpreter — lightweight, fast, C-based
+    QuickJs,
     /// QuickJS with JIT — faster than interpreter, still lightweight
     QuickJsJit,
     /// V8 with JIT — fastest, but heavy dependency
@@ -509,7 +513,7 @@ impl JsRuntime {
 
     pub fn description(&self) -> &'static str {
         match self {
-            JsRuntime::Boa => "Boa interpreter (pure Rust, no JIT)",
+            JsRuntime::QuickJs => "QuickJS interpreter (lightweight, C-based)",
             JsRuntime::QuickJsJit => "QuickJS with JIT (lightweight, fast)",
             JsRuntime::V8 => "V8 with JIT (fastest, heavy dependency)",
         }
@@ -522,13 +526,13 @@ pub fn current_runtime() -> JsRuntime {
     if let Ok(rt) = std::env::var("PLEDGE_JS_RUNTIME") {
         match rt.as_str() {
             "v8" | "V8" => return JsRuntime::V8,
-            "quickjs" | "quickjs-jit" | "QuickJS" => return JsRuntime::QuickJsJit,
-            "boa" | "Boa" => return JsRuntime::Boa,
+            "quickjs-jit" | "QuickJS-JIT" => return JsRuntime::QuickJsJit,
+            "quickjs" | "QuickJS" | "boa" | "Boa" => return JsRuntime::QuickJs,
             _ => {}
         }
     }
-    // Default: Boa (pure Rust, no external deps)
-    JsRuntime::Boa
+    // Default: QuickJS (lightweight, fast, C-based)
+    JsRuntime::QuickJs
 }
 
 /// G10.9: Check if a JIT-enabled runtime is available
@@ -556,7 +560,7 @@ impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             backend: current_runtime(),
-            fallback: JsRuntime::Boa,
+            fallback: JsRuntime::QuickJs,
             enable_jit: true,
             memory_limit: 256 * 1024 * 1024, // 256MB
         }
@@ -578,17 +582,17 @@ impl RuntimeConfig {
     pub fn no_node() -> Self {
         Self {
             backend: JsRuntime::QuickJsJit,
-            fallback: JsRuntime::Boa,
+            fallback: JsRuntime::QuickJs,
             enable_jit: true,
             memory_limit: 128 * 1024 * 1024,
         }
     }
 
-    /// Create a config optimized for minimal binary size (Boa)
+    /// Create a config optimized for minimal binary size (QuickJS)
     pub fn minimal() -> Self {
         Self {
-            backend: JsRuntime::Boa,
-            fallback: JsRuntime::Boa,
+            backend: JsRuntime::QuickJs,
+            fallback: JsRuntime::QuickJs,
             enable_jit: false,
             memory_limit: 64 * 1024 * 1024,
         }
@@ -599,7 +603,7 @@ impl RuntimeConfig {
         if self.backend.is_jit_enabled() && !jit_available() {
             // JIT backend requested but not available, use fallback
             if self.fallback.is_jit_enabled() && !jit_available() {
-                JsRuntime::Boa
+                JsRuntime::QuickJs
             } else {
                 self.fallback
             }
@@ -620,6 +624,12 @@ impl RuntimeConfig {
 pub struct NodeCompatLayer {
     /// Registered polyfills: api_name -> WASM implementation source
     polyfills: HashMap<String, String>,
+}
+
+impl Default for NodeCompatLayer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NodeCompatLayer {
@@ -862,8 +872,8 @@ mod tests {
 
     #[test]
     fn test_g109_runtime_info() {
-        // current_runtime() reads env var, default is Boa
-        assert!(!JsRuntime::Boa.is_jit_enabled());
+        // current_runtime() reads env var, default is QuickJs
+        assert!(!JsRuntime::QuickJs.is_jit_enabled());
         assert!(JsRuntime::V8.is_jit_enabled());
         assert!(JsRuntime::QuickJsJit.is_jit_enabled());
     }
@@ -871,10 +881,10 @@ mod tests {
     #[test]
     fn test_g103_runtime_config_default() {
         let config = RuntimeConfig::default();
-        // Without features compiled in, resolve() should fall back to Boa
+        // Without features compiled in, resolve() should fall back to QuickJs
         let resolved = config.resolve();
         assert!(
-            resolved == JsRuntime::Boa
+            resolved == JsRuntime::QuickJs
                 || resolved == JsRuntime::QuickJsJit
                 || resolved == JsRuntime::V8
         );
@@ -893,14 +903,14 @@ mod tests {
     fn test_g103_runtime_config_no_node() {
         let config = RuntimeConfig::no_node();
         assert_eq!(config.backend, JsRuntime::QuickJsJit);
-        assert_eq!(config.fallback, JsRuntime::Boa);
+        assert_eq!(config.fallback, JsRuntime::QuickJs);
         assert!(config.enable_jit);
     }
 
     #[test]
     fn test_g103_runtime_config_minimal() {
         let config = RuntimeConfig::minimal();
-        assert_eq!(config.backend, JsRuntime::Boa);
+        assert_eq!(config.backend, JsRuntime::QuickJs);
         assert!(!config.enable_jit);
         assert_eq!(config.memory_limit, 64 * 1024 * 1024);
     }
@@ -910,9 +920,9 @@ mod tests {
         // When JIT is not available, V8 config should fall back
         let config = RuntimeConfig::max_compatibility();
         let resolved = config.resolve();
-        // Without v8 feature, should fall back to Boa (since QuickJS JIT also not available)
+        // Without v8 feature, should fall back to QuickJs (since QuickJS JIT also not available)
         if !jit_available() {
-            assert_eq!(resolved, JsRuntime::Boa);
+            assert_eq!(resolved, JsRuntime::QuickJs);
         }
     }
 

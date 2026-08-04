@@ -42,7 +42,7 @@ The optimizer splits dynamic `import()` calls into separate lazy-loaded chunks. 
 ## JS Plugin System — Full API
 
 ### Status: ✅ Resolved
-The JS plugin host (powered by QuickJS/rquickjs 0.12.1) supports module graph access (`get_module_info`), custom resolvers (`resolve_id`), build lifecycle hooks (`on_build_start`, `on_build_end`), HMR interception (`on_hmr_update`), and a `PluginContext` for passing graph data. The Vite-compatible API provides `resolveId`, `load`, `transform`, `transformIndexHtml`, `configureServer`, `buildStart`, `buildEnd`, and `generateBundle` hooks. Plugin signing verification (G12.35) and capability audit (G12.36) are implemented for security.
+The JS plugin host (powered by QuickJS/rquickjs 0.12.2) supports module graph access (`get_module_info`), custom resolvers (`resolve_id`), build lifecycle hooks (`on_build_start`, `on_build_end`), HMR interception (`on_hmr_update`), and a `PluginContext` for passing graph data. The Vite-compatible API provides `resolveId`, `load`, `transform`, `transformIndexHtml`, `configureServer`, `buildStart`, `buildEnd`, and `generateBundle` hooks. Plugin signing verification (G12.35) and capability audit (G12.36) are implemented for security.
 
 ---
 
@@ -93,7 +93,7 @@ The auto-generated import map now includes `scopes` entries for packages with mu
 ### Status: ✅ Resolved
 - Release profile uses `strip = true`, `lto = "fat"`, `opt-level = 3`, `codegen-units = 1`, and `panic = "abort"` for maximum optimization.
 - WASM plugin host crate re-added with wasmtime v47 for first-class sandboxed plugins (WASM Component Model, WIT contract frozen at v0.1.0).
-- JS plugin host migrated from Boa to QuickJS (rquickjs 0.12.1) — ~500KB binary, 10-100x faster than Boa.
+- JS plugin host migrated from Boa to QuickJS (rquickjs 0.12.2) — ~500KB binary, 10-100x faster than Boa.
 - Release binary includes Oxc, Lightning CSS, QuickJS JS runtime, wasmtime, notify, tokio, axum.
 
 ---

@@ -17,9 +17,8 @@ pub mod test_runner;
 // The host loads and evaluates plugin files, then calls hooks during the build pipeline.
 
 use anyhow::Result;
-use boa_engine::NativeFunction;
-use boa_engine::object::ObjectInitializer;
-use boa_engine::{Context, JsValue, Source, js_string};
+use rquickjs::prelude::{Func, Rest};
+use rquickjs::{Context, Object, Runtime};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -93,40 +92,37 @@ pub struct ServerMiddleware {
 /// Manages a collection of JS plugins with an embedded JS runtime
 pub struct JsPluginHost {
     plugins: Vec<JsPlugin>,
-    /// Boa JS runtime context for evaluating and executing plugin code
+    /// QuickJS runtime (kept alive to sustain the context)
+    #[allow(dead_code)]
+    runtime: Runtime,
+    /// QuickJS context for evaluating and executing plugin code
     context: Context,
 }
 
 impl JsPluginHost {
     /// Create a new empty plugin host with a JS runtime
     pub fn new() -> Self {
-        let mut context = Context::default();
+        let runtime = Runtime::new().expect("Failed to create QuickJS runtime");
+        let context =
+            Context::full(&runtime).expect("Failed to create QuickJS context");
 
         // Inject console.log support for plugin debugging
-        let console_log = NativeFunction::from_copy_closure(|_this, _args, ctx| {
-            let msg = _args
-                .iter()
-                .map(|v| {
-                    v.to_string(ctx)
-                        .map(|s| s.to_std_string_escaped())
-                        .unwrap_or_default()
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-            info!("[plugin console] {}", msg);
-            Ok(JsValue::undefined())
+        let _ = context.with(|ctx| {
+            let globals = ctx.globals();
+            let console = Object::new(ctx.clone())?;
+            console.set(
+                "log",
+                Func::new(|args: Rest<String>| {
+                    info!("[plugin console] {}", args.0.join(" "));
+                }),
+            )?;
+            globals.set("console", console)?;
+            Ok::<_, rquickjs::Error>(())
         });
-        let console = ObjectInitializer::new(&mut context)
-            .function(console_log, js_string!("log"), 0)
-            .build();
-        let _ = context.register_global_property(
-            js_string!("console"),
-            console,
-            boa_engine::property::Attribute::all(),
-        );
 
         Self {
             plugins: Vec::new(),
+            runtime,
             context,
         }
     }
@@ -149,7 +145,8 @@ impl JsPluginHost {
             let plugin_index = self.plugins.len();
             let global_name = format!("__pledge_plugin_{}", plugin_index);
             let js_source = strip_esm_and_assign(&source, &global_name);
-            if let Err(e) = self.context.eval(Source::from_bytes(js_source.as_str())) {
+            if let Err(e) = self.context.with(|ctx| ctx.eval::<(), _>(js_source.as_str()))
+            {
                 warn!("Failed to evaluate plugin {}: {}", plugin.name, e);
             }
 
@@ -317,18 +314,15 @@ impl JsPluginHost {
                     serde_json::to_string(importer).unwrap_or_else(|_| "\"\"".to_string())
                 );
 
-                match self.context.eval(Source::from_bytes(js_code.as_str())) {
-                    Ok(val) => {
-                        if !val.is_null()
-                            && !val.is_undefined()
-                            && let Ok(json_str) = val.to_string(&mut self.context)
-                        {
-                            let json_str = json_str.to_std_string_escaped();
-                            if let Ok(result) = serde_json::from_str::<ResolveIdResult>(&json_str) {
-                                return Some(result);
-                            }
+                match self.context.with(|ctx| {
+                    ctx.eval::<Option<String>, _>(js_code.as_str())
+                }) {
+                    Ok(Some(json_str)) => {
+                        if let Ok(result) = serde_json::from_str::<ResolveIdResult>(&json_str) {
+                            return Some(result);
                         }
                     }
+                    Ok(None) => {}
                     Err(e) => {
                         warn!("[plugin:{}] resolveId execution error: {}", plugin.name, e);
                     }
@@ -373,18 +367,15 @@ impl JsPluginHost {
                     serde_json::to_string(id).unwrap_or_else(|_| "\"\"".to_string())
                 );
 
-                match self.context.eval(Source::from_bytes(js_code.as_str())) {
-                    Ok(val) => {
-                        if !val.is_null()
-                            && !val.is_undefined()
-                            && let Ok(json_str) = val.to_string(&mut self.context)
-                        {
-                            let json_str = json_str.to_std_string_escaped();
-                            if let Ok(result) = serde_json::from_str::<LoadResult>(&json_str) {
-                                return Some(result);
-                            }
+                match self.context.with(|ctx| {
+                    ctx.eval::<Option<String>, _>(js_code.as_str())
+                }) {
+                    Ok(Some(json_str)) => {
+                        if let Ok(result) = serde_json::from_str::<LoadResult>(&json_str) {
+                            return Some(result);
                         }
                     }
+                    Ok(None) => {}
                     Err(e) => {
                         warn!("[plugin:{}] load execution error: {}", plugin.name, e);
                     }
@@ -434,19 +425,16 @@ impl JsPluginHost {
                     id.replace('\\', "/").replace('"', "\\\"")
                 );
 
-                match self.context.eval(Source::from_bytes(js_code.as_str())) {
-                    Ok(val) => {
-                        if !val.is_null()
-                            && !val.is_undefined()
-                            && let Ok(json_str) = val.to_string(&mut self.context)
-                        {
-                            let json_str = json_str.to_std_string_escaped();
-                            if let Ok(result) = serde_json::from_str::<TransformResult>(&json_str) {
-                                result_code = result.code;
-                                transformed = true;
-                            }
+                match self.context.with(|ctx| {
+                    ctx.eval::<Option<String>, _>(js_code.as_str())
+                }) {
+                    Ok(Some(json_str)) => {
+                        if let Ok(result) = serde_json::from_str::<TransformResult>(&json_str) {
+                            result_code = result.code;
+                            transformed = true;
                         }
                     }
+                    Ok(None) => {}
                     Err(e) => {
                         warn!("[plugin:{}] transform execution error: {}", plugin.name, e);
                     }
@@ -508,60 +496,57 @@ impl JsPluginHost {
                     serde_json::to_string(html).unwrap_or_else(|_| "\"\"".to_string())
                 );
 
-                match self.context.eval(Source::from_bytes(js_code.as_str())) {
-                    Ok(val) => {
-                        if !val.is_null()
-                            && !val.is_undefined()
-                            && let Ok(json_str) = val.to_string(&mut self.context)
+                match self.context.with(|ctx| {
+                    ctx.eval::<Option<String>, _>(js_code.as_str())
+                }) {
+                    Ok(Some(json_str)) => {
+                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str)
                         {
-                            let json_str = json_str.to_std_string_escaped();
-                            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str)
+                            // If html is returned as string, replace result_html
+                            if let Some(html_val) = parsed.get("html").and_then(|h| h.as_str())
+                                && !html_val.is_empty()
                             {
-                                // If html is returned as string, replace result_html
-                                if let Some(html_val) = parsed.get("html").and_then(|h| h.as_str())
-                                    && !html_val.is_empty()
-                                {
-                                    result_html = html_val.to_string();
-                                }
-                                // Parse tags array
-                                if let Some(tags_arr) =
-                                    parsed.get("tags").and_then(|t| t.as_array())
-                                {
-                                    for tag_val in tags_arr {
-                                        let mut tag = HtmlTag {
-                                            tag: tag_val
-                                                .get("tag")
-                                                .and_then(|t| t.as_str())
-                                                .unwrap_or("")
-                                                .to_string(),
-                                            attrs: HashMap::new(),
-                                            children: tag_val
-                                                .get("children")
-                                                .and_then(|c| c.as_str())
-                                                .map(|s| s.to_string()),
-                                            inject_to: tag_val
-                                                .get("injectTo")
-                                                .and_then(|i| i.as_str())
-                                                .map(|s| s.to_string()),
-                                        };
-                                        if let Some(attrs) =
-                                            tag_val.get("attrs").and_then(|a| a.as_object())
-                                        {
-                                            for (k, v) in attrs {
-                                                tag.attrs.insert(
-                                                    k.clone(),
-                                                    v.as_str().unwrap_or("").to_string(),
-                                                );
-                                            }
+                                result_html = html_val.to_string();
+                            }
+                            // Parse tags array
+                            if let Some(tags_arr) =
+                                parsed.get("tags").and_then(|t| t.as_array())
+                            {
+                                for tag_val in tags_arr {
+                                    let mut tag = HtmlTag {
+                                        tag: tag_val
+                                            .get("tag")
+                                            .and_then(|t| t.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        attrs: HashMap::new(),
+                                        children: tag_val
+                                            .get("children")
+                                            .and_then(|c| c.as_str())
+                                            .map(|s| s.to_string()),
+                                        inject_to: tag_val
+                                            .get("injectTo")
+                                            .and_then(|i| i.as_str())
+                                            .map(|s| s.to_string()),
+                                    };
+                                    if let Some(attrs) =
+                                        tag_val.get("attrs").and_then(|a| a.as_object())
+                                    {
+                                        for (k, v) in attrs {
+                                            tag.attrs.insert(
+                                                k.clone(),
+                                                v.as_str().unwrap_or("").to_string(),
+                                            );
                                         }
-                                        if !tag.tag.is_empty() {
-                                            tags.push(tag);
-                                        }
+                                    }
+                                    if !tag.tag.is_empty() {
+                                        tags.push(tag);
                                     }
                                 }
                             }
                         }
                     }
+                    Ok(None) => {}
                     Err(e) => {
                         warn!(
                             "[plugin:{}] transformIndexHtml execution error: {}",
@@ -623,23 +608,20 @@ impl JsPluginHost {
                     global_name
                 );
 
-                match self.context.eval(Source::from_bytes(js_code.as_str())) {
-                    Ok(val) => {
-                        if !val.is_null()
-                            && !val.is_undefined()
-                            && let Ok(json_str) = val.to_string(&mut self.context)
-                        {
-                            let json_str = json_str.to_std_string_escaped();
-                            if let Ok(fns) = serde_json::from_str::<Vec<String>>(&json_str) {
-                                for fn_source in fns {
-                                    middlewares.push(ServerMiddleware {
-                                        plugin_name: plugin.name.clone(),
-                                        source: fn_source,
-                                    });
-                                }
+                match self.context.with(|ctx| {
+                    ctx.eval::<Option<String>, _>(js_code.as_str())
+                }) {
+                    Ok(Some(json_str)) => {
+                        if let Ok(fns) = serde_json::from_str::<Vec<String>>(&json_str) {
+                            for fn_source in fns {
+                                middlewares.push(ServerMiddleware {
+                                    plugin_name: plugin.name.clone(),
+                                    source: fn_source,
+                                });
                             }
                         }
                     }
+                    Ok(None) => {}
                     Err(e) => {
                         warn!(
                             "[plugin:{}] configureServer execution error: {}",

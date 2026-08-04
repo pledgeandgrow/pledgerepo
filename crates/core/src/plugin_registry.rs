@@ -477,15 +477,16 @@ pub fn list_pinned_plugins(cache_dir: &std::path::Path) -> Result<Vec<PinnedWasm
     for entry in std::fs::read_dir(cache_dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("json") {
-            let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if filename.ends_with(".pin.json") {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Ok(pinned) = serde_json::from_str::<PinnedWasmPlugin>(&content) {
-                        plugins.push(pinned);
-                    }
-                }
-            }
+        if path.extension().and_then(|e| e.to_str()) == Some("json")
+            && path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .ends_with(".pin.json")
+            && let Ok(content) = std::fs::read_to_string(&path)
+            && let Ok(pinned) = serde_json::from_str::<PinnedWasmPlugin>(&content)
+        {
+            plugins.push(pinned);
         }
     }
 

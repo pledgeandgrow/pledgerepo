@@ -466,7 +466,7 @@ impl PostCssConfig {
 /// 1. Tailwind directive expansion (if tailwindcss plugin is configured)
 /// 2. CSS nesting transpilation (via Lightning CSS)
 /// 3. Autoprefixer (via Lightning CSS browser targets)
-/// 4. Custom plugins (future: via boa_engine JS execution)
+/// 4. Custom plugins (future: via QuickJS JS execution)
 pub fn process_css(
     css: &str,
     file_path: &str,
