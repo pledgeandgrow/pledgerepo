@@ -1358,7 +1358,7 @@ async fn main() -> Result<()> {
                 std::fs::create_dir_all(project_dir)?;
                 std::fs::create_dir_all(project_dir.join("src"))?;
 
-                // Create package.json with optional CSS framework devDependencies
+                // Create package.json with framework dependencies and optional CSS framework devDependencies
                 let mut pkg = serde_json::json!({
                     "name": project_name,
                     "version": "0.1.0",
@@ -1368,6 +1368,28 @@ async fn main() -> Result<()> {
                         "preview": "pledge preview"
                     }
                 });
+
+                // Add framework dependencies based on template
+                let deps = match template.as_str() {
+                    "pledgestack" | "react" | "next" | "tanstack" => serde_json::json!({
+                        "react": "^19.0.0",
+                        "react-dom": "^19.0.0"
+                    }),
+                    "solid" => serde_json::json!({
+                        "solid-js": "^1.8.0"
+                    }),
+                    "vue" => serde_json::json!({
+                        "vue": "^3.4.0"
+                    }),
+                    "svelte" => serde_json::json!({
+                        "svelte": "^4.2.0"
+                    }),
+                    _ => serde_json::json!({}),
+                };
+                if let Some(obj) = pkg.as_object_mut() {
+                    obj.insert("dependencies".to_string(), deps);
+                }
+
                 if let Some(ref css) = css_choice {
                     let dev_deps = match css.as_str() {
                         "tailwind" => serde_json::json!({
@@ -1520,17 +1542,15 @@ PLEDGE_API_URL=http://localhost:3000
                 let entry = match template.as_str() {
                     "pledgestack" => {
                         r##"// PledgeStack template — React frontend + Rust backend
+import { createRoot } from 'react-dom/client';
+
 function App() {
-  return React.createElement("h1", null, "Hello from PledgeStack!");
+  return <h1>Hello from PledgeStack!</h1>;
 }
 
 const root = document.getElementById("root");
 if (root) {
-  root.innerHTML = "";
-  const h1 = document.createElement("h1");
-  h1.textContent = "__PLEDGE_PROJECT_NAME__";
-  h1.style.color = "#6366f1";
-  root.appendChild(h1);
+  createRoot(root).render(<App />);
 }
 export default App;
 "##
@@ -1573,17 +1593,15 @@ export default {};
                     }
                     _ => {
                         r##"// React template
+import { createRoot } from 'react-dom/client';
+
 function App() {
-  return React.createElement("h1", null, "Hello from Pledge!");
+  return <h1>Hello from Pledge!</h1>;
 }
 
 const root = document.getElementById("root");
 if (root) {
-  root.innerHTML = "";
-  const h1 = document.createElement("h1");
-  h1.textContent = "Hello from Pledge!";
-  h1.style.color = "#6366f1";
-  root.appendChild(h1);
+  createRoot(root).render(<App />);
 }
 export default App;
 "##
