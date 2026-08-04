@@ -8,8 +8,7 @@ fn main() {
     let lib_dir = root.join("zig-out").join("lib");
 
     // On macOS, Zig's archive format may not be 8-byte aligned, which Apple's ld rejects.
-    // Extract the .o files from the archive and pass them directly to the linker,
-    // bypassing the archive format entirely. This works for both native and cross-compiled targets.
+    // Re-create the archive with proper alignment using ar.
     if cfg!(target_os = "macos") {
         let lib_path = lib_dir.join("libpledge_native.a");
         if lib_path.exists() {
@@ -25,30 +24,29 @@ fn main() {
                 .map_or(false, |s| s.success());
 
             if extract_ok {
-                let mut found_o = false;
+                let _ = std::fs::remove_file(&lib_path);
+                let mut ar = std::process::Command::new("ar");
+                ar.arg("rcs").arg(&lib_path);
                 if let Ok(entries) = std::fs::read_dir(&extract_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.extension().map_or(false, |e| e == "o") {
-                            println!("cargo:rustc-link-arg={}", path.display());
-                            found_o = true;
-                        }
+                    let mut o_files: Vec<_> = entries
+                        .flatten()
+                        .map(|e| e.path())
+                        .filter(|p| p.extension().map_or(false, |e| e == "o"))
+                        .collect();
+                    o_files.sort();
+                    for f in &o_files {
+                        ar.arg(f);
                     }
                 }
-                if !found_o {
-                    println!("cargo:rustc-link-lib=static=pledge_native");
-                }
-            } else {
-                println!("cargo:rustc-link-lib=static=pledge_native");
+                let _ = ar.status();
+                let _ = std::fs::remove_dir_all(&extract_dir);
             }
-        } else {
-            println!("cargo:rustc-link-lib=static=pledge_native");
         }
-    } else {
-        // Tell cargo to look for the static library
-        println!("cargo:rustc-link-search=native={}", lib_dir.display());
-        println!("cargo:rustc-link-lib=static=pledge_native");
     }
+
+    // Tell cargo to look for the static library
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    println!("cargo:rustc-link-lib=static=pledge_native");
 
     // Link Windows libraries needed by Zig runtime
     if cfg!(target_os = "windows") {
