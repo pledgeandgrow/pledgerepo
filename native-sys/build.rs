@@ -13,35 +13,52 @@ fn main() {
     // Force re-run when target changes
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_OS");
 
-    // On macOS, Zig's archive format is incompatible with Apple's linker.
-    // Link the object file directly instead of the static library.
+    // On macOS, Zig's archive format is not 8-byte aligned, which Apple's ld rejects.
+    // We produce a .o file from Zig, then create a NEW archive with proper alignment
+    // using `ar rcs`. This is necessary because:
+    // 1. cargo:rustc-link-arg does NOT propagate through transitive dependencies
+    //    (pledgepack-cli -> pledgepack-core -> pledgepack-native-sys)
+    // 2. Only cargo:rustc-link-search + cargo:rustc-link-lib propagate transitively
+    // 3. So we must fix the .a archive rather than trying to link the .o directly
     if target_os == "macos" {
-        let obj_candidates = [
-            root.join("zig-out").join("pledge_native.o"),
-            root.join("zig-out").join("lib").join("pledge_native.o"),
-            root.join("zig-out").join("obj").join("pledge_native.o"),
-        ];
+        let obj_path = root.join("zig-out").join("pledge_native.o");
+        let lib_path = lib_dir.join("libpledge_native.a");
 
-        eprintln!("[pledge-native-sys] target_os=macos, looking for .o file...");
-        for c in &obj_candidates {
-            eprintln!("[pledge-native-sys]   candidate: {} (exists={})", c.display(), c.exists());
-        }
+        eprintln!(
+            "[pledge-native-sys] target_os=macos, obj={} exists={}",
+            obj_path.display(),
+            obj_path.exists()
+        );
+        eprintln!(
+            "[pledge-native-sys] lib={} exists={}",
+            lib_path.display(),
+            lib_path.exists()
+        );
 
-        let obj_path = obj_candidates.iter().find(|p| p.exists());
-
-        if let Some(obj) = obj_path {
-            eprintln!("[pledge-native-sys] linking object file: {}", obj.display());
-            println!("cargo:rustc-link-arg={}", obj.display());
+        if obj_path.exists() {
+            // Create a new archive from the .o file with proper alignment
+            let _ = std::fs::remove_file(&lib_path);
+            let status = std::process::Command::new("ar")
+                .arg("rcs")
+                .arg(&lib_path)
+                .arg(&obj_path)
+                .status();
+            match status {
+                Ok(s) if s.success() => {
+                    eprintln!("[pledge-native-sys] created new archive from .o file");
+                }
+                _ => {
+                    eprintln!("[pledge-native-sys] WARNING: ar rcs failed, using original archive");
+                }
+            }
         } else {
-            eprintln!("[pledge-native-sys] no .o found, falling back to static lib");
-            println!("cargo:rustc-link-search=native={}", lib_dir.display());
-            println!("cargo:rustc-link-lib=static=pledge_native");
+            eprintln!("[pledge-native-sys] WARNING: .o file not found, using original archive");
         }
-    } else {
-        // Tell cargo to look for the static library
-        println!("cargo:rustc-link-search=native={}", lib_dir.display());
-        println!("cargo:rustc-link-lib=static=pledge_native");
     }
+
+    // These directives propagate through transitive dependencies
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    println!("cargo:rustc-link-lib=static=pledge_native");
 
     // Link Windows libraries needed by Zig runtime
     if target_os == "windows" {
