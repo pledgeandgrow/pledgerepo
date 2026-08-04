@@ -2,7 +2,7 @@
 
 A Rust + Zig bundler and dev server. Built with Oxc for transforms, Lightning CSS for styles, Axum for the dev server, and a Zig C ABI for hot-path file I/O and SIMD scanning.
 
-> **npm package:** `pledgepack` · **CLI command:** `pledgepack` (alias: `pledge`) · **Rust crates:** `pledgepack-*`
+> **npm package:** `pledgepack` · **CLI command:** `pledge` (alias: `pledgepack`) · **Rust crates:** `pledgepack-*`
 
 ## Architecture
 
@@ -48,18 +48,21 @@ pledgepack/
 │       ├── simd.zig        # SIMD source scanning
 │       └── bench.zig       # Benchmarks
 ├── crates/
-│   ├── cli/                # CLI entry point (binary: pledgepack)
+│   ├── cli/                # CLI entry point (binary: pledge)
 │   ├── core/               # Engine, config, transform pipeline, HTML, compression, analyzer
 │   ├── cache/              # Function-level incremental cache (memory + disk/bincode)
 │   ├── resolver/           # Module resolution (node_modules, tsconfig, exports)
 │   ├── dev-server/         # Dev server + HMR + CSS HMR + error overlay + proxy
 │   ├── optimizer/          # Tree shaking, code splitting, vendor/shared chunks
 │   ├── js-plugin-host/     # Vite-compatible JS plugin API (QuickJS via rquickjs)
+│   ├── wasm-plugin-host/   # WebAssembly plugin host (WASM module loading)
 │   ├── adapter-react/      # React JSX + Fast Refresh adapter (Oxc-based)
 │   ├── adapter-solid/      # Solid.js JSX adapter (Oxc-based)
 │   ├── adapter-next/       # Next.js adapter (App/Pages Router, SSR, API routes)
 │   ├── adapter-tanstack/   # TanStack Router adapter (file-based routing)
-│   └── adapter-pledgestack/ # PledgeStack adapter (React + Rust backend)
+│   ├── adapter-pledgestack/ # PledgeStack adapter (React + Rust backend)
+│   ├── task-system/        # Parallel task execution engine
+│   └── task-system-macros/ # Procedural macros for task-system
 └── docs/
     ├── ARCHITECTURE.md     # System architecture deep dive
     ├── CHANGELOG.md        # Development history
@@ -88,7 +91,7 @@ zig build -Doptimize=ReleaseFast
 cargo build --release
 ```
 
-The binary is at `target/release/pledgepack`.
+The binary is at `target/release/pledge`.
 
 ## Installation
 
@@ -156,9 +159,11 @@ pledgepack manpages                # Man pages
 ### `pledge.config.ts`
 
 ```typescript
-import { defineConfig } from 'pledgepack';
+// pledge.config.ts — config file for PledgePack
+// Note: defineConfig is a type-level helper for IDE autocompletion.
+// In the npm package, the native binary reads this file directly.
 
-export default defineConfig({
+export default {
   // App directory for file-based routing (auto-discovers pages)
   app_dir: 'app',
   // Explicit entry points (optional — use app_dir instead)
@@ -251,9 +256,9 @@ Built-in variables: `PLEDGE_DEV`, `PLEDGE_PROD`, `PLEDGE_MODE`, `MODE`, `DEV`, `
 |-----------|--------|------------|
 | **React** | Full | `.tsx`, `.jsx`, Fast Refresh, automatic JSX runtime |
 | **Solid** | Full | `.tsx`, `.jsx`, automatic JSX with `solid-js` |
-| **Vue** | Full | `.vue` (SFC), scoped CSS, script setup |
-| **Svelte** | Full | `.svelte` (SFC), scoped CSS, render functions |
-| **Astro** | Full | `.astro`, frontmatter, islands-ready |
+| **Vue** | Transform | `.vue` (SFC), scoped CSS, script setup |
+| **Svelte** | Transform | `.svelte` (SFC), scoped CSS, render functions |
+| **Astro** | Transform | `.astro`, frontmatter, islands-ready |
 | **Next.js** | Adapter | App Router, Pages Router, API routes, SSR manifest |
 | **TanStack** | Adapter | File-based routing, route tree generation |
 | **PledgeStack** | Adapter (route discovery + scaffolding) | React frontend + Rust backend, `.rs`/`.psx` |
@@ -361,10 +366,15 @@ The transform pipeline lives in `crates/core/src/transform/` and is split into f
 
 ## Programmatic API
 
-- `createServer(options)` — Create a dev server instance
-- `build(options)` — Run a production build programmatically
-- `transform(code, id, config)` — Transform a single module
-- `resolve(specifier, importer, root)` — Resolve module specifiers
+The native binary can be used programmatically via Rust crates:
+
+- `pledgepack_core::BuildEngine` — Create a build engine instance
+- `pledgepack_core::transform()` — Transform a single module
+- `pledgepack_resolver::Resolver` — Resolve module specifiers
+- `pledgepack_dev_server::serve()` — Start a dev server
+
+> **Note:** The npm package is a binary launcher — it does not export JS functions.
+> For JS-level API, use the CLI commands or write a Rust integration.
 
 ## Testing
 

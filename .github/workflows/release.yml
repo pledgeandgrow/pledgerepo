@@ -34,7 +34,7 @@ jobs:
             archive: tar.gz
             binary: pledge
             cross: true
-          - os: macos-13
+          - os: macos-latest
             target: x86_64-apple-darwin
             zig-target: x86_64-macos
             archive: tar.gz

@@ -7,6 +7,27 @@ fn main() {
         .expect("failed to get parent of manifest dir");
     let lib_dir = root.join("zig-out").join("lib");
 
+    // On macOS, Zig's archive format may not be 8-byte aligned, which Apple's ld rejects.
+    // Re-archive using libtool to fix alignment.
+    if cfg!(target_os = "macos") {
+        let lib_path = lib_dir.join("libpledge_native.a");
+        if lib_path.exists() {
+            let tmp = lib_dir.join("libpledge_native_fixed.a");
+            let result = std::process::Command::new("libtool")
+                .args(["-static", "-o"])
+                .arg(&tmp)
+                .arg(&lib_path)
+                .status();
+            if let Ok(status) = result {
+                if status.success() {
+                    let _ = std::fs::rename(&tmp, &lib_path);
+                } else {
+                    let _ = std::fs::remove_file(&tmp);
+                }
+            }
+        }
+    }
+
     // Tell cargo to look for the static library
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-link-lib=static=pledge_native");
