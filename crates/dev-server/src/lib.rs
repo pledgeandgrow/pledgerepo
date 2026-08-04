@@ -123,7 +123,18 @@ pub struct HmrUpdate {
     pub full_code: Option<String>,
 }
 
+/// Install the ring crypto provider once for rustls/reqwest.
+/// Required because we use rustls-no-provider feature for cross-compilation.
+fn ensure_crypto_provider() {
+    use std::sync::OnceLock;
+    static PROVIDER: OnceLock<()> = OnceLock::new();
+    PROVIDER.get_or_init(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
 pub async fn serve(engine: BuildEngine, config: &PledgeConfig) -> Result<()> {
+    ensure_crypto_provider();
     let start = std::time::Instant::now();
     let port = config.dev_server.port;
     let host = config.dev_server.host.clone();

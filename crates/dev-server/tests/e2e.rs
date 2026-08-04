@@ -1,4 +1,3 @@
-use futures_util::StreamExt;
 use pledgepack_core::BuildEngine;
 use pledgepack_core::config::{BuildMode, Framework, PledgeConfig};
 use pledgepack_core::module::ModuleKind;
@@ -6,6 +5,15 @@ use pledgepack_core::transform as pledge_transform;
 use std::fs;
 use std::sync::Arc;
 use tempfile::TempDir;
+
+/// Install ring crypto provider once for reqwest/rustls in tests.
+fn ensure_crypto_provider() {
+    use std::sync::OnceLock;
+    static PROVIDER: OnceLock<()> = OnceLock::new();
+    PROVIDER.get_or_init(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
 
 /// Helper: find an available port for testing
 fn find_free_port() -> u16 {
@@ -239,6 +247,7 @@ async fn test_goal3_router_endpoint_with_app_dir() {
 
     // Request the router endpoint
     let url = format!("http://127.0.0.1:{}/__pledge_router", port);
+    ensure_crypto_provider();
     let client = reqwest::Client::new();
     let response = client.get(&url).send().await;
 
@@ -290,6 +299,7 @@ async fn test_goal3_router_endpoint_without_app_dir() {
 
     // Without app_dir, router should return a minimal fallback
     let url = format!("http://127.0.0.1:{}/__pledge_router", port);
+    ensure_crypto_provider();
     let client = reqwest::Client::new();
     let response = client.get(&url).send().await;
 
@@ -346,6 +356,7 @@ export default function App() {
 
     // Request the module — PledgeJS sends relative paths with forward slashes
     let url = format!("http://127.0.0.1:{}/src/index.tsx", port);
+    ensure_crypto_provider();
     let client = reqwest::Client::new();
     let response = client.get(&url).send().await;
 
@@ -437,6 +448,7 @@ async fn test_goal61_dev_server_serves_index_html() {
 
     // Request the index page — this is what PledgeJS does
     let url = format!("http://127.0.0.1:{}/", port);
+    ensure_crypto_provider();
     let client = reqwest::Client::new();
     let response = client.get(&url).send().await;
 
@@ -937,6 +949,7 @@ async fn test_goal71_dev_server_startup_time() {
 
     // Verify server is responding (first successful transform request)
     let url = format!("http://127.0.0.1:{}/app/page.tsx", port);
+    ensure_crypto_provider();
     let client = reqwest::Client::new();
     let response = client.get(&url).send().await;
 
@@ -1067,7 +1080,7 @@ async fn test_goal73_build_time_scaling() {
 
     // Measure engine creation time (config parsing + cache init)
     let start = std::time::Instant::now();
-    let engine = BuildEngine::new(Arc::new(config));
+    let _engine = BuildEngine::new(Arc::new(config));
     let elapsed = start.elapsed();
 
     // Engine creation should be fast (< 500ms)
@@ -1115,6 +1128,7 @@ async fn test_goal74_dev_server_memory() {
 
     // Make a few requests to populate caches
     let url = format!("http://127.0.0.1:{}/app/page.tsx", port);
+    ensure_crypto_provider();
     let client = reqwest::Client::new();
     for _ in 0..5 {
         let _ = client.get(&url).send().await;
@@ -1194,6 +1208,7 @@ async fn test_goal75_cache_hit_rate() {
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
     let url = format!("http://127.0.0.1:{}/src/index.tsx", port2);
+    ensure_crypto_provider();
     let client = reqwest::Client::new();
 
     // First request — cold
@@ -1314,6 +1329,7 @@ async fn test_goal77_large_project_handling() {
 
     // Request a specific page
     let url = format!("http://127.0.0.1:{}/app/page0/page.tsx", port);
+    ensure_crypto_provider();
     let client = reqwest::Client::new();
     let response = client.get(&url).send().await;
 
