@@ -25,23 +25,28 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            zig-target: x86_64-linux-gnu
             archive: tar.gz
             binary: pledge
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
+            zig-target: aarch64-linux-gnu
             archive: tar.gz
             binary: pledge
             cross: true
           - os: macos-13
             target: x86_64-apple-darwin
+            zig-target: x86_64-macos
             archive: tar.gz
             binary: pledge
           - os: macos-latest
             target: aarch64-apple-darwin
+            zig-target: aarch64-macos
             archive: tar.gz
             binary: pledge
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            zig-target: x86_64-windows-msvc
             archive: zip
             binary: pledge.exe
     steps:
@@ -52,10 +57,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install Zig (for native-sys)
-        uses: goto-bus-stop/setup-zig@v2
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v3
         with:
-          version: 0.14.0
+          version: 0.16.0
 
       - name: Install cross-compilation tools (aarch64-linux)
         if: matrix.cross == true
@@ -63,16 +68,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
+      - name: Build native library (Zig)
+        run: zig build -Doptimize=ReleaseFast -Dtarget=${{ matrix.zig-target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: release-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            release-${{ matrix.target }}-
+          key: release-${{ matrix.target }}
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }} -p pledgepack-cli
@@ -172,7 +174,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           registry-url: https://registry.npmjs.org
 
       - name: Verify package.json version matches tag

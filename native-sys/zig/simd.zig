@@ -276,7 +276,6 @@ pub fn findNodesByStatus(
     out_indices: []u32,
 ) usize {
     var count: usize = 0;
-    const target_shifted: u32 = @as(u32, target_status) << STATUS_SHIFT;
     const simd_width: usize = if (builtin.cpu.arch == .x86_64) 8 else 4;
 
     var i: usize = 0;
