@@ -1554,25 +1554,73 @@ function App() {
       minHeight: "100vh",
       margin: 0,
       fontFamily: "system-ui, -apple-system, sans-serif",
-      background: "#0d0d0d",
+      background: "#000",
+      color: "#e0e0e0",
+      overflow: "hidden",
+      position: "relative",
     }}>
-      <h1 style={{
-        fontSize: "clamp(3rem, 10vw, 6rem)",
-        fontWeight: 800,
-        letterSpacing: "-0.04em",
-        margin: 0,
-        background: "linear-gradient(135deg, #6366f1, #a855f7)",
-        WebkitBackgroundClip: "text",
-        WebkitTextFillColor: "transparent",
-        backgroundClip: "text",
-      }}>PledgePack</h1>
-      <p style={{
-        fontSize: "clamp(1rem, 3vw, 1.5rem)",
-        color: "#888",
-        marginTop: "0.5rem",
-        letterSpacing: "0.1em",
-        textTransform: "uppercase",
-      }}>PledgeStack</p>
+      <div style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        width: "600px",
+        height: "600px",
+        borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%)",
+        filter: "blur(60px)",
+        pointerEvents: "none",
+      }} />
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center" }}>
+        <h1 style={{
+          fontSize: "clamp(3rem, 12vw, 7rem)",
+          fontWeight: 900,
+          letterSpacing: "-0.05em",
+          margin: 0,
+          background: "linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          backgroundClip: "text",
+          lineHeight: 1,
+        }}>PledgePack</h1>
+        <div style={{
+          display: "inline-block",
+          marginTop: "1rem",
+          padding: "0.3rem 1rem",
+          borderRadius: "9999px",
+          background: "rgba(99,102,241,0.15)",
+          border: "1px solid rgba(99,102,241,0.3)",
+          fontSize: "0.9rem",
+          fontWeight: 600,
+          color: "#a5b4fc",
+          letterSpacing: "0.05em",
+        }}>PledgeStack</div>
+        <p style={{
+          fontSize: "clamp(0.9rem, 2vw, 1.1rem)",
+          color: "#666",
+          marginTop: "1.5rem",
+          maxWidth: "480px",
+          lineHeight: 1.6,
+        }}>Native-speed bundler powered by Rust + Oxc. Zero config, instant HMR, file-based routing — React frontend with a Rust backend.</p>
+        <div style={{
+          marginTop: "2rem",
+          display: "flex",
+          gap: "0.5rem",
+          flexWrap: "wrap",
+          justifyContent: "center",
+        }}>
+          {["Rust Engine", "Oxc Parser", "Instant HMR", "File Routing"].map((tag) => (
+            <span key={tag} style={{
+              padding: "0.25rem 0.75rem",
+              borderRadius: "6px",
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              fontSize: "0.75rem",
+              color: "#888",
+            }}>{tag}</span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1589,9 +1637,19 @@ export default App;
 const root = document.getElementById("root");
 if (root) {
   root.innerHTML = `
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0d0d0d;">
-      <h1 style="font-size:clamp(3rem,10vw,6rem);font-weight:800;letter-spacing:-0.04em;margin:0;background:linear-gradient(135deg,#42b883,#35495e);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">PledgePack</h1>
-      <p style="font-size:clamp(1rem,3vw,1.5rem);color:#888;margin-top:0.5rem;letter-spacing:0.1em;text-transform:uppercase;">Vue</p>
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#000;color:#e0e0e0;overflow:hidden;position:relative;">
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(66,184,131,0.15) 0%,transparent 70%);filter:blur(60px);pointer-events:none;"></div>
+      <div style="position:relative;z-index:1;text-align:center;">
+        <h1 style="font-size:clamp(3rem,12vw,7rem);font-weight:900;letter-spacing:-0.05em;margin:0;background:linear-gradient(135deg,#42b883 0%,#35495e 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;">PledgePack</h1>
+        <div style="display:inline-block;margin-top:1rem;padding:0.3rem 1rem;border-radius:9999px;background:rgba(66,184,131,0.15);border:1px solid rgba(66,184,131,0.3);font-size:0.9rem;font-weight:600;color:#42b883;letter-spacing:0.05em;">Vue</div>
+        <p style="font-size:clamp(0.9rem,2vw,1.1rem);color:#666;margin-top:1.5rem;max-width:480px;line-height:1.6;">Native-speed bundler powered by Rust + Oxc. Zero config, instant HMR, and on-demand transforms — built for Vue.</p>
+        <div style="margin-top:2rem;display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:center;">
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Rust Engine</span>
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Oxc Parser</span>
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Instant HMR</span>
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Zero Config</span>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -1603,9 +1661,19 @@ export default {};
 const root = document.getElementById("root");
 if (root) {
   root.innerHTML = `
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0d0d0d;">
-      <h1 style="font-size:clamp(3rem,10vw,6rem);font-weight:800;letter-spacing:-0.04em;margin:0;background:linear-gradient(135deg,#ff3e00,#ff8e00);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">PledgePack</h1>
-      <p style="font-size:clamp(1rem,3vw,1.5rem);color:#888;margin-top:0.5rem;letter-spacing:0.1em;text-transform:uppercase;">Svelte</p>
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#000;color:#e0e0e0;overflow:hidden;position:relative;">
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(255,62,0,0.15) 0%,transparent 70%);filter:blur(60px);pointer-events:none;"></div>
+      <div style="position:relative;z-index:1;text-align:center;">
+        <h1 style="font-size:clamp(3rem,12vw,7rem);font-weight:900;letter-spacing:-0.05em;margin:0;background:linear-gradient(135deg,#ff3e00 0%,#ff8e00 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;">PledgePack</h1>
+        <div style="display:inline-block;margin-top:1rem;padding:0.3rem 1rem;border-radius:9999px;background:rgba(255,62,0,0.15);border:1px solid rgba(255,62,0,0.3);font-size:0.9rem;font-weight:600;color:#ff8e00;letter-spacing:0.05em;">Svelte</div>
+        <p style="font-size:clamp(0.9rem,2vw,1.1rem);color:#666;margin-top:1.5rem;max-width:480px;line-height:1.6;">Native-speed bundler powered by Rust + Oxc. Zero config, instant HMR, and on-demand transforms — built for Svelte.</p>
+        <div style="margin-top:2rem;display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:center;">
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Rust Engine</span>
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Oxc Parser</span>
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Instant HMR</span>
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Zero Config</span>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -1617,9 +1685,19 @@ export default {};
 const root = document.getElementById("root");
 if (root) {
   root.innerHTML = `
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0d0d0d;">
-      <h1 style="font-size:clamp(3rem,10vw,6rem);font-weight:800;letter-spacing:-0.04em;margin:0;background:linear-gradient(135deg,#2c4f7c,#61dafb);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">PledgePack</h1>
-      <p style="font-size:clamp(1rem,3vw,1.5rem);color:#888;margin-top:0.5rem;letter-spacing:0.1em;text-transform:uppercase;">Solid</p>
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#000;color:#e0e0e0;overflow:hidden;position:relative;">
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(44,79,124,0.15) 0%,transparent 70%);filter:blur(60px);pointer-events:none;"></div>
+      <div style="position:relative;z-index:1;text-align:center;">
+        <h1 style="font-size:clamp(3rem,12vw,7rem);font-weight:900;letter-spacing:-0.05em;margin:0;background:linear-gradient(135deg,#2c4f7c 0%,#61dafb 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;">PledgePack</h1>
+        <div style="display:inline-block;margin-top:1rem;padding:0.3rem 1rem;border-radius:9999px;background:rgba(44,79,124,0.15);border:1px solid rgba(97,218,251,0.3);font-size:0.9rem;font-weight:600;color:#61dafb;letter-spacing:0.05em;">Solid</div>
+        <p style="font-size:clamp(0.9rem,2vw,1.1rem);color:#666;margin-top:1.5rem;max-width:480px;line-height:1.6;">Native-speed bundler powered by Rust + Oxc. Zero config, instant HMR, and on-demand transforms — built for Solid.</p>
+        <div style="margin-top:2rem;display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:center;">
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Rust Engine</span>
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Oxc Parser</span>
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Instant HMR</span>
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Zero Config</span>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -1631,9 +1709,19 @@ export default {};
 const root = document.getElementById("root");
 if (root) {
   root.innerHTML = `
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0d0d0d;">
-      <h1 style="font-size:clamp(3rem,10vw,6rem);font-weight:800;letter-spacing:-0.04em;margin:0;color:#fbbf24;">PledgePack</h1>
-      <p style="font-size:clamp(1rem,3vw,1.5rem);color:#888;margin-top:0.5rem;letter-spacing:0.1em;text-transform:uppercase;">Vanilla</p>
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:system-ui,-apple-system,sans-serif;background:#000;color:#e0e0e0;overflow:hidden;position:relative;">
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(251,191,36,0.12) 0%,transparent 70%);filter:blur(60px);pointer-events:none;"></div>
+      <div style="position:relative;z-index:1;text-align:center;">
+        <h1 style="font-size:clamp(3rem,12vw,7rem);font-weight:900;letter-spacing:-0.05em;margin:0;color:#fbbf24;line-height:1;">PledgePack</h1>
+        <div style="display:inline-block;margin-top:1rem;padding:0.3rem 1rem;border-radius:9999px;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.3);font-size:0.9rem;font-weight:600;color:#fbbf24;letter-spacing:0.05em;">Vanilla</div>
+        <p style="font-size:clamp(0.9rem,2vw,1.1rem);color:#666;margin-top:1.5rem;max-width:480px;line-height:1.6;">Native-speed bundler powered by Rust + Oxc. Zero config, instant HMR, and on-demand transforms — no framework required.</p>
+        <div style="margin-top:2rem;display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:center;">
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Rust Engine</span>
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Oxc Parser</span>
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Instant HMR</span>
+          <span style="padding:0.25rem 0.75rem;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);font-size:0.75rem;color:#888;">Zero Config</span>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -1654,25 +1742,73 @@ function App() {
       minHeight: "100vh",
       margin: 0,
       fontFamily: "system-ui, -apple-system, sans-serif",
-      background: "#0d0d0d",
+      background: "#000",
+      color: "#e0e0e0",
+      overflow: "hidden",
+      position: "relative",
     }}>
-      <h1 style={{
-        fontSize: "clamp(3rem, 10vw, 6rem)",
-        fontWeight: 800,
-        letterSpacing: "-0.04em",
-        margin: 0,
-        background: "linear-gradient(135deg, #ffffff, #888888)",
-        WebkitBackgroundClip: "text",
-        WebkitTextFillColor: "transparent",
-        backgroundClip: "text",
-      }}>PledgePack</h1>
-      <p style={{
-        fontSize: "clamp(1rem, 3vw, 1.5rem)",
-        color: "#888",
-        marginTop: "0.5rem",
-        letterSpacing: "0.1em",
-        textTransform: "uppercase",
-      }}>Next.js</p>
+      <div style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        width: "600px",
+        height: "600px",
+        borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%)",
+        filter: "blur(60px)",
+        pointerEvents: "none",
+      }} />
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center" }}>
+        <h1 style={{
+          fontSize: "clamp(3rem, 12vw, 7rem)",
+          fontWeight: 900,
+          letterSpacing: "-0.05em",
+          margin: 0,
+          background: "linear-gradient(135deg, #ffffff 0%, #888888 100%)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          backgroundClip: "text",
+          lineHeight: 1,
+        }}>PledgePack</h1>
+        <div style={{
+          display: "inline-block",
+          marginTop: "1rem",
+          padding: "0.3rem 1rem",
+          borderRadius: "9999px",
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(255,255,255,0.15)",
+          fontSize: "0.9rem",
+          fontWeight: 600,
+          color: "#ccc",
+          letterSpacing: "0.05em",
+        }}>Next.js</div>
+        <p style={{
+          fontSize: "clamp(0.9rem, 2vw, 1.1rem)",
+          color: "#666",
+          marginTop: "1.5rem",
+          maxWidth: "480px",
+          lineHeight: 1.6,
+        }}>Native-speed bundler powered by Rust + Oxc. Zero config, instant HMR, and on-demand transforms — built for Next.js.</p>
+        <div style={{
+          marginTop: "2rem",
+          display: "flex",
+          gap: "0.5rem",
+          flexWrap: "wrap",
+          justifyContent: "center",
+        }}>
+          {["Rust Engine", "Oxc Parser", "Instant HMR", "Zero Config"].map((tag) => (
+            <span key={tag} style={{
+              padding: "0.25rem 0.75rem",
+              borderRadius: "6px",
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              fontSize: "0.75rem",
+              color: "#888",
+            }}>{tag}</span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1698,25 +1834,73 @@ function App() {
       minHeight: "100vh",
       margin: 0,
       fontFamily: "system-ui, -apple-system, sans-serif",
-      background: "#0d0d0d",
+      background: "#000",
+      color: "#e0e0e0",
+      overflow: "hidden",
+      position: "relative",
     }}>
-      <h1 style={{
-        fontSize: "clamp(3rem, 10vw, 6rem)",
-        fontWeight: 800,
-        letterSpacing: "-0.04em",
-        margin: 0,
-        background: "linear-gradient(135deg, #00b4d8, #0077b6)",
-        WebkitBackgroundClip: "text",
-        WebkitTextFillColor: "transparent",
-        backgroundClip: "text",
-      }}>PledgePack</h1>
-      <p style={{
-        fontSize: "clamp(1rem, 3vw, 1.5rem)",
-        color: "#888",
-        marginTop: "0.5rem",
-        letterSpacing: "0.1em",
-        textTransform: "uppercase",
-      }}>TanStack</p>
+      <div style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        width: "600px",
+        height: "600px",
+        borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(0,180,216,0.15) 0%, transparent 70%)",
+        filter: "blur(60px)",
+        pointerEvents: "none",
+      }} />
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center" }}>
+        <h1 style={{
+          fontSize: "clamp(3rem, 12vw, 7rem)",
+          fontWeight: 900,
+          letterSpacing: "-0.05em",
+          margin: 0,
+          background: "linear-gradient(135deg, #00b4d8 0%, #0077b6 100%)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          backgroundClip: "text",
+          lineHeight: 1,
+        }}>PledgePack</h1>
+        <div style={{
+          display: "inline-block",
+          marginTop: "1rem",
+          padding: "0.3rem 1rem",
+          borderRadius: "9999px",
+          background: "rgba(0,180,216,0.15)",
+          border: "1px solid rgba(0,180,216,0.3)",
+          fontSize: "0.9rem",
+          fontWeight: 600,
+          color: "#00b4d8",
+          letterSpacing: "0.05em",
+        }}>TanStack</div>
+        <p style={{
+          fontSize: "clamp(0.9rem, 2vw, 1.1rem)",
+          color: "#666",
+          marginTop: "1.5rem",
+          maxWidth: "480px",
+          lineHeight: 1.6,
+        }}>Native-speed bundler powered by Rust + Oxc. Zero config, instant HMR, and on-demand transforms — built for TanStack.</p>
+        <div style={{
+          marginTop: "2rem",
+          display: "flex",
+          gap: "0.5rem",
+          flexWrap: "wrap",
+          justifyContent: "center",
+        }}>
+          {["Rust Engine", "Oxc Parser", "Instant HMR", "Zero Config"].map((tag) => (
+            <span key={tag} style={{
+              padding: "0.25rem 0.75rem",
+              borderRadius: "6px",
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              fontSize: "0.75rem",
+              color: "#888",
+            }}>{tag}</span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1742,25 +1926,73 @@ function App() {
       minHeight: "100vh",
       margin: 0,
       fontFamily: "system-ui, -apple-system, sans-serif",
-      background: "#0d0d0d",
+      background: "#000",
+      color: "#e0e0e0",
+      overflow: "hidden",
+      position: "relative",
     }}>
-      <h1 style={{
-        fontSize: "clamp(3rem, 10vw, 6rem)",
-        fontWeight: 800,
-        letterSpacing: "-0.04em",
-        margin: 0,
-        background: "linear-gradient(135deg, #6366f1, #a855f7)",
-        WebkitBackgroundClip: "text",
-        WebkitTextFillColor: "transparent",
-        backgroundClip: "text",
-      }}>PledgePack</h1>
-      <p style={{
-        fontSize: "clamp(1rem, 3vw, 1.5rem)",
-        color: "#888",
-        marginTop: "0.5rem",
-        letterSpacing: "0.1em",
-        textTransform: "uppercase",
-      }}>React</p>
+      <div style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        width: "600px",
+        height: "600px",
+        borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%)",
+        filter: "blur(60px)",
+        pointerEvents: "none",
+      }} />
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center" }}>
+        <h1 style={{
+          fontSize: "clamp(3rem, 12vw, 7rem)",
+          fontWeight: 900,
+          letterSpacing: "-0.05em",
+          margin: 0,
+          background: "linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          backgroundClip: "text",
+          lineHeight: 1,
+        }}>PledgePack</h1>
+        <div style={{
+          display: "inline-block",
+          marginTop: "1rem",
+          padding: "0.3rem 1rem",
+          borderRadius: "9999px",
+          background: "rgba(99,102,241,0.15)",
+          border: "1px solid rgba(99,102,241,0.3)",
+          fontSize: "0.9rem",
+          fontWeight: 600,
+          color: "#a5b4fc",
+          letterSpacing: "0.05em",
+        }}>React</div>
+        <p style={{
+          fontSize: "clamp(0.9rem, 2vw, 1.1rem)",
+          color: "#666",
+          marginTop: "1.5rem",
+          maxWidth: "480px",
+          lineHeight: 1.6,
+        }}>Native-speed bundler powered by Rust + Oxc. Zero config, instant HMR, and on-demand transforms — built for React.</p>
+        <div style={{
+          marginTop: "2rem",
+          display: "flex",
+          gap: "0.5rem",
+          flexWrap: "wrap",
+          justifyContent: "center",
+        }}>
+          {["Rust Engine", "Oxc Parser", "Instant HMR", "Zero Config"].map((tag) => (
+            <span key={tag} style={{
+              padding: "0.25rem 0.75rem",
+              borderRadius: "6px",
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              fontSize: "0.75rem",
+              color: "#888",
+            }}>{tag}</span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1790,25 +2022,73 @@ export default App;
       minHeight: "100vh",
       margin: 0,
       fontFamily: "system-ui, -apple-system, sans-serif",
-      background: "#0d0d0d",
+      background: "#000",
+      color: "#e0e0e0",
+      overflow: "hidden",
+      position: "relative",
     }}>
-      <h1 style={{
-        fontSize: "clamp(3rem, 10vw, 6rem)",
-        fontWeight: 800,
-        letterSpacing: "-0.04em",
-        margin: 0,
-        background: "linear-gradient(135deg, #6366f1, #a855f7)",
-        WebkitBackgroundClip: "text",
-        WebkitTextFillColor: "transparent",
-        backgroundClip: "text",
-      }}>PledgePack</h1>
-      <p style={{
-        fontSize: "clamp(1rem, 3vw, 1.5rem)",
-        color: "#888",
-        marginTop: "0.5rem",
-        letterSpacing: "0.1em",
-        textTransform: "uppercase",
-      }}>PledgeStack</p>
+      <div style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        width: "600px",
+        height: "600px",
+        borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%)",
+        filter: "blur(60px)",
+        pointerEvents: "none",
+      }} />
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center" }}>
+        <h1 style={{
+          fontSize: "clamp(3rem, 12vw, 7rem)",
+          fontWeight: 900,
+          letterSpacing: "-0.05em",
+          margin: 0,
+          background: "linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          backgroundClip: "text",
+          lineHeight: 1,
+        }}>PledgePack</h1>
+        <div style={{
+          display: "inline-block",
+          marginTop: "1rem",
+          padding: "0.3rem 1rem",
+          borderRadius: "9999px",
+          background: "rgba(99,102,241,0.15)",
+          border: "1px solid rgba(99,102,241,0.3)",
+          fontSize: "0.9rem",
+          fontWeight: 600,
+          color: "#a5b4fc",
+          letterSpacing: "0.05em",
+        }}>PledgeStack</div>
+        <p style={{
+          fontSize: "clamp(0.9rem, 2vw, 1.1rem)",
+          color: "#666",
+          marginTop: "1.5rem",
+          maxWidth: "480px",
+          lineHeight: 1.6,
+        }}>Native-speed bundler powered by Rust + Oxc. Zero config, instant HMR, file-based routing — React frontend with a Rust backend.</p>
+        <div style={{
+          marginTop: "2rem",
+          display: "flex",
+          gap: "0.5rem",
+          flexWrap: "wrap",
+          justifyContent: "center",
+        }}>
+          {["Rust Engine", "Oxc Parser", "Instant HMR", "File Routing"].map((tag) => (
+            <span key={tag} style={{
+              padding: "0.25rem 0.75rem",
+              borderRadius: "6px",
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              fontSize: "0.75rem",
+              color: "#888",
+            }}>{tag}</span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
