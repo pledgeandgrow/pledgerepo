@@ -5,6 +5,7 @@
 //   - load(id) → { code, map } | null
 
 pub mod test_runner;
+pub mod advanced;
 //   - transform(code, id) → { code, map } | null
 //   - transformIndexHtml(html) → html | tags[]
 //   - configureServer(server) → void

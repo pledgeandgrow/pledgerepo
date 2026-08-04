@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 pub mod git_cache;
 pub mod remote;
+pub mod advanced;
 use tracing::debug;
 
 /// Unique key for a cached function result

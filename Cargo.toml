@@ -139,6 +139,12 @@ ureq = { version = "3", features = ["json"] }
 # Temporary directories for tests
 tempfile = "3"
 
+# Compression for cache entries
+zstd = "0.13"
+
+# Digital signatures for cache integrity
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+
 # Internal crates
 pledgepack-core = { path = "crates/core" }
 pledgepack-cache = { path = "crates/cache" }

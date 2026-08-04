@@ -1,0 +1,39 @@
+[package]
+name = "pledgepack-task-system"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Core: hashing, serialization, async
+blake3 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+dashmap = { workspace = true }
+rayon = { workspace = true }
+futures = { workspace = true }
+
+# Proc macro for #[task]
+pledgepack-task-system-macros = { path = "../task-system-macros" }
+
+# Existing cache integration (disk + remote backends)
+pledgepack-cache = { path = "../cache" }
+
+# FFI to Zig native library (arena-allocated task graph)
+pledgepack-native-sys = { path = "../../native-sys" }
+
+# Memory-mapped I/O for graph persistence
+memmap2 = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+
+[features]
+default = []
+task-trace = []

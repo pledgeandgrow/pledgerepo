@@ -5,6 +5,9 @@
 /.zig-cache
 dist/
 
+# Test plugin build artifacts
+crates/wasm-plugin-host/tests/test-plugin-guest/target/
+
 # Native binaries (built artifacts, not source)
 *.exe
 *.zip

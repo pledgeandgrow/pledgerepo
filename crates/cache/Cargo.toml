@@ -14,3 +14,6 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 dashmap = { workspace = true }
 memmap2 = { workspace = true }
+zstd = { workspace = true }
+ed25519-dalek = { workspace = true }
+rand = "0.8"

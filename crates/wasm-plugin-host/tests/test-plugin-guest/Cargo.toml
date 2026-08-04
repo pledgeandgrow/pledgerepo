@@ -1,0 +1,18 @@
+[package]
+name = "test-plugin-guest"
+version = "0.1.0"
+edition = "2024"
+# This crate is NOT part of the pledgepack workspace.
+# It compiles to wasm32-wasip2 as a WASM component.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.41"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true

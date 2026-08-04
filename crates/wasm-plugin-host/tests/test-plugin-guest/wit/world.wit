@@ -1,0 +1,250 @@
+// PledgePack Plugin ABI — World Definition
+//
+// The world defines the complete plugin interface surface.
+// A WASM plugin component implements this world to be loaded by PledgePack.
+//
+// Versioning: v0.1.2 — FROZEN (additive change from v0.1.1)
+//   - v0.1.0: initial contract (8 hooks, 11 record types)
+//   - v0.1.1: added optional `enforce` field to plugin-metadata
+//   - v0.1.2: added `render-chunk` hook + `render-chunk-input`/`render-chunk-output` records
+//   - Breaking changes require a new world (pledgepack-plugin-v1)
+//   - Additive changes (new hooks, new optional fields) are allowed
+//   - The host checks `plugin-version` at load time and rejects mismatches
+//
+// Two-tier plugin system:
+//   - First-class: WASM component implementing this world (sandboxed, fine-grained cache)
+//   - Second-class: JS shim wrapping Vite/Rollup plugins (opaque cache, no sandbox)
+//
+// The JS shim implements the same interface but via QuickJS, not WASM.
+// This ensures both tiers share the same cache contract.
+
+package pledgepack:plugin@0.1.2;
+
+world pledgepack-plugin {
+  // The plugin declares its metadata at instantiation time
+  export plugin-metadata: func() -> plugin-metadata;
+
+  // Module pipeline hooks (sequential, first-result-wins for resolve/load,
+  // chain for transform)
+  export resolve-id: func(input: resolve-id-input) -> option<resolve-id-output>;
+  export load: func(input: load-input) -> option<load-output>;
+  export transform: func(input: transform-input) -> option<transform-output>;
+
+  // HTML transform hook (sequential)
+  export transform-index-html: func(input: html-input) -> option<html-output>;
+
+  // Render chunk hook (sequential chain)
+  // Called after code splitting, before final emit.
+  // Mirrors Rollup `renderChunk(code, chunk, outputOptions)`.
+  // Added in v0.1.2 (additive, backward-compatible).
+  export render-chunk: func(input: render-chunk-input) -> option<render-chunk-output>;
+
+  // Lifecycle hooks (parallel — all plugins called, order not guaranteed)
+  export build-start: func();
+  export build-end: func();
+  export generate-bundle: func();
+
+  // Dev server hook (dev mode only)
+  export configure-server: func() -> option<server-middleware>;
+
+  // ─── Host imports (Item 6) ──────────────────────────────────────
+  //
+  // These are functions the host (PledgePack) provides to plugins.
+  // Plugins can call these to access host functionality.
+  // Added in v0.1.1 (additive, backward-compatible).
+
+  // Get the PledgePack config as JSON string.
+  // Plugins can use this to read user configuration (e.g., plugin options).
+  import get-config: func() -> string;
+
+  // Emit a file to the output directory.
+  // Returns true if the file was written successfully.
+  // Plugins can use this to generate additional assets (e.g., CSS files,
+  // source maps, JSON manifests).
+  import emit-file: func(name: string, content: string) -> bool;
+
+  // Resolve a module specifier relative to the host's module graph.
+  // This enables plugins to resolve imports recursively (e.g., for
+  // virtual modules that depend on other virtual modules).
+  // Returns the resolved ID, or none if the specifier could not be resolved.
+  import resolve-import: func(specifier: string, importer: string) -> option<string>;
+
+  // ─── Types ───────────────────────────────────────────────────────
+
+  // Plugin metadata — returned at instantiation time
+  record plugin-metadata {
+    // Plugin name (required, used in diagnostics and cache keys)
+    name: string,
+    // ABI version this plugin targets (must match host's supported version)
+    version: string,
+    // Which hooks this plugin implements (host uses this to skip no-op calls)
+    hooks: hook-flags,
+    // Apply mode: "build", "serve", or "all" (mirrors Vite's `apply` field)
+    apply: option<string>,
+    // Plugin ordering: "pre" runs before built-in transform, "post" runs after.
+    // Default (none) is "post". Mirrors Vite's `enforce` field.
+    // Added in v0.1.1 (additive, backward-compatible).
+    enforce: option<string>,
+  }
+
+  // Flags indicating which hooks the plugin implements
+  record hook-flags {
+    resolve-id: bool,
+    load: bool,
+    transform: bool,
+    transform-index-html: bool,
+    build-start: bool,
+    build-end: bool,
+    generate-bundle: bool,
+    configure-server: bool,
+    render-chunk: bool,
+  }
+
+  // ─── resolveId hook ──────────────────────────────────────────────
+  //
+  // Called when an import specifier needs to be resolved to a module ID.
+  // Sequential: plugins are called in order; first non-null result wins.
+  // Mirrors Vite/Rollup `resolveId(source, importer, options)`.
+
+  record resolve-id-input {
+    // The import specifier to resolve (e.g., "./foo", "react", "virtual:my-mod")
+    source: string,
+    // The file that contains the import (None for entry points)
+    importer: option<string>,
+    // Whether this is an entry point import
+    is-entry: bool,
+    // Import kind: "import", "dynamic-import", "require", "import.meta.resolve"
+    kind: option<string>,
+  }
+
+  record resolve-id-output {
+    // The resolved module ID (file path or virtual module ID)
+    id: string,
+    // Whether this module should be treated as external (not bundled)
+    external: bool,
+    // Cache key: hash of all inputs that affect this result
+    // The host uses this to cache the resolve result as a task graph node
+    cache-key: string,
+  }
+
+  // ─── load hook ───────────────────────────────────────────────────
+  //
+  // Called to load the source code for a module ID.
+  // Sequential: first non-null result wins.
+  // Mirrors Vite/Rollup `load(id)`.
+
+  record load-input {
+    // The module ID to load (from resolveId or file path)
+    id: string,
+  }
+
+  record load-output {
+    // The loaded source code
+    code: string,
+    // Optional source map (JSON string)
+    source-map: option<string>,
+    // Cache key: hash of all inputs that affect this result
+    cache-key: string,
+  }
+
+  // ─── transform hook ──────────────────────────────────────────────
+  //
+  // Called to transform module source code.
+  // Sequential chain: each plugin sees the output of the previous plugin.
+  // Mirrors Vite/Rollup `transform(code, id)`.
+  //
+  // The host may provide the pre-parsed AST via `ast-json` if the plugin
+  // declares `needs-ast: true` in its metadata (Phase 0/2 extension).
+
+  record transform-input {
+    // The source code to transform
+    code: string,
+    // The module ID (file path or virtual ID)
+    id: string,
+    // Optional: pre-parsed AST as JSON (ESTree format)
+    // Present only if the plugin declared `needs-ast: true` AND the host
+    // supports AST serialization. Plugins must handle `none` gracefully.
+    ast-json: option<string>,
+  }
+
+  record transform-output {
+    // The transformed source code
+    code: string,
+    // Optional source map (JSON string)
+    source-map: option<string>,
+    // Cache key: hash of all inputs that affect this result
+    // The host uses this to cache the transform result as a task graph node
+    cache-key: string,
+  }
+
+  // ─── transformIndexHtml hook ─────────────────────────────────────
+  //
+  // Called to transform the index.html file.
+  // Sequential: each plugin sees the output of the previous plugin.
+  // Mirrors Vite `transformIndexHtml(html)`.
+
+  record html-input {
+    // The HTML content to transform
+    html: string,
+    // The file path of the HTML file
+    path: string,
+  }
+
+  record html-output {
+    // The transformed HTML content
+    html: string,
+    // Tags to inject into the HTML (alternative to modifying html directly)
+    tags: list<html-tag>,
+    // Cache key
+    cache-key: string,
+  }
+
+  record html-tag {
+    // Tag name (e.g., "script", "link", "meta")
+    tag: string,
+    // Attributes as key-value pairs
+    attrs: list<tuple<string, string>>,
+    // Children content (for tags with content)
+    children: option<string>,
+    // Where to inject: "head", "body-start", "body-end", "head-prepend"
+    inject-to: option<string>,
+  }
+
+  // ─── configureServer hook (dev mode only) ────────────────────────
+  //
+  // Called to register dev server middleware.
+  // Mirrors Vite `configureServer(server)`.
+
+  record server-middleware {
+    // The plugin name (for diagnostics)
+    plugin-name: string,
+    // Middleware source code (JS function to be evaluated)
+    // For WASM plugins, this is a WAT/WASM module that exports a handler
+    source: string,
+  }
+
+  // ─── renderChunk hook ────────────────────────────────────────────
+  //
+  // Called after code splitting, before final emit.
+  // Sequential chain: each plugin sees the output of the previous plugin.
+  // Mirrors Rollup `renderChunk(code, chunk, outputOptions)`.
+  // Added in v0.1.2 (additive, backward-compatible).
+
+  record render-chunk-input {
+    // The chunk code to render
+    code: string,
+    // The chunk filename (e.g., "assets/chunk-a1b2c3d4.js")
+    filename: string,
+    // Chunk type: "entry", "dynamic", or "shared"
+    chunk-type: string,
+  }
+
+  record render-chunk-output {
+    // The rendered chunk code
+    code: string,
+    // Optional source map (JSON string)
+    source-map: option<string>,
+    // Cache key: hash of all inputs that affect this result
+    cache-key: string,
+  }
+}

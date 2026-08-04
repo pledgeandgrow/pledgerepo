@@ -7,7 +7,7 @@
 - **Repository:** `https://github.com/pledgeandgrow/pledgepack`
 - **npm package:** `pledgepack` (currently `0.1.8`)
 - **Binary:** Native Rust binary (`pledge.exe` / `pledge`) distributed via GitHub Releases + postinstall download
-- **Language:** Rust (Oxc parser, Lightning CSS, Boa JS runtime for plugin host and tests)
+- **Language:** Rust (Oxc parser, Lightning CSS, QuickJS JS runtime for plugin host and tests, wasmtime for WASM plugins)
 - **CLI:** `pledge dev`, `pledge build`, `pledge serve`, `pledge test`, `pledge analyze`, `pledge create`, `pledge migrate`, `pledge doctor`, `pledge bench`, `pledge cache`, `pledge generate-env-types`, `pledge completions`, `pledge config`
 
 ### PledgeStack (React Framework)
@@ -47,7 +47,7 @@ User installs pledgestack (framework)
 | Dev server (HTTP, WebSocket, HMR) | ✅ | |
 | Transform pipeline (JS/TS/JSX/CSS) | ✅ | |
 | Asset pipeline (images, fonts, SVG, MDX) | ✅ | |
-| Plugin system (JS, Boa engine) | ✅ | |
+| Plugin system (JS via QuickJS, WASM via wasmtime) | ✅ | |
 | Output formats (ESM, CJS, IIFE, edge) | ✅ | |
 | Source maps | ✅ | |
 | CSS processing (Tailwind, CSS Modules, Lightning CSS) | ✅ | |

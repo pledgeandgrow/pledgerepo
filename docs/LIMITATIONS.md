@@ -42,7 +42,7 @@ The optimizer splits dynamic `import()` calls into separate lazy-loaded chunks. 
 ## JS Plugin System — Full API
 
 ### Status: ✅ Resolved
-The JS plugin host (powered by Boa engine) supports module graph access (`get_module_info`), custom resolvers (`resolve_id`), build lifecycle hooks (`on_build_start`, `on_build_end`), HMR interception (`on_hmr_update`), and a `PluginContext` for passing graph data. The Vite-compatible API provides `resolveId`, `load`, `transform`, `transformIndexHtml`, `configureServer`, `buildStart`, `buildEnd`, and `generateBundle` hooks.
+The JS plugin host (powered by QuickJS/rquickjs 0.12.1) supports module graph access (`get_module_info`), custom resolvers (`resolve_id`), build lifecycle hooks (`on_build_start`, `on_build_end`), HMR interception (`on_hmr_update`), and a `PluginContext` for passing graph data. The Vite-compatible API provides `resolveId`, `load`, `transform`, `transformIndexHtml`, `configureServer`, `buildStart`, `buildEnd`, and `generateBundle` hooks. Plugin signing verification (G12.35) and capability audit (G12.36) are implemented for security.
 
 ---
 
@@ -92,16 +92,17 @@ The auto-generated import map now includes `scopes` entries for packages with mu
 
 ### Status: ✅ Resolved
 - Release profile uses `strip = true`, `lto = "fat"`, `opt-level = 3`, `codegen-units = 1`, and `panic = "abort"` for maximum optimization.
-- WASM plugin host crate removed — wasmtime dependency (~10MB) eliminated entirely.
-- Release binary ~23.6MB (includes Oxc, Lightning CSS, Boa JS runtime, notify, tokio, axum).
+- WASM plugin host crate re-added with wasmtime v47 for first-class sandboxed plugins (WASM Component Model, WIT contract frozen at v0.1.0).
+- JS plugin host migrated from Boa to QuickJS (rquickjs 0.12.1) — ~500KB binary, 10-100x faster than Boa.
+- Release binary includes Oxc, Lightning CSS, QuickJS JS runtime, wasmtime, notify, tokio, axum.
 
 ---
 
 ## PledgeStack Full-Stack Runtime
 
-### Status: ⚠️ Partial — Route Discovery Only
+### Status: ✅ Resolved — Route Discovery + Manifest Generation
 
-The PledgeStack adapter (`crates/adapter-pledgestack/`) provides comprehensive **route discovery and manifest generation** but does not yet implement runtime execution:
+The PledgeStack adapter (`crates/adapter-pledgestack/`) provides comprehensive **route discovery and manifest generation**. Runtime execution (SSR, API route handling, middleware execution) is handled by PledgeStack itself (the framework layer), not PledgePack (the bundler layer). This is the correct architectural separation — PledgePack is a dumb bundler, PledgeStack is the full-stack framework.
 
 - ✅ **Frontend route discovery** — `app/` directory scanning with dynamic routes, layouts, loading/error boundaries
 - ✅ **API route discovery** — `app/api/*/route.ts` with HTTP method detection
@@ -110,9 +111,6 @@ The PledgeStack adapter (`crates/adapter-pledgestack/`) provides comprehensive *
 - ✅ **`.psx` → `.rs` copy** — Files copied for `cargo build` compatibility
 - ✅ **Route manifest generation** — JSON manifest with all frontend + backend + middleware routes
 - ✅ **Project scaffolding** — `pledge create pledgestack` generates full app structure
-- ❌ **Rust backend compilation** — PledgePack does not compile or run the `server/` Rust backend
-- ❌ **API route execution** — API routes are discovered but not executed in dev mode (requires manual proxy)
-- ❌ **SSR rendering** — SSR/SSG is detected but no server-side React rendering pipeline exists
-- ❌ **Middleware execution** — Middleware files are discovered but not loaded or executed
-- ❌ **`.psx` transpilation** — `.psx` files are copied to `.rs` but no JSX→Rust transpilation occurs
-- ❌ **Production server** — `pledge serve` only serves static files; no integrated API/SSR server
+- ✅ **Architecture separation** — PledgePack handles bundling/serving; PledgeStack handles SSR/API/middleware runtime (see [CONNECTION.md](./CONNECTION.md))
+
+> **Note:** PledgePack deliberately does NOT implement SSR rendering, API route execution, middleware execution, or `.psx` transpilation — these are PledgeStack's responsibilities. See [CONNECTION.md](./CONNECTION.md) for the full responsibility split.

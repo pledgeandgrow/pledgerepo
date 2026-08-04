@@ -13,7 +13,7 @@ PledgePack is a Rust+Zig bundler that eliminates the Node.js runtime overhead. E
 
 | Tool | Core Language | File I/O | Module Graph | Transform | Plugin Runtime |
 |------|--------------|----------|-------------|-----------|---------------|
-| **PledgePack** | Rust + Zig | io_uring/mmap (Zig) | Arena (0B/node) | Oxc | JS (Boa engine) |
+| **PledgePack** | Rust + Zig | io_uring/mmap (Zig) | Arena (0B/node) | Oxc | JS (QuickJS/rquickjs) |
 | Vite | JS + Rust (esbuild) | epoll (Node) | Standard | esbuild/SWC | JS (V8) |
 | Turbopack | Rust | epoll | Rc (48B/node) | SWC | None |
 | esbuild | Go | epoll | Standard | Go-native | JS (limited) |
