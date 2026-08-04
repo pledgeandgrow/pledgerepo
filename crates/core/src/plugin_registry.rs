@@ -634,8 +634,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
-        let plugin_path = tmp.join("_pledgepack_test-1.0.0.wasm");
-        let pin_path = tmp.join("_pledgepack_test-1.0.0.wasm.pin.json");
+        let plugin_path = tmp.join("pledgepack_test-1.0.0.wasm");
+        let pin_path = tmp.join("pledgepack_test-1.0.0.wasm.pin.json");
         std::fs::write(&plugin_path, b"\0asm\x01\0\0\0").unwrap();
         std::fs::write(&pin_path, "{}").unwrap();
 

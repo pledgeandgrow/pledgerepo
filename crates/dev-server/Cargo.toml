@@ -29,6 +29,10 @@ opener = { workspace = true }
 local-ip-address = { workspace = true }
 rcgen = "0.14"
 
+[dev-dependencies]
+tempfile = { workspace = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
+
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { workspace = true }
 bytemuck = "1.21"
