@@ -333,23 +333,25 @@ pub fn run_test_file_with_config(
         && let Some(tests) = arr.as_array()
     {
         for test in tests {
-            let name = test.get("name")
+            let name = test
+                .get("name")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
                 .to_string();
-            let suite = test.get("suite")
+            let suite = test
+                .get("suite")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let status_str = test.get("status")
+            let status_str = test
+                .get("status")
                 .and_then(|v| v.as_str())
                 .unwrap_or("skipped");
-            let error = test.get("error")
+            let error = test
+                .get("error")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let duration = test.get("duration")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u128;
+            let duration = test.get("duration").and_then(|v| v.as_u64()).unwrap_or(0) as u128;
 
             let status = match status_str {
                 "passed" => TestStatus::Passed,
@@ -480,23 +482,25 @@ pub fn run_test_file(file_path: &Path) -> Result<TestSummary> {
         && let Some(tests) = arr.as_array()
     {
         for test in tests {
-            let name = test.get("name")
+            let name = test
+                .get("name")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
                 .to_string();
-            let suite = test.get("suite")
+            let suite = test
+                .get("suite")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let status_str = test.get("status")
+            let status_str = test
+                .get("status")
                 .and_then(|v| v.as_str())
                 .unwrap_or("skipped");
-            let error = test.get("error")
+            let error = test
+                .get("error")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let duration = test.get("duration")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u128;
+            let duration = test.get("duration").and_then(|v| v.as_u64()).unwrap_or(0) as u128;
 
             let status = match status_str {
                 "passed" => TestStatus::Passed,

@@ -103,8 +103,7 @@ impl JsPluginHost {
     /// Create a new empty plugin host with a JS runtime
     pub fn new() -> Self {
         let runtime = Runtime::new().expect("Failed to create QuickJS runtime");
-        let context =
-            Context::full(&runtime).expect("Failed to create QuickJS context");
+        let context = Context::full(&runtime).expect("Failed to create QuickJS context");
 
         // Inject console.log support for plugin debugging
         let _ = context.with(|ctx| {
@@ -145,7 +144,9 @@ impl JsPluginHost {
             let plugin_index = self.plugins.len();
             let global_name = format!("__pledge_plugin_{}", plugin_index);
             let js_source = strip_esm_and_assign(&source, &global_name);
-            if let Err(e) = self.context.with(|ctx| ctx.eval::<(), _>(js_source.as_str()))
+            if let Err(e) = self
+                .context
+                .with(|ctx| ctx.eval::<(), _>(js_source.as_str()))
             {
                 warn!("Failed to evaluate plugin {}: {}", plugin.name, e);
             }
@@ -314,9 +315,10 @@ impl JsPluginHost {
                     serde_json::to_string(importer).unwrap_or_else(|_| "\"\"".to_string())
                 );
 
-                match self.context.with(|ctx| {
-                    ctx.eval::<Option<String>, _>(js_code.as_str())
-                }) {
+                match self
+                    .context
+                    .with(|ctx| ctx.eval::<Option<String>, _>(js_code.as_str()))
+                {
                     Ok(Some(json_str)) => {
                         if let Ok(result) = serde_json::from_str::<ResolveIdResult>(&json_str) {
                             return Some(result);
@@ -367,9 +369,10 @@ impl JsPluginHost {
                     serde_json::to_string(id).unwrap_or_else(|_| "\"\"".to_string())
                 );
 
-                match self.context.with(|ctx| {
-                    ctx.eval::<Option<String>, _>(js_code.as_str())
-                }) {
+                match self
+                    .context
+                    .with(|ctx| ctx.eval::<Option<String>, _>(js_code.as_str()))
+                {
                     Ok(Some(json_str)) => {
                         if let Ok(result) = serde_json::from_str::<LoadResult>(&json_str) {
                             return Some(result);
@@ -425,9 +428,10 @@ impl JsPluginHost {
                     id.replace('\\', "/").replace('"', "\\\"")
                 );
 
-                match self.context.with(|ctx| {
-                    ctx.eval::<Option<String>, _>(js_code.as_str())
-                }) {
+                match self
+                    .context
+                    .with(|ctx| ctx.eval::<Option<String>, _>(js_code.as_str()))
+                {
                     Ok(Some(json_str)) => {
                         if let Ok(result) = serde_json::from_str::<TransformResult>(&json_str) {
                             result_code = result.code;
@@ -496,12 +500,12 @@ impl JsPluginHost {
                     serde_json::to_string(html).unwrap_or_else(|_| "\"\"".to_string())
                 );
 
-                match self.context.with(|ctx| {
-                    ctx.eval::<Option<String>, _>(js_code.as_str())
-                }) {
+                match self
+                    .context
+                    .with(|ctx| ctx.eval::<Option<String>, _>(js_code.as_str()))
+                {
                     Ok(Some(json_str)) => {
-                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str)
-                        {
+                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str) {
                             // If html is returned as string, replace result_html
                             if let Some(html_val) = parsed.get("html").and_then(|h| h.as_str())
                                 && !html_val.is_empty()
@@ -509,9 +513,7 @@ impl JsPluginHost {
                                 result_html = html_val.to_string();
                             }
                             // Parse tags array
-                            if let Some(tags_arr) =
-                                parsed.get("tags").and_then(|t| t.as_array())
-                            {
+                            if let Some(tags_arr) = parsed.get("tags").and_then(|t| t.as_array()) {
                                 for tag_val in tags_arr {
                                     let mut tag = HtmlTag {
                                         tag: tag_val
@@ -608,9 +610,10 @@ impl JsPluginHost {
                     global_name
                 );
 
-                match self.context.with(|ctx| {
-                    ctx.eval::<Option<String>, _>(js_code.as_str())
-                }) {
+                match self
+                    .context
+                    .with(|ctx| ctx.eval::<Option<String>, _>(js_code.as_str()))
+                {
                     Ok(Some(json_str)) => {
                         if let Ok(fns) = serde_json::from_str::<Vec<String>>(&json_str) {
                             for fn_source in fns {
