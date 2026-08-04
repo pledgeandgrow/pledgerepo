@@ -8,10 +8,8 @@
 // G10.9: QuickJS JIT / V8 switch — make JS plugins faster
 // G10.10: Node.js compatibility layer — WASM-based polyfill for Node APIs
 
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{info, warn};
 
 // ─── G10.4: V8 isolate pooling ───────────────────────────────────────
 
@@ -51,7 +49,7 @@ impl IsolatePool {
     }
 
     /// Return a context to the pool for reuse
-    pub fn release(&mut self, mut ctx: boa_engine::Context) {
+    pub fn release(&mut self, ctx: boa_engine::Context) {
         if self.pool.len() < self.max_size {
             // Reset context state for reuse
             // In a real V8 implementation, this would reset the isolate
@@ -534,6 +532,7 @@ pub fn current_runtime() -> JsRuntime {
 }
 
 /// G10.9: Check if a JIT-enabled runtime is available
+#[allow(unexpected_cfgs)]
 pub fn jit_available() -> bool {
     // Check if QuickJS JIT or V8 feature is compiled in
     cfg!(any(feature = "quickjs", feature = "v8"))

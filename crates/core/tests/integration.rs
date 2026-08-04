@@ -128,26 +128,17 @@ async fn test_build_engine_fails_on_missing_entry() {
     let mut engine = BuildEngine::new(Arc::new(config));
     let result = engine.build().await;
 
-    // Build should fail or produce empty output when no entry points are configured
-    if let Ok(_) = &result {
-        // Build may succeed with empty output — verify no JS files were generated
-        let out_dir = tmp.path().join(".pledge");
-        if out_dir.exists() {
-            let has_js = std::fs::read_dir(&out_dir)
-                .map(|entries| entries.flatten().any(|e| {
-                    e.path().extension().and_then(|x| x.to_str()).map(|ext| ext == "js" || ext == "mjs").unwrap_or(false)
-                }))
-                .unwrap_or(false);
-            assert!(!has_js, "Build with no entries should not produce JS output");
-        }
-    } else {
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("entry") || err_msg.contains("app/") || err_msg.contains("No "),
-            "Error message should mention missing entry points, got: {}",
-            err_msg
-        );
-    }
+    assert!(
+        result.is_err(),
+        "Build should fail when no entry points are configured"
+    );
+
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("No entry points found"),
+        "Error message should mention missing entry points, got: {}",
+        err_msg
+    );
 }
 
 #[tokio::test]
@@ -238,10 +229,14 @@ async fn test_build_engine_fails_on_empty_app_dir() {
     );
 
     let err_msg = result.unwrap_err().to_string();
-    // Engine may fail with module resolution error (e.g. react) when app/ has no pages
     assert!(
-        err_msg.contains("No page files found") || err_msg.contains("Cannot resolve"),
-        "Error message should indicate build failure for empty app dir, got: {}",
+        err_msg.contains("No page files found"),
+        "Error message should mention no page files, got: {}",
+        err_msg
+    );
+    assert!(
+        err_msg.contains("app/page.tsx"),
+        "Error message should suggest creating app/page.tsx, got: {}",
         err_msg
     );
 }
@@ -269,8 +264,8 @@ async fn test_build_engine_fails_on_nonexistent_entry_file() {
 
     let err_msg = result.unwrap_err().to_string();
     assert!(
-        err_msg.contains("Entry file not found") || err_msg.contains("Cannot resolve"),
-        "Error message should indicate entry resolution failure, got: {}",
+        err_msg.contains("Entry file not found"),
+        "Error message should mention entry file not found, got: {}",
         err_msg
     );
     assert!(

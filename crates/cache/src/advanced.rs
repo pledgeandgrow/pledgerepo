@@ -188,15 +188,12 @@ pub struct P2PCacheEntry {
 pub struct P2PCacheDiscovery {
     /// Known peers and their cache entries
     peers: HashMap<String, Vec<P2PCacheEntry>>,
-    /// Local peer identifier
-    local_id: String,
 }
 
 impl P2PCacheDiscovery {
-    pub fn new(local_id: &str) -> Self {
+    pub fn new(_local_id: &str) -> Self {
         Self {
             peers: HashMap::new(),
-            local_id: local_id.to_string(),
         }
     }
 

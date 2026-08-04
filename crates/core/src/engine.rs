@@ -199,6 +199,14 @@ impl BuildEngine {
 
                     // Scan app directory for routes
                     let route_table = crate::router::scan_app_dir(&self.config.root, &app_dir)?;
+
+                    if route_table.routes.is_empty() {
+                        anyhow::bail!(
+                            "No page files found in app/ directory. \
+                             Create at least one page file (e.g. app/page.tsx) \
+                             to use app-directory routing."
+                        );
+                    }
                     // Use relative paths for build (gen dir is .pledge/gen/, so ../../ to reach root)
                     let router_code = route_table.generate_router_module_build("../../");
                     let router_path = gen_dir.join("__pledge_router.tsx");
@@ -282,8 +290,31 @@ document.addEventListener("click", function(e) {
         } else {
             self.config.entry.clone()
         };
+
+        if entries.is_empty() {
+            anyhow::bail!(
+                "No entry points found. Configure `entry` in pledge.config.ts \
+                 (e.g. entry: [\"src/index.tsx\"]) or create an `app/page.tsx` \
+                 file for automatic app-directory routing."
+            );
+        }
+
         for entry in &entries {
-            self.resolve_and_add(entry, None)?;
+            if let Err(e) = self.resolve_and_add(entry, None) {
+                let err_str = e.to_string();
+                if err_str.contains("Cannot resolve module") {
+                    let entry_path = self.config.root.join(entry);
+                    if !entry_path.exists() {
+                        anyhow::bail!(
+                            "Entry file not found: {} \n\
+                             The entry file does not exist. Check the path in your \
+                             pledge.config.ts or create the file.",
+                            entry
+                        );
+                    }
+                }
+                return Err(e);
+            }
         }
 
         // Record entry module IDs in the serializable graph
