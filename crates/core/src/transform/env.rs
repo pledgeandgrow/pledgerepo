@@ -230,12 +230,18 @@ fn find_block_after(code: &str, start: usize) -> Option<(usize, usize)> {
 /// Replace compile-time constants defined in config.define.
 /// Replaces all occurrences of each key with its corresponding value.
 /// Values are JSON-parsed to determine if they should be string literals, numbers, or booleans.
-pub(super) fn apply_define(code: &str, define: &std::collections::HashMap<String, String>) -> String {
+pub(super) fn apply_define(
+    code: &str,
+    define: &std::collections::HashMap<String, String>,
+) -> String {
     let mut result = code.to_string();
     for (key, value) in define {
-        let replacement = if value == "true" || value == "false" || value.parse::<f64>().is_ok() {
-            value.clone()
-        } else if value.starts_with('"') || value.starts_with('\'') {
+        let replacement = if value == "true"
+            || value == "false"
+            || value.parse::<f64>().is_ok()
+            || value.starts_with('"')
+            || value.starts_with('\'')
+        {
             value.clone()
         } else {
             format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
@@ -252,7 +258,11 @@ pub(super) fn apply_define(code: &str, define: &std::collections::HashMap<String
 ///   - `import.meta.glob('./pages/*.tsx', { eager: true })` → `{ './pages/Home.tsx': module0 }` with static imports
 ///
 /// Also supports `{ query: '?raw', import: 'default' }` options for raw string imports.
-pub(super) fn expand_import_meta_glob(code: &str, file_path: &str, config: &PledgeConfig) -> String {
+pub(super) fn expand_import_meta_glob(
+    code: &str,
+    file_path: &str,
+    config: &PledgeConfig,
+) -> String {
     if !code.contains("import.meta.glob") {
         return code.to_string();
     }

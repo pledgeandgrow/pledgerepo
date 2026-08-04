@@ -101,7 +101,8 @@ pub fn search_plugins(query: Option<&str>) -> Result<Vec<PluginInfo>> {
         })
         .map(|obj| {
             let install_count = (obj.score.popularity * 10000.0) as u32;
-            let rating = ((obj.score.quality * 3.0 + obj.score.maintenance * 2.0) / 5.0 * 5.0) as f32;
+            let rating =
+                ((obj.score.quality * 3.0 + obj.score.maintenance * 2.0) / 5.0 * 5.0) as f32;
             let category = obj
                 .package
                 .keywords
@@ -111,19 +112,23 @@ pub fn search_plugins(query: Option<&str>) -> Result<Vec<PluginInfo>> {
                         || k.starts_with("category:")
                         || matches!(
                             k.as_str(),
-                            "css" | "images" | "framework" | "data" | "assets"
-                                | "env" | "optimization" | "dev" | "testing"
-                                | "pwa" | "i18n" | "misc"
+                            "css"
+                                | "images"
+                                | "framework"
+                                | "data"
+                                | "assets"
+                                | "env"
+                                | "optimization"
+                                | "dev"
+                                | "testing"
+                                | "pwa"
+                                | "i18n"
+                                | "misc"
                         )
                 })
                 .cloned()
                 .unwrap_or_else(|| "misc".to_string());
-            let author = obj
-                .package
-                .links
-                .repository
-                .as_deref()
-                .unwrap_or("unknown");
+            let author = obj.package.links.repository.as_deref().unwrap_or("unknown");
             let verified = obj.package.name.starts_with("@pledgepack/");
             PluginInfo {
                 name: obj.package.name,
@@ -246,9 +251,18 @@ fn read_package_json(node_modules: &std::path::Path, name: &str) -> Option<Plugi
                     .find(|k| {
                         matches!(
                             k,
-                            &"css" | &"images" | &"framework" | &"data" | &"assets"
-                                | &"env" | &"optimization" | &"dev" | &"testing"
-                                | &"pwa" | &"i18n" | &"misc"
+                            &"css"
+                                | &"images"
+                                | &"framework"
+                                | &"data"
+                                | &"assets"
+                                | &"env"
+                                | &"optimization"
+                                | &"dev"
+                                | &"testing"
+                                | &"pwa"
+                                | &"i18n"
+                                | &"misc"
                         )
                     })
                     .map(|s| s.to_string())
@@ -287,7 +301,11 @@ pub fn format_plugin_list(plugins: &[PluginInfo]) -> String {
 
     let mut out = String::new();
     for p in plugins {
-        let verified_badge = if p.verified { " \x1b[32m✓\x1b[0m" } else { "" };
+        let verified_badge = if p.verified {
+            " \x1b[32m✓\x1b[0m"
+        } else {
+            ""
+        };
         let stars = if p.rating > 0.0 {
             format!(" \x1b[33m★{:.1}\x1b[0m", p.rating)
         } else {
@@ -317,16 +335,25 @@ pub fn format_plugin_marketplace(plugins: &[PluginInfo]) -> String {
     out.push_str("  ─────────────────────────────────\n\n");
 
     // Group by category
-    let mut categories: std::collections::BTreeMap<&str, Vec<&PluginInfo>> = std::collections::BTreeMap::new();
+    let mut categories: std::collections::BTreeMap<&str, Vec<&PluginInfo>> =
+        std::collections::BTreeMap::new();
     for p in plugins {
         categories.entry(&p.category).or_default().push(p);
     }
 
     for (cat, cat_plugins) in &categories {
-        out.push_str(&format!("  \x1b[35m{}\x1b[0m ({}):\n", cat, cat_plugins.len()));
+        out.push_str(&format!(
+            "  \x1b[35m{}\x1b[0m ({}):\n",
+            cat,
+            cat_plugins.len()
+        ));
         for p in cat_plugins {
             let verified = if p.verified { " ✓" } else { "" };
-            let stars = if p.rating > 0.0 { format!(" ★{:.1}", p.rating) } else { String::new() };
+            let stars = if p.rating > 0.0 {
+                format!(" ★{:.1}", p.rating)
+            } else {
+                String::new()
+            };
             let installs = if p.install_count > 0 {
                 format!(", {} installs", p.install_count)
             } else {
@@ -420,10 +447,7 @@ pub fn download_and_pin_wasm_plugin(
 }
 
 /// Verify a pinned plugin's hash matches the stored file.
-pub fn verify_pinned_plugin(
-    pin: &PinnedWasmPlugin,
-    cache_dir: &std::path::Path,
-) -> Result<bool> {
+pub fn verify_pinned_plugin(pin: &PinnedWasmPlugin, cache_dir: &std::path::Path) -> Result<bool> {
     let filename = format!(
         "{}-{}.wasm",
         pin.name.replace('/', "_").replace('@', ""),
@@ -498,7 +522,8 @@ mod tests {
             name: "@pledgepack/css-modules".to_string(),
             version: "1.0.0".to_string(),
             hash: "abcdef0123456789".to_string(),
-            url: "https://registry.npmjs.org/@pledgepack/css-modules/-/1.0.0/plugin.wasm".to_string(),
+            url: "https://registry.npmjs.org/@pledgepack/css-modules/-/1.0.0/plugin.wasm"
+                .to_string(),
             size: 1024,
         };
         let json = serde_json::to_string(&pinned).unwrap();
@@ -548,20 +573,18 @@ mod tests {
 
     #[test]
     fn test_g1219_format_plugin_list_with_marketplace_info() {
-        let plugins = vec![
-            PluginInfo {
-                name: "@pledgepack/test".to_string(),
-                version: "1.0.0".to_string(),
-                description: "Test plugin".to_string(),
-                score: 0.8,
-                url: "https://npmjs.com".to_string(),
-                install_count: 100,
-                rating: 4.0,
-                category: "misc".to_string(),
-                author: "test".to_string(),
-                verified: true,
-            },
-        ];
+        let plugins = vec![PluginInfo {
+            name: "@pledgepack/test".to_string(),
+            version: "1.0.0".to_string(),
+            description: "Test plugin".to_string(),
+            score: 0.8,
+            url: "https://npmjs.com".to_string(),
+            install_count: 100,
+            rating: 4.0,
+            category: "misc".to_string(),
+            author: "test".to_string(),
+            verified: true,
+        }];
 
         let output = format_plugin_list(&plugins);
         assert!(output.contains("@pledgepack/test"));

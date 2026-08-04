@@ -1,7 +1,7 @@
 // Asset transforms: JSON, static assets, WASM, shaders
 
-use crate::config::PledgeConfig;
 use super::TransformOutput;
+use crate::config::PledgeConfig;
 use anyhow::Result;
 use std::path::Path;
 
@@ -248,9 +248,7 @@ pub(super) fn transform_wasm(file_path: &str, config: &PledgeConfig) -> Result<T
                 url
             )
         }
-        "never" => {
-            crate::performance::generate_wasm_streaming_code(&url, true)
-        }
+        "never" => crate::performance::generate_wasm_streaming_code(&url, true),
         _ => {
             let simd_url = format!("{}.simd.wasm", url.trim_end_matches(".wasm"));
             format!(

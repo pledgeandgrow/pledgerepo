@@ -55,7 +55,11 @@ pub fn chunk_data(data: &[u8]) -> Vec<Chunk> {
             // Small tail — just include it
             data.len()
         } else {
-            find_chunk_boundary(&data[offset..], CHUNK_MIN_SIZE, CHUNK_MAX_SIZE.min(remaining)) + offset
+            find_chunk_boundary(
+                &data[offset..],
+                CHUNK_MIN_SIZE,
+                CHUNK_MAX_SIZE.min(remaining),
+            ) + offset
         };
 
         let chunk_data = &data[offset..end];
@@ -116,9 +120,7 @@ pub fn parallel_fetch(
     // Use std threads for parallel fetch since we don't have rayon in cache crate
     let results: Vec<Option<crate::remote::RemoteCacheEntry>> = keys
         .iter()
-        .map(|key| {
-            cache.get(key).unwrap_or(None)
-        })
+        .map(|key| cache.get(key).unwrap_or(None))
         .collect();
     results
 }
@@ -254,12 +256,7 @@ impl DedupCache {
     }
 
     /// Store a cache entry with deduplication
-    pub fn store(
-        &mut self,
-        key: &str,
-        data: &[u8],
-        cache_dir: &Path,
-    ) -> Result<()> {
+    pub fn store(&mut self, key: &str, data: &[u8], cache_dir: &Path) -> Result<()> {
         let content_hash = blake3::hash(data).to_hex().as_str().to_string();
 
         // Check if content already exists
@@ -270,7 +267,10 @@ impl DedupCache {
         }
 
         // Update mappings
-        if let Some(old_hash) = self.key_to_content.insert(key.to_string(), content_hash.clone()) {
+        if let Some(old_hash) = self
+            .key_to_content
+            .insert(key.to_string(), content_hash.clone())
+        {
             // Key existed before, decrement old ref count
             if let Some(count) = self.ref_counts.get_mut(&old_hash) {
                 *count = count.saturating_sub(1);
@@ -434,9 +434,7 @@ pub fn export_cache(cache_dir: &Path, output_path: &Path) -> Result<ExportStats>
     std::fs::write(output_path, &compressed)?;
     info!(
         "Exported {} cache entries: {} -> {} (compressed)",
-        stats.files,
-        stats.uncompressed_size,
-        stats.compressed_size
+        stats.files, stats.uncompressed_size, stats.compressed_size
     );
 
     Ok(stats)
@@ -467,7 +465,8 @@ pub fn import_cache(input_path: &Path, cache_dir: &Path) -> Result<ImportStats> 
         if offset + fname_len > archive_data.len() {
             break;
         }
-        let filename = String::from_utf8_lossy(&archive_data[offset..offset + fname_len]).to_string();
+        let filename =
+            String::from_utf8_lossy(&archive_data[offset..offset + fname_len]).to_string();
         offset += fname_len;
 
         if offset + 4 > archive_data.len() {
@@ -684,7 +683,10 @@ mod tests {
         let chunks = chunk_data(&data);
         let mut chunk_map = HashMap::new();
         for chunk in &chunks {
-            chunk_map.insert(chunk.hash.clone(), data[chunk.offset..chunk.offset + chunk.size].to_vec());
+            chunk_map.insert(
+                chunk.hash.clone(),
+                data[chunk.offset..chunk.offset + chunk.size].to_vec(),
+            );
         }
         let reassembled = reassemble_data(&chunks, &chunk_map).unwrap();
         assert_eq!(reassembled, data);
@@ -747,7 +749,8 @@ mod tests {
 
     #[test]
     fn test_g912_compress_decompress() {
-        let data = b"Hello, World! This is a test cache entry that should compress well. ".repeat(10);
+        let data =
+            b"Hello, World! This is a test cache entry that should compress well. ".repeat(10);
         let compressed = compress_cache_entry(&data).unwrap();
         assert!(compressed.len() < data.len());
 

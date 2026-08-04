@@ -14,7 +14,11 @@ use std::path::Path;
 /// Transform a Vue Single-File Component (.vue)
 /// Extracts <template>, <script setup>, and <style> blocks
 /// Produces a JS module with render function + component options
-pub(super) fn transform_vue(source: &str, file_path: &str, is_production: bool) -> Result<TransformOutput> {
+pub(super) fn transform_vue(
+    source: &str,
+    file_path: &str,
+    is_production: bool,
+) -> Result<TransformOutput> {
     let template = extract_sfc_block(source, "template");
     let script = extract_sfc_block(source, "script");
     let style = extract_sfc_block(source, "style");
@@ -597,7 +601,11 @@ fn add_scope_to_css(css: &str, attr: &str) -> String {
 /// Transform a Svelte component (.svelte)
 /// Extracts <script>, <style>, and markup
 /// Produces a JS module with a Svelte-compatible component
-pub(super) fn transform_svelte(source: &str, file_path: &str, is_production: bool) -> Result<TransformOutput> {
+pub(super) fn transform_svelte(
+    source: &str,
+    file_path: &str,
+    is_production: bool,
+) -> Result<TransformOutput> {
     let script = extract_sfc_block(source, "script");
     let style = extract_sfc_block(source, "style");
     let markup = extract_svelte_markup(source);
@@ -872,7 +880,11 @@ fn extract_svelte_markup(source: &str) -> String {
 /// Transform an Astro component (.astro)
 /// Extracts frontmatter (---), template, and styles
 /// Produces a JS module with a render function
-pub(super) fn transform_astro(source: &str, file_path: &str, is_production: bool) -> Result<TransformOutput> {
+pub(super) fn transform_astro(
+    source: &str,
+    file_path: &str,
+    is_production: bool,
+) -> Result<TransformOutput> {
     let mut code = String::new();
     let mut extracted_css = None;
 

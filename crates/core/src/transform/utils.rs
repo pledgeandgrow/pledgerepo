@@ -5,7 +5,11 @@ use std::path::Path;
 /// Generate a source map for a transformed file.
 /// Uses a simple V3 source map format with the original source content.
 /// In "nosources" mode, sourcesContent is omitted for security.
-pub(super) fn generate_source_map(file_path: &str, original_source: &str, _generated_code: &str) -> String {
+pub(super) fn generate_source_map(
+    file_path: &str,
+    original_source: &str,
+    _generated_code: &str,
+) -> String {
     let file_name = Path::new(file_path)
         .file_name()
         .and_then(|n| n.to_str())
@@ -116,7 +120,10 @@ pub(super) fn transform_worker_imports(code: &str, file_path: &str) -> String {
         }
     }
 
-    for (suffix, constructor) in &[("?worker", "new Worker"), ("?sharedworker", "new SharedWorker")] {
+    for (suffix, constructor) in &[
+        ("?worker", "new Worker"),
+        ("?sharedworker", "new SharedWorker"),
+    ] {
         let import_pattern = "from \"".to_string();
         let mut search_pos = 0;
         while let Some(pos) = result[search_pos..].find(&import_pattern) {

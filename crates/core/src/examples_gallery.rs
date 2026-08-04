@@ -83,7 +83,7 @@ pub struct ExampleProject {
     /// Difficulty level: beginner, intermediate, advanced
     pub difficulty: &'static str,
     /// Tags for search
-    pub tags: &'static [&'static str],
+    pub tags: Vec<&'static str>,
     /// Template to use for scaffolding
     pub template: &'static str,
 }
@@ -98,7 +98,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::React,
             description: "Simple counter with useState hook".into(),
             difficulty: "beginner",
-            tags: &["react", "hooks", "state"],
+            tags: vec!["react", "hooks", "state"],
             template: "react",
         },
         ExampleProject {
@@ -107,7 +107,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::React,
             description: "Todo list with add, complete, delete, filter".into(),
             difficulty: "beginner",
-            tags: &["react", "hooks", "crud"],
+            tags: vec!["react", "hooks", "crud"],
             template: "react",
         },
         ExampleProject {
@@ -116,7 +116,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::React,
             description: "Multi-page app with client-side routing".into(),
             difficulty: "intermediate",
-            tags: &["react", "router", "spa"],
+            tags: vec!["react", "router", "spa"],
             template: "react",
         },
         ExampleProject {
@@ -125,7 +125,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::React,
             description: "Data fetching with useEffect and loading states".into(),
             difficulty: "intermediate",
-            tags: &["react", "fetch", "api"],
+            tags: vec!["react", "fetch", "api"],
             template: "react",
         },
         ExampleProject {
@@ -134,7 +134,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::React,
             description: "Form with real-time validation and error messages".into(),
             difficulty: "intermediate",
-            tags: &["react", "forms", "validation"],
+            tags: vec!["react", "forms", "validation"],
             template: "react",
         },
         ExampleProject {
@@ -143,7 +143,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::React,
             description: "Dark/light theme toggle using Context API".into(),
             difficulty: "intermediate",
-            tags: &["react", "context", "theme"],
+            tags: vec!["react", "context", "theme"],
             template: "react",
         },
         ExampleProject {
@@ -152,7 +152,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::React,
             description: "Complex state management with useReducer".into(),
             difficulty: "intermediate",
-            tags: &["react", "reducer", "state"],
+            tags: vec!["react", "reducer", "state"],
             template: "react",
         },
         ExampleProject {
@@ -161,10 +161,9 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::React,
             description: "Accessible modal dialog using React Portal".into(),
             difficulty: "advanced",
-            tags: &["react", "portal", "modal"],
+            tags: vec!["react", "portal", "modal"],
             template: "react",
         },
-
         // ─── Vue (5) ───
         ExampleProject {
             id: "vue-counter".into(),
@@ -172,7 +171,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Vue,
             description: "Simple counter with ref()".into(),
             difficulty: "beginner",
-            tags: &["vue", "composition", "state"],
+            tags: vec!["vue", "composition", "state"],
             template: "vue",
         },
         ExampleProject {
@@ -181,7 +180,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Vue,
             description: "Todo list with v-model and computed".into(),
             difficulty: "beginner",
-            tags: &["vue", "crud", "computed"],
+            tags: vec!["vue", "crud", "computed"],
             template: "vue",
         },
         ExampleProject {
@@ -190,7 +189,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Vue,
             description: "Multi-page app with vue-router".into(),
             difficulty: "intermediate",
-            tags: &["vue", "router", "spa"],
+            tags: vec!["vue", "router", "spa"],
             template: "vue",
         },
         ExampleProject {
@@ -199,7 +198,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Vue,
             description: "State management with Pinia stores".into(),
             difficulty: "intermediate",
-            tags: &["vue", "pinia", "state"],
+            tags: vec!["vue", "pinia", "state"],
             template: "vue",
         },
         ExampleProject {
@@ -208,10 +207,9 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Vue,
             description: "Animated transitions with Transition component".into(),
             difficulty: "intermediate",
-            tags: &["vue", "animation", "transition"],
+            tags: vec!["vue", "animation", "transition"],
             template: "vue",
         },
-
         // ─── Svelte (4) ───
         ExampleProject {
             id: "svelte-counter".into(),
@@ -219,7 +217,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Svelte,
             description: "Simple counter with reactive declarations".into(),
             difficulty: "beginner",
-            tags: &["svelte", "reactive", "state"],
+            tags: vec!["svelte", "reactive", "state"],
             template: "svelte",
         },
         ExampleProject {
@@ -228,7 +226,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Svelte,
             description: "Todo app with stores and transitions".into(),
             difficulty: "beginner",
-            tags: &["svelte", "stores", "crud"],
+            tags: vec!["svelte", "stores", "crud"],
             template: "svelte",
         },
         ExampleProject {
@@ -237,7 +235,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Svelte,
             description: "Writable/readable stores for shared state".into(),
             difficulty: "intermediate",
-            tags: &["svelte", "store", "state"],
+            tags: vec!["svelte", "store", "state"],
             template: "svelte",
         },
         ExampleProject {
@@ -246,10 +244,9 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Svelte,
             description: "Spring and tweened animations".into(),
             difficulty: "intermediate",
-            tags: &["svelte", "animation", "motion"],
+            tags: vec!["svelte", "animation", "motion"],
             template: "svelte",
         },
-
         // ─── Solid (4) ───
         ExampleProject {
             id: "solid-counter".into(),
@@ -257,7 +254,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Solid,
             description: "Simple counter with createSignal".into(),
             difficulty: "beginner",
-            tags: &["solid", "signal", "state"],
+            tags: vec!["solid", "signal", "state"],
             template: "solid",
         },
         ExampleProject {
@@ -266,7 +263,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Solid,
             description: "Todo list with createStore".into(),
             difficulty: "beginner",
-            tags: &["solid", "store", "crud"],
+            tags: vec!["solid", "store", "crud"],
             template: "solid",
         },
         ExampleProject {
@@ -275,7 +272,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Solid,
             description: "Async data loading with createResource".into(),
             difficulty: "intermediate",
-            tags: &["solid", "resource", "async"],
+            tags: vec!["solid", "resource", "async"],
             template: "solid",
         },
         ExampleProject {
@@ -284,10 +281,9 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Solid,
             description: "Portal rendering for overlays".into(),
             difficulty: "advanced",
-            tags: &["solid", "portal", "overlay"],
+            tags: vec!["solid", "portal", "overlay"],
             template: "solid",
         },
-
         // ─── Fullstack (5) ───
         ExampleProject {
             id: "fullstack-pledgestack-blog".into(),
@@ -295,7 +291,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Fullstack,
             description: "Full-stack blog with SSR and file-based routing".into(),
             difficulty: "advanced",
-            tags: &["fullstack", "ssr", "blog", "pledgestack"],
+            tags: vec!["fullstack", "ssr", "blog", "pledgestack"],
             template: "pledgestack",
         },
         ExampleProject {
@@ -304,7 +300,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Fullstack,
             description: "Server-side rendering with Next.js adapter".into(),
             difficulty: "advanced",
-            tags: &["fullstack", "ssr", "next"],
+            tags: vec!["fullstack", "ssr", "next"],
             template: "next",
         },
         ExampleProject {
@@ -313,7 +309,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Fullstack,
             description: "Serverless API routes with JSON responses".into(),
             difficulty: "intermediate",
-            tags: &["fullstack", "api", "serverless"],
+            tags: vec!["fullstack", "api", "serverless"],
             template: "pledgestack",
         },
         ExampleProject {
@@ -322,7 +318,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Fullstack,
             description: "Login/logout with session management".into(),
             difficulty: "advanced",
-            tags: &["fullstack", "auth", "session"],
+            tags: vec!["fullstack", "auth", "session"],
             template: "pledgestack",
         },
         ExampleProject {
@@ -331,10 +327,9 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Fullstack,
             description: "GraphQL API with codegen and React hooks".into(),
             difficulty: "advanced",
-            tags: &["fullstack", "graphql", "api"],
+            tags: vec!["fullstack", "graphql", "api"],
             template: "pledgestack",
         },
-
         // ─── CSS (5) ───
         ExampleProject {
             id: "css-tailwind".into(),
@@ -342,7 +337,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Css,
             description: "Tailwind CSS integration with JIT compilation".into(),
             difficulty: "beginner",
-            tags: &["css", "tailwind", "utility"],
+            tags: vec!["css", "tailwind", "utility"],
             template: "react",
         },
         ExampleProject {
@@ -351,7 +346,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Css,
             description: "UnoCSS with atomic CSS classes".into(),
             difficulty: "beginner",
-            tags: &["css", "unocss", "atomic"],
+            tags: vec!["css", "unocss", "atomic"],
             template: "react",
         },
         ExampleProject {
@@ -360,7 +355,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Css,
             description: "Scoped CSS with module conventions".into(),
             difficulty: "beginner",
-            tags: &["css", "modules", "scoped"],
+            tags: vec!["css", "modules", "scoped"],
             template: "react",
         },
         ExampleProject {
@@ -369,7 +364,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Css,
             description: "Sass preprocessing with variables and mixins".into(),
             difficulty: "intermediate",
-            tags: &["css", "sass", "scss"],
+            tags: vec!["css", "sass", "scss"],
             template: "react",
         },
         ExampleProject {
@@ -378,10 +373,9 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Css,
             description: "PostCSS pipeline with autoprefixer".into(),
             difficulty: "intermediate",
-            tags: &["css", "postcss", "autoprefixer"],
+            tags: vec!["css", "postcss", "autoprefixer"],
             template: "react",
         },
-
         // ─── Plugins (5) ───
         ExampleProject {
             id: "plugin-wasm-minify".into(),
@@ -389,7 +383,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Plugins,
             description: "WASM-powered JS minification plugin".into(),
             difficulty: "advanced",
-            tags: &["plugin", "wasm", "minify"],
+            tags: vec!["plugin", "wasm", "minify"],
             template: "vanilla",
         },
         ExampleProject {
@@ -398,7 +392,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Plugins,
             description: "Custom module resolution plugin".into(),
             difficulty: "intermediate",
-            tags: &["plugin", "resolve", "alias"],
+            tags: vec!["plugin", "resolve", "alias"],
             template: "vanilla",
         },
         ExampleProject {
@@ -407,7 +401,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Plugins,
             description: "Replace environment variables in code".into(),
             difficulty: "beginner",
-            tags: &["plugin", "env", "replace"],
+            tags: vec!["plugin", "env", "replace"],
             template: "vanilla",
         },
         ExampleProject {
@@ -416,7 +410,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Plugins,
             description: "Automatic image optimization and WebP conversion".into(),
             difficulty: "intermediate",
-            tags: &["plugin", "image", "webp"],
+            tags: vec!["plugin", "image", "webp"],
             template: "vanilla",
         },
         ExampleProject {
@@ -425,10 +419,9 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Plugins,
             description: "Internationalization with translation extraction".into(),
             difficulty: "advanced",
-            tags: &["plugin", "i18n", "translation"],
+            tags: vec!["plugin", "i18n", "translation"],
             template: "vanilla",
         },
-
         // ─── Vanilla (6) ───
         ExampleProject {
             id: "vanilla-ts-starter".into(),
@@ -436,7 +429,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Vanilla,
             description: "Minimal TypeScript project setup".into(),
             difficulty: "beginner",
-            tags: &["vanilla", "typescript", "starter"],
+            tags: vec!["vanilla", "typescript", "starter"],
             template: "vanilla",
         },
         ExampleProject {
@@ -445,7 +438,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Vanilla,
             description: "HTML5 Canvas particle animation".into(),
             difficulty: "intermediate",
-            tags: &["vanilla", "canvas", "animation"],
+            tags: vec!["vanilla", "canvas", "animation"],
             template: "vanilla",
         },
         ExampleProject {
@@ -454,7 +447,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Vanilla,
             description: "Custom elements with Shadow DOM".into(),
             difficulty: "intermediate",
-            tags: &["vanilla", "web-components", "shadow-dom"],
+            tags: vec!["vanilla", "web-components", "shadow-dom"],
             template: "vanilla",
         },
         ExampleProject {
@@ -463,7 +456,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Vanilla,
             description: "WebGL rendering with shaders".into(),
             difficulty: "advanced",
-            tags: &["vanilla", "webgl", "shader"],
+            tags: vec!["vanilla", "webgl", "shader"],
             template: "vanilla",
         },
         ExampleProject {
@@ -472,7 +465,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Vanilla,
             description: "Offload computation to a web worker".into(),
             difficulty: "intermediate",
-            tags: &["vanilla", "worker", "threads"],
+            tags: vec!["vanilla", "worker", "threads"],
             template: "vanilla",
         },
         ExampleProject {
@@ -481,10 +474,9 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Vanilla,
             description: "Offline-first PWA with service worker".into(),
             difficulty: "advanced",
-            tags: &["vanilla", "pwa", "service-worker"],
+            tags: vec!["vanilla", "pwa", "service-worker"],
             template: "vanilla",
         },
-
         // ─── TanStack (4) ───
         ExampleProject {
             id: "tanstack-router-basic".into(),
@@ -492,7 +484,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Tanstack,
             description: "File-based routing with TanStack Router".into(),
             difficulty: "intermediate",
-            tags: &["tanstack", "router", "file-based"],
+            tags: vec!["tanstack", "router", "file-based"],
             template: "tanstack",
         },
         ExampleProject {
@@ -501,7 +493,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Tanstack,
             description: "Server state management with TanStack Query".into(),
             difficulty: "intermediate",
-            tags: &["tanstack", "query", "data"],
+            tags: vec!["tanstack", "query", "data"],
             template: "tanstack",
         },
         ExampleProject {
@@ -510,7 +502,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Tanstack,
             description: "Type-safe form management with TanStack Form".into(),
             difficulty: "intermediate",
-            tags: &["tanstack", "form", "validation"],
+            tags: vec!["tanstack", "form", "validation"],
             template: "tanstack",
         },
         ExampleProject {
@@ -519,10 +511,9 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Tanstack,
             description: "Headless table with sorting and filtering".into(),
             difficulty: "advanced",
-            tags: &["tanstack", "table", "sort"],
+            tags: vec!["tanstack", "table", "sort"],
             template: "tanstack",
         },
-
         // ─── Performance (5) ───
         ExampleProject {
             id: "perf-code-splitting".into(),
@@ -530,7 +521,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Performance,
             description: "Dynamic imports and route-level code splitting".into(),
             difficulty: "intermediate",
-            tags: &["performance", "splitting", "lazy"],
+            tags: vec!["performance", "splitting", "lazy"],
             template: "react",
         },
         ExampleProject {
@@ -539,7 +530,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Performance,
             description: "Dead code elimination demonstration".into(),
             difficulty: "intermediate",
-            tags: &["performance", "tree-shaking", "dead-code"],
+            tags: vec!["performance", "tree-shaking", "dead-code"],
             template: "vanilla",
         },
         ExampleProject {
@@ -548,7 +539,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Performance,
             description: "Bundle size analysis and budget enforcement".into(),
             difficulty: "intermediate",
-            tags: &["performance", "bundle", "budget"],
+            tags: vec!["performance", "bundle", "budget"],
             template: "react",
         },
         ExampleProject {
@@ -557,7 +548,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Performance,
             description: "Lazy load images and components with IntersectionObserver".into(),
             difficulty: "intermediate",
-            tags: &["performance", "lazy", "intersection"],
+            tags: vec!["performance", "lazy", "intersection"],
             template: "react",
         },
         ExampleProject {
@@ -566,7 +557,7 @@ pub fn all_examples() -> Vec<ExampleProject> {
             category: ExampleCategory::Performance,
             description: "Resource hints for faster navigation".into(),
             difficulty: "advanced",
-            tags: &["performance", "preload", "prefetch"],
+            tags: vec!["performance", "preload", "prefetch"],
             template: "react",
         },
     ]
@@ -604,10 +595,7 @@ pub fn category_counts() -> Vec<(ExampleCategory, usize)> {
     ExampleCategory::all()
         .iter()
         .map(|cat| {
-            let count = all_examples()
-                .iter()
-                .filter(|e| &e.category == cat)
-                .count();
+            let count = all_examples().iter().filter(|e| &e.category == cat).count();
             (cat.clone(), count)
         })
         .collect()
@@ -627,11 +615,7 @@ pub fn format_gallery() -> String {
     out.push_str("  ───────────────────────────────────────\n\n");
 
     for (cat, count) in &counts {
-        out.push_str(&format!(
-            "  \x1b[35m{}\x1b[0m ({})\n",
-            cat.label(),
-            count
-        ));
+        out.push_str(&format!("  \x1b[35m{}\x1b[0m ({})\n", cat.label(), count));
         for ex in examples.iter().filter(|e| &e.category == cat) {
             out.push_str(&format!(
                 "    \x1b[36m{}\x1b[0m — {}\n      \x1b[90m[{}] tags: {}\x1b[0m\n",

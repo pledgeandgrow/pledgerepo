@@ -1,7 +1,7 @@
 // CSS transforms: Lightning CSS, CSS Modules, PostCSS/Tailwind, Sass
 
-use crate::config::PledgeConfig;
 use super::TransformOutput;
+use crate::config::PledgeConfig;
 use anyhow::Result;
 
 /// Transform CSS using Lightning CSS

@@ -980,7 +980,10 @@ impl SourceError {
     /// ```
     pub fn format(&self) -> String {
         let mut output = format!("error[{}]: {}\n", self.code, self.message);
-        output.push_str(&format!("  --> {}:{}:{}\n", self.file, self.line, self.column));
+        output.push_str(&format!(
+            "  --> {}:{}:{}\n",
+            self.file, self.line, self.column
+        ));
 
         if !self.source_line.is_empty() {
             let line_num = format!("{}", self.line);
@@ -1047,7 +1050,8 @@ impl PluginSigningVerifier {
 
     /// Add a trusted public key for an identity.
     pub fn trust_key(&mut self, identity: &str, public_key: &str) {
-        self.trusted_keys.push((identity.to_string(), public_key.to_string()));
+        self.trusted_keys
+            .push((identity.to_string(), public_key.to_string()));
     }
 
     /// Verify a plugin signature.
@@ -1070,9 +1074,7 @@ impl PluginSigningVerifier {
         // pubkey.verify(sig.wasm_hash.as_bytes(), &sig_bytes).is_ok()
 
         // For now, just check that the fields are non-empty
-        !sig.wasm_hash.is_empty()
-            && !sig.signature.is_empty()
-            && !sig.signer_public_key.is_empty()
+        !sig.wasm_hash.is_empty() && !sig.signature.is_empty() && !sig.signer_public_key.is_empty()
     }
 
     /// Verify and return a signed plugin signature.
@@ -1181,9 +1183,7 @@ impl CapabilityAuditor {
                 PluginCapability::CacheAccess,
                 PluginCapability::StdoutWrite,
             ],
-            denied: vec![
-                PluginCapability::ProcessSpawn,
-            ],
+            denied: vec![PluginCapability::ProcessSpawn],
         }
     }
 
@@ -1198,7 +1198,12 @@ impl CapabilityAuditor {
     }
 
     /// Audit a plugin's requested capabilities.
-    pub fn audit(&self, plugin_name: &str, version: &str, caps: Vec<PluginCapability>) -> CapabilityAudit {
+    pub fn audit(
+        &self,
+        plugin_name: &str,
+        version: &str,
+        caps: Vec<PluginCapability>,
+    ) -> CapabilityAudit {
         let mut denied_caps = Vec::new();
         for cap in &caps {
             if self.denied.contains(cap) {
@@ -1212,7 +1217,11 @@ impl CapabilityAuditor {
         } else {
             format!(
                 "Denied capabilities: {}",
-                denied_caps.iter().map(|c| c.as_str()).collect::<Vec<_>>().join(", ")
+                denied_caps
+                    .iter()
+                    .map(|c| c.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
         };
 
@@ -1229,7 +1238,11 @@ impl CapabilityAuditor {
 
     /// Get all high-risk capabilities from an audit.
     pub fn high_risk_capabilities(audit: &CapabilityAudit) -> Vec<&PluginCapability> {
-        audit.capabilities.iter().filter(|c| c.is_high_risk()).collect()
+        audit
+            .capabilities
+            .iter()
+            .filter(|c| c.is_high_risk())
+            .collect()
     }
 }
 
@@ -1245,9 +1258,15 @@ mod g12_tests {
 
     #[test]
     fn g12_16_source_error_format() {
-        let error = SourceError::new("PLEDGE-E001", "Cannot resolve module \"lodash\"", "src/main.ts", 3, 10)
-            .with_source_line("import _ from \"lodash\";")
-            .with_help("Install lodash with `npm install lodash`");
+        let error = SourceError::new(
+            "PLEDGE-E001",
+            "Cannot resolve module \"lodash\"",
+            "src/main.ts",
+            3,
+            10,
+        )
+        .with_source_line("import _ from \"lodash\";")
+        .with_help("Install lodash with `npm install lodash`");
 
         let formatted = error.format();
         assert!(formatted.contains("error[PLEDGE-E001]"));
@@ -1266,8 +1285,8 @@ mod g12_tests {
             end_line: 3,
             end_col: 18,
         };
-        let error = SourceError::new("PLEDGE-E002", "Module not found", "src/app.ts", 3, 10)
-            .with_fix(fix);
+        let error =
+            SourceError::new("PLEDGE-E002", "Module not found", "src/app.ts", 3, 10).with_fix(fix);
 
         assert_eq!(error.fixes.len(), 1);
         assert!(error.fixes[0].description.contains("lodash-es"));
@@ -1316,7 +1335,10 @@ mod g12_tests {
         let audit = auditor.audit(
             "@pledge/css",
             "1.0.0",
-            vec![PluginCapability::FileSystemRead, PluginCapability::CacheAccess],
+            vec![
+                PluginCapability::FileSystemRead,
+                PluginCapability::CacheAccess,
+            ],
         );
 
         assert!(audit.approved);
@@ -1329,7 +1351,10 @@ mod g12_tests {
         let audit = auditor.audit(
             "suspicious-plugin",
             "1.0.0",
-            vec![PluginCapability::FileSystemRead, PluginCapability::ProcessSpawn],
+            vec![
+                PluginCapability::FileSystemRead,
+                PluginCapability::ProcessSpawn,
+            ],
         );
 
         assert!(!audit.approved);

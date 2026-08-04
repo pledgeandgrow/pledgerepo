@@ -425,12 +425,7 @@ pub fn generate_determinism_dashboard_html(report: &DeterminismReport) -> String
     </table>
 </body>
 </html>"#,
-        total,
-        det_count,
-        nondet_count,
-        rate,
-        rate,
-        task_rows,
+        total, det_count, nondet_count, rate, rate, task_rows,
     )
 }
 
@@ -443,7 +438,12 @@ mod tests {
         let mut report = DeterminismReport::default();
         report.record_check("task_1", "transform_js", true, None);
         report.record_check("task_1", "transform_js", true, None);
-        report.record_check("task_2", "bundle_css", false, Some("Random timestamp".to_string()));
+        report.record_check(
+            "task_2",
+            "bundle_css",
+            false,
+            Some("Random timestamp".to_string()),
+        );
 
         assert_eq!(report.total(), 2);
         assert_eq!(report.deterministic_count(), 1);
@@ -615,10 +615,15 @@ impl TaskSpan {
     /// Create a new task span.
     pub fn new(trace_id: &str, task_name: &str, task_id: &str) -> Self {
         // Generate a simple span ID from a hash of trace_id + task_id + timestamp
-        let span_input = format!("{}{}{}", trace_id, task_name, std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos());
+        let span_input = format!(
+            "{}{}{}",
+            trace_id,
+            task_name,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
         let span_hash = format!("{:016x}", fnv1a_64(span_input.as_bytes()));
         Self {
             trace_id: trace_id.to_string(),
@@ -727,8 +732,8 @@ mod g12_26_tests {
 
     #[test]
     fn otlp_config_http_with_headers() {
-        let config = OtlpExportConfig::http("http://collector:4318")
-            .with_header("x-api-key", "secret123");
+        let config =
+            OtlpExportConfig::http("http://collector:4318").with_header("x-api-key", "secret123");
         assert!(config.enabled);
         assert_eq!(config.protocol, OtlpProtocol::Http);
         assert_eq!(config.headers.len(), 1);

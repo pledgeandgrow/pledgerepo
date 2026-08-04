@@ -1,11 +1,11 @@
+use futures_util::StreamExt;
+use pledgepack_core::BuildEngine;
 use pledgepack_core::config::{BuildMode, Framework, PledgeConfig};
 use pledgepack_core::module::ModuleKind;
 use pledgepack_core::transform as pledge_transform;
-use pledgepack_core::BuildEngine;
 use std::fs;
 use std::sync::Arc;
 use tempfile::TempDir;
-use futures_util::StreamExt;
 
 /// Helper: find an available port for testing
 fn find_free_port() -> u16 {
@@ -75,7 +75,10 @@ export const metadata = { title: "Counter" };
     let output = result.unwrap();
 
     // 1. Output should not be empty
-    assert!(!output.code.is_empty(), "Transformed code should not be empty");
+    assert!(
+        !output.code.is_empty(),
+        "Transformed code should not be empty"
+    );
 
     // 2. Should use React automatic JSX runtime (jsx/jsxs/Fragment)
     assert!(
@@ -96,7 +99,9 @@ export const metadata = { title: "Counter" };
 
     // 4. Should not contain raw JSX
     assert!(
-        !output.code.contains("<div") && !output.code.contains("<button") && !output.code.contains("<h1"),
+        !output.code.contains("<div")
+            && !output.code.contains("<button")
+            && !output.code.contains("<h1"),
         "Should not contain raw JSX syntax"
     );
 
@@ -165,12 +170,30 @@ export const PATCH = async (request: Request) => {
     let output = result.unwrap();
 
     // PledgeJS API route loader expects all HTTP method exports to survive
-    assert!(output.code.contains("GET"), "GET export should survive transform");
-    assert!(output.code.contains("POST"), "POST export should survive transform");
-    assert!(output.code.contains("PUT"), "PUT export should survive transform");
-    assert!(output.code.contains("DELETE"), "DELETE export should survive transform");
-    assert!(output.code.contains("PATCH"), "PATCH export should survive transform");
-    assert!(output.code.contains("export"), "Export keyword should be preserved");
+    assert!(
+        output.code.contains("GET"),
+        "GET export should survive transform"
+    );
+    assert!(
+        output.code.contains("POST"),
+        "POST export should survive transform"
+    );
+    assert!(
+        output.code.contains("PUT"),
+        "PUT export should survive transform"
+    );
+    assert!(
+        output.code.contains("DELETE"),
+        "DELETE export should survive transform"
+    );
+    assert!(
+        output.code.contains("PATCH"),
+        "PATCH export should survive transform"
+    );
+    assert!(
+        output.code.contains("export"),
+        "Export keyword should be preserved"
+    );
     assert!(
         !output.code.contains(": Request"),
         "TypeScript type annotations should be stripped"
@@ -208,9 +231,8 @@ async fn test_goal3_router_endpoint_with_app_dir() {
     let config_clone = config.clone();
 
     // Start dev server in background
-    let server_handle = tokio::spawn(async move {
-        pledgepack_dev_server::serve(engine, &config_clone).await
-    });
+    let server_handle =
+        tokio::spawn(async move { pledgepack_dev_server::serve(engine, &config_clone).await });
 
     // Give server time to start
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -261,9 +283,8 @@ async fn test_goal3_router_endpoint_without_app_dir() {
     let engine = BuildEngine::new(Arc::new(config.clone()));
     let config_clone = config.clone();
 
-    let server_handle = tokio::spawn(async move {
-        pledgepack_dev_server::serve(engine, &config_clone).await
-    });
+    let server_handle =
+        tokio::spawn(async move { pledgepack_dev_server::serve(engine, &config_clone).await });
 
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
@@ -272,7 +293,10 @@ async fn test_goal3_router_endpoint_without_app_dir() {
     let client = reqwest::Client::new();
     let response = client.get(&url).send().await;
 
-    assert!(response.is_ok(), "Router endpoint should respond even without app_dir");
+    assert!(
+        response.is_ok(),
+        "Router endpoint should respond even without app_dir"
+    );
     let response = response.unwrap();
     assert!(response.status().is_success());
 
@@ -314,9 +338,8 @@ export default function App() {
     let config_clone = config.clone();
 
     // Start dev server
-    let server_handle = tokio::spawn(async move {
-        pledgepack_dev_server::serve(engine, &config_clone).await
-    });
+    let server_handle =
+        tokio::spawn(async move { pledgepack_dev_server::serve(engine, &config_clone).await });
 
     // Give server time to start
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -407,9 +430,8 @@ async fn test_goal61_dev_server_serves_index_html() {
     let engine = BuildEngine::new(Arc::new(config.clone()));
     let config_clone = config.clone();
 
-    let server_handle = tokio::spawn(async move {
-        pledgepack_dev_server::serve(engine, &config_clone).await
-    });
+    let server_handle =
+        tokio::spawn(async move { pledgepack_dev_server::serve(engine, &config_clone).await });
 
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
@@ -517,10 +539,7 @@ export default function App() {
                 .map(|ext| ext == "js" || ext == "mjs")
                 .unwrap_or(false)
         });
-        assert!(
-            has_js,
-            "Output directory should contain JavaScript files"
-        );
+        assert!(has_js, "Output directory should contain JavaScript files");
 
         // Should contain an index.html or manifest
         let has_html_or_manifest = walkdir(&out_dir, &|path: &std::path::Path| {
@@ -597,13 +616,9 @@ export const config = {
 
     // Transform the middleware module
     let mw_source = fs::read_to_string(tmp.path().join("middleware.ts")).unwrap();
-    let module = pledge_transform::transform(
-        &mw_source,
-        ModuleKind::Tsx,
-        "middleware.ts",
-        false,
-        &config,
-    ).unwrap();
+    let module =
+        pledge_transform::transform(&mw_source, ModuleKind::Tsx, "middleware.ts", false, &config)
+            .unwrap();
 
     // Middleware should preserve export function middleware
     assert!(
@@ -663,7 +678,11 @@ async fn test_goal67_dynamic_routes_resolve() {
     // Use the router scanner to verify routes are discovered
     let route_table = pledgepack_core::router::scan_app_dir(tmp.path(), "app").unwrap();
 
-    let patterns: Vec<String> = route_table.routes.iter().map(|r| r.pattern.clone()).collect();
+    let patterns: Vec<String> = route_table
+        .routes
+        .iter()
+        .map(|r| r.pattern.clone())
+        .collect();
 
     // [slug] should produce :slug
     assert!(
@@ -730,9 +749,9 @@ async fn test_goal68_layout_composition() {
 
     // Root layout should be transformed correctly
     let root_src = fs::read_to_string(app_dir.join("layout.tsx")).unwrap();
-    let root_layout = pledge_transform::transform(
-        &root_src, ModuleKind::Tsx, "app/layout.tsx", false, &config,
-    ).unwrap();
+    let root_layout =
+        pledge_transform::transform(&root_src, ModuleKind::Tsx, "app/layout.tsx", false, &config)
+            .unwrap();
     assert!(
         root_layout.code.contains("RootLayout") || root_layout.code.contains("default"),
         "Root layout should export default component"
@@ -741,8 +760,13 @@ async fn test_goal68_layout_composition() {
     // Blog layout should be transformed correctly
     let blog_layout_src = fs::read_to_string(blog_dir.join("layout.tsx")).unwrap();
     let blog_layout = pledge_transform::transform(
-        &blog_layout_src, ModuleKind::Tsx, "app/blog/layout.tsx", false, &config,
-    ).unwrap();
+        &blog_layout_src,
+        ModuleKind::Tsx,
+        "app/blog/layout.tsx",
+        false,
+        &config,
+    )
+    .unwrap();
     assert!(
         blog_layout.code.contains("BlogLayout") || blog_layout.code.contains("default"),
         "Blog layout should export default component"
@@ -751,8 +775,13 @@ async fn test_goal68_layout_composition() {
     // Page should be transformed correctly
     let blog_page_src = fs::read_to_string(blog_dir.join("page.tsx")).unwrap();
     let blog_page = pledge_transform::transform(
-        &blog_page_src, ModuleKind::Tsx, "app/blog/page.tsx", false, &config,
-    ).unwrap();
+        &blog_page_src,
+        ModuleKind::Tsx,
+        "app/blog/page.tsx",
+        false,
+        &config,
+    )
+    .unwrap();
     assert!(
         blog_page.code.contains("BlogPage") || blog_page.code.contains("default"),
         "Blog page should export default component"
@@ -807,9 +836,9 @@ export default function GlobalError({ error, reset }: { error: Error; reset: () 
 
     // Error boundary should be transformed with export preserved
     let error_src = fs::read_to_string(app_dir.join("error.tsx")).unwrap();
-    let error_boundary = pledge_transform::transform(
-        &error_src, ModuleKind::Tsx, "app/error.tsx", false, &config,
-    ).unwrap();
+    let error_boundary =
+        pledge_transform::transform(&error_src, ModuleKind::Tsx, "app/error.tsx", false, &config)
+            .unwrap();
     assert!(
         error_boundary.code.contains("ErrorBoundary") || error_boundary.code.contains("default"),
         "Error boundary should export default component"
@@ -826,8 +855,13 @@ export default function GlobalError({ error, reset }: { error: Error; reset: () 
     // Global error boundary should also be transformed
     let global_src = fs::read_to_string(app_dir.join("global-error.tsx")).unwrap();
     let global_error = pledge_transform::transform(
-        &global_src, ModuleKind::Tsx, "app/global-error.tsx", false, &config,
-    ).unwrap();
+        &global_src,
+        ModuleKind::Tsx,
+        "app/global-error.tsx",
+        false,
+        &config,
+    )
+    .unwrap();
     assert!(
         global_error.code.contains("GlobalError") || global_error.code.contains("default"),
         "Global error boundary should export default component"
@@ -854,9 +888,9 @@ async fn test_goal70_debug_mode_source_maps() {
     config.source_maps = true; // --debug implies source maps in dev mode
 
     let source = fs::read_to_string(src_dir.join("index.tsx")).unwrap();
-    let module = pledge_transform::transform(
-        &source, ModuleKind::Tsx, "src/index.tsx", false, &config,
-    ).unwrap();
+    let module =
+        pledge_transform::transform(&source, ModuleKind::Tsx, "src/index.tsx", false, &config)
+            .unwrap();
 
     // Source map should be generated in dev mode
     assert!(
@@ -895,9 +929,8 @@ async fn test_goal71_dev_server_startup_time() {
     // Measure startup time
     let start = std::time::Instant::now();
 
-    let server_handle = tokio::spawn(async move {
-        pledgepack_dev_server::serve(engine, &config_clone).await
-    });
+    let server_handle =
+        tokio::spawn(async move { pledgepack_dev_server::serve(engine, &config_clone).await });
 
     // Give server time to start
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -909,7 +942,10 @@ async fn test_goal71_dev_server_startup_time() {
 
     let elapsed = start.elapsed();
 
-    assert!(response.is_ok(), "Dev server should respond to first request");
+    assert!(
+        response.is_ok(),
+        "Dev server should respond to first request"
+    );
     let response = response.unwrap();
     assert!(response.status().is_success());
 
@@ -967,15 +1003,15 @@ export default function Counter() {
     let source = fs::read_to_string(src_dir.join("page.tsx")).unwrap();
 
     // Warm up the transform (first call includes initialization)
-    let _warmup = pledge_transform::transform(
-        &source, ModuleKind::Tsx, "src/page.tsx", false, &config,
-    ).unwrap();
+    let _warmup =
+        pledge_transform::transform(&source, ModuleKind::Tsx, "src/page.tsx", false, &config)
+            .unwrap();
 
     // Measure transform latency
     let start = std::time::Instant::now();
-    let module = pledge_transform::transform(
-        &source, ModuleKind::Tsx, "src/page.tsx", false, &config,
-    ).unwrap();
+    let module =
+        pledge_transform::transform(&source, ModuleKind::Tsx, "src/page.tsx", false, &config)
+            .unwrap();
     let elapsed = start.elapsed();
 
     assert!(
@@ -1072,9 +1108,8 @@ async fn test_goal74_dev_server_memory() {
     let engine = BuildEngine::new(Arc::new(config.clone()));
     let config_clone = config.clone();
 
-    let server_handle = tokio::spawn(async move {
-        pledgepack_dev_server::serve(engine, &config_clone).await
-    });
+    let server_handle =
+        tokio::spawn(async move { pledgepack_dev_server::serve(engine, &config_clone).await });
 
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
@@ -1088,7 +1123,10 @@ async fn test_goal74_dev_server_memory() {
     // We can't directly measure RSS in a portable Rust test,
     // but we can verify the server is still responsive (not OOM)
     let response = client.get(&url).send().await;
-    assert!(response.is_ok(), "Server should remain responsive after requests");
+    assert!(
+        response.is_ok(),
+        "Server should remain responsive after requests"
+    );
 
     // Verify the dev server state isn't growing unbounded
     // by checking that repeated requests still work
@@ -1121,16 +1159,16 @@ async fn test_goal75_cache_hit_rate() {
 
     // First transform — cold (miss)
     let start1 = std::time::Instant::now();
-    let _module1 = pledge_transform::transform(
-        &source, ModuleKind::Tsx, "src/index.tsx", false, &config,
-    ).unwrap();
+    let _module1 =
+        pledge_transform::transform(&source, ModuleKind::Tsx, "src/index.tsx", false, &config)
+            .unwrap();
     let cold_ms = start1.elapsed().as_micros();
 
     // Second transform — warm (should be faster due to Oxc internal caching)
     let start2 = std::time::Instant::now();
-    let _module2 = pledge_transform::transform(
-        &source, ModuleKind::Tsx, "src/index.tsx", false, &config,
-    ).unwrap();
+    let _module2 =
+        pledge_transform::transform(&source, ModuleKind::Tsx, "src/index.tsx", false, &config)
+            .unwrap();
     let warm_ms = start2.elapsed().as_micros();
 
     // Warm transform should be at least as fast as cold
@@ -1138,7 +1176,8 @@ async fn test_goal75_cache_hit_rate() {
     assert!(
         warm_ms <= cold_ms * 2,
         "Warm transform should not be significantly slower than cold: cold={}us, warm={}us",
-        cold_ms, warm_ms
+        cold_ms,
+        warm_ms
     );
 
     // Verify dev server module_cache provides cache hits
@@ -1149,9 +1188,8 @@ async fn test_goal75_cache_hit_rate() {
     let engine = BuildEngine::new(Arc::new(config2.clone()));
     let config_clone = config2.clone();
 
-    let server_handle = tokio::spawn(async move {
-        pledgepack_dev_server::serve(engine, &config_clone).await
-    });
+    let server_handle =
+        tokio::spawn(async move { pledgepack_dev_server::serve(engine, &config_clone).await });
 
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
@@ -1261,9 +1299,8 @@ async fn test_goal77_large_project_handling() {
     let config_clone = config.clone();
 
     let start = std::time::Instant::now();
-    let server_handle = tokio::spawn(async move {
-        pledgepack_dev_server::serve(engine, &config_clone).await
-    });
+    let server_handle =
+        tokio::spawn(async move { pledgepack_dev_server::serve(engine, &config_clone).await });
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     let startup_ms = start.elapsed().as_millis();
@@ -1344,14 +1381,17 @@ export default function ItemList({ title, items }: Props) {
 
     // Measure PledgePack transform time
     let start = std::time::Instant::now();
-    let module = pledge_transform::transform(
-        source, ModuleKind::Tsx, "src/ItemList.tsx", false, &config,
-    ).unwrap();
+    let module =
+        pledge_transform::transform(source, ModuleKind::Tsx, "src/ItemList.tsx", false, &config)
+            .unwrap();
     let pledgepack_ms = start.elapsed().as_micros();
 
     // Verify transform quality
     assert!(module.code.contains("export"), "Should produce ESM output");
-    assert!(!module.code.contains(": number"), "Should strip TypeScript types");
+    assert!(
+        !module.code.contains(": number"),
+        "Should strip TypeScript types"
+    );
 
     // PledgePack should complete transform in reasonable time
     // We can't directly compare with esbuild here (not available in Rust test),
@@ -1399,9 +1439,7 @@ export default function Module{}() {{
         let source = source.clone();
         let config = config.clone();
         handles.push(tokio::spawn(async move {
-            pledge_transform::transform(
-                &source, ModuleKind::Tsx, &path, false, &config,
-            ).unwrap()
+            pledge_transform::transform(&source, ModuleKind::Tsx, &path, false, &config).unwrap()
         }));
     }
 
@@ -1486,8 +1524,5 @@ async fn test_goal80_incremental_build_cache() {
     }
 
     // Verify cache directory path is valid
-    assert!(
-        cache_dir_valid,
-        "Cache directory path should be valid"
-    );
+    assert!(cache_dir_valid, "Cache directory path should be valid");
 }

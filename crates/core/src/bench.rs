@@ -200,12 +200,22 @@ pub fn bench_warm_incremental(root: &Path, module_count: usize) -> Result<BenchR
         "G12.2 Warm incremental ({} modules): {}ms (target: <10ms)",
         module_count, duration_ms
     );
-    record_bench(root, "warm-incremental", duration_ms, module_count, module_count - 1)?;
+    record_bench(
+        root,
+        "warm-incremental",
+        duration_ms,
+        module_count,
+        module_count - 1,
+    )?;
     Ok(result)
 }
 
 /// G12.4: Measure production build time for a 1000-module app
-pub fn bench_production_build(root: &Path, module_count: usize, duration_ms: u128) -> Result<BenchResult> {
+pub fn bench_production_build(
+    root: &Path,
+    module_count: usize,
+    duration_ms: u128,
+) -> Result<BenchResult> {
     let result = BenchResult {
         ref_name: "production-build".to_string(),
         timestamp: std::time::SystemTime::now()
@@ -226,7 +236,11 @@ pub fn bench_production_build(root: &Path, module_count: usize, duration_ms: u12
 }
 
 /// G12.5: Measure large monorepo cold build time
-pub fn bench_monorepo_build(root: &Path, module_count: usize, duration_ms: u128) -> Result<BenchResult> {
+pub fn bench_monorepo_build(
+    root: &Path,
+    module_count: usize,
+    duration_ms: u128,
+) -> Result<BenchResult> {
     let result = BenchResult {
         ref_name: "monorepo-build".to_string(),
         timestamp: std::time::SystemTime::now()
@@ -266,7 +280,11 @@ impl MemoryBenchResult {
 
     /// Format as human-readable
     pub fn format(&self) -> String {
-        let status = if self.meets_target() { "✅ PASS" } else { "❌ FAIL" };
+        let status = if self.meets_target() {
+            "✅ PASS"
+        } else {
+            "❌ FAIL"
+        };
         format!(
             "{}: RSS {} / target {} — {}",
             self.ref_name,

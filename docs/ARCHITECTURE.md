@@ -171,7 +171,17 @@ incremental = true
 - Two-tier cache: memory (`HashMap`) → disk (`FunctionCache` with bincode)
 - Emits transformed JS to `dist/` preserving directory structure
 
-### Transform Pipeline (`crates/core/src/transform.rs`)
+### Transform Pipeline (`crates/core/src/transform/`)
+
+The transform module is split into focused submodules:
+- `mod.rs` — `TransformOutput` struct + `transform()` dispatcher (dispatches by `ModuleKind`)
+- `js.rs` — JS/TS/JSX via Oxc, React Fast Refresh, dynamic import detection
+- `css.rs` — Lightning CSS, CSS Modules, PostCSS/Tailwind, Sass
+- `assets.rs` — JSON, static assets, WASM, shaders
+- `sfc.rs` — Vue, Svelte, Astro Single-File Components
+- `env.rs` — Environment variables, define, import.meta.glob
+- `data.rs` — MDX, GraphQL, YAML, CSV, TSV, TOML
+- `utils.rs` — Source maps, Web Worker import transforms
 ```
 Source string
     │
@@ -205,21 +215,21 @@ Source string
 
 ### Framework Adapters
 
-#### Vue SFC (`transform_vue`)
+#### Vue SFC (`transform/sfc.rs:transform_vue`)
 - Extracts `<template>`, `<script setup>`, `<style scoped>` blocks
 - TypeScript transform: `<script lang="ts">` blocks transformed with Oxc (type stripping)
 - Compiles template to render function
 - Extracts scoped CSS with `[data-v-pledge]` attribute selectors
 - HMR boundary: `import.meta.hot.accept()` injected in dev mode
 
-#### Svelte (`transform_svelte`)
+#### Svelte (`transform/sfc.rs:transform_svelte`)
 - Extracts `<script>`, `<style>`, and markup from `.svelte` files
 - TypeScript transform: `<script lang="ts">` blocks transformed with Oxc (type stripping)
 - Generates DOM render function with mount/unmount lifecycle
 - Scoped CSS with `[svelte-pledge]` attribute selectors
 - HMR boundary: `import.meta.hot.accept()` injected in dev mode
 
-#### Astro (`transform_astro`)
+#### Astro (`transform/sfc.rs:transform_astro`)
 - Parses `---` frontmatter delimiters
 - TypeScript transform: Frontmatter TS transformed with Oxc (type stripping)
 - Compiles template to async render function
@@ -251,7 +261,7 @@ Source string
 - SSR/SSG detection from `getServerSideProps` / `getStaticProps` / `revalidate` exports
 - `.psx` extension: PledgeStack eXtension — brands backend files, parallel to `.tsx` for frontend
 
-### CSS Processing (`transform_css` + `process_postcss`)
+### CSS Processing (`transform/css.rs:transform_css` + `process_postcss`)
 - Lightning CSS: minification, nesting, autoprefixing
 - PostCSS pipeline: `@tailwind` directives, `@apply` expansion
 - 80+ Tailwind utility class mappings
@@ -354,7 +364,7 @@ Source string
 - **HTML minification**: `minify_html()` removes comments, collapses whitespace, strips redundant spaces
 - **Default generation**: `generate_default_html()` creates `index.html` with entry script and title
 
-### Source Maps (`crates/core/src/transform.rs`)
+### Source Maps (`crates/core/src/transform/utils.rs`)
 - **V3 format**: Source maps with `sourcesContent` for debugging
 - **Dev + production**: Generated in both modes
 
@@ -378,12 +388,12 @@ Source string
 - **Browser-safe**: Minimal ESM-compatible polyfills using Web APIs (Web Crypto, TextEncoder, fetch, etc.)
 - **node: prefix**: Supports both `import 'path'` and `import 'node:path'` specifiers
 
-### Define / Compile-Time Constants (`crates/core/src/transform.rs`)
+### Define / Compile-Time Constants (`crates/core/src/transform/env.rs`)
 - **Constant replacement**: Replace identifiers with literal values at build time
 - **Type inference**: Automatically wraps strings, preserves numbers/booleans
 - **Config**: `define: { 'process.env.NODE_ID': '"production"' }`
 
-### import.meta.glob (`crates/core/src/transform.rs:expand_import_meta_glob`)
+### import.meta.glob (`crates/core/src/transform/env.rs:expand_import_meta_glob`)
 - **Glob-based file imports**: `import.meta.glob('./pages/*.tsx')` expanded at transform time
 - **Lazy mode**: Default — returns object mapping paths to `() => import('./pages/Home.tsx')` dynamic import functions
 - **Eager mode**: `{ eager: true }` — returns object mapping paths to directly imported modules

@@ -54,7 +54,9 @@ pub fn transform(
         ModuleKind::TypeScript | ModuleKind::Tsx | ModuleKind::Jsx | ModuleKind::JavaScript => {
             js::transform_js(source, kind, file_path, is_production, config)
         }
-        ModuleKind::Psx => js::transform_js(source, ModuleKind::Tsx, file_path, is_production, config),
+        ModuleKind::Psx => {
+            js::transform_js(source, ModuleKind::Tsx, file_path, is_production, config)
+        }
         ModuleKind::Ps => Ok(TransformOutput {
             code: source.to_string(),
             source_map: None,
@@ -67,13 +69,17 @@ pub fn transform(
         }),
         ModuleKind::Css => css::transform_css(source, file_path, is_production, config),
         ModuleKind::Json => assets::transform_json(source),
-        ModuleKind::Asset => assets::transform_asset(file_path, source.as_bytes(), is_production, config),
+        ModuleKind::Asset => {
+            assets::transform_asset(file_path, source.as_bytes(), is_production, config)
+        }
         ModuleKind::Wasm => assets::transform_wasm(file_path, config),
         ModuleKind::Vue => sfc::transform_vue(source, file_path, is_production),
         ModuleKind::Svelte => sfc::transform_svelte(source, file_path, is_production),
         ModuleKind::Astro => sfc::transform_astro(source, file_path, is_production),
         ModuleKind::Worker => js::transform_js(source, kind, file_path, is_production, config),
-        ModuleKind::SharedWorker => js::transform_js(source, kind, file_path, is_production, config),
+        ModuleKind::SharedWorker => {
+            js::transform_js(source, kind, file_path, is_production, config)
+        }
         ModuleKind::WebComponent => {
             let code = crate::advanced::compile_web_component(source, file_path)?;
             Ok(TransformOutput {

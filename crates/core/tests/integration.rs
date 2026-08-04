@@ -1,7 +1,7 @@
-use pledgepack_core::config::{PledgeConfig, Framework, BuildMode};
+use pledgepack_core::BuildEngine;
+use pledgepack_core::config::{BuildMode, Framework, PledgeConfig};
 use pledgepack_core::module::ModuleKind;
 use pledgepack_core::transform as pledge_transform;
-use pledgepack_core::BuildEngine;
 use std::fs;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -26,13 +26,8 @@ export default function Counter() {
 }
 "#;
 
-    let result = pledge_transform::transform(
-        tsx_source,
-        ModuleKind::Tsx,
-        "test.tsx",
-        false,
-        &config,
-    );
+    let result =
+        pledge_transform::transform(tsx_source, ModuleKind::Tsx, "test.tsx", false, &config);
 
     assert!(result.is_ok(), "Transform should succeed");
     let output = result.unwrap();
@@ -45,14 +40,18 @@ export default function Counter() {
 
     // Should contain React automatic runtime imports (jsx-runtime)
     assert!(
-        output.code.contains("jsx") || output.code.contains("jsxs") || output.code.contains("Fragment"),
+        output.code.contains("jsx")
+            || output.code.contains("jsxs")
+            || output.code.contains("Fragment"),
         "Transformed code should use React automatic JSX runtime (jsx/jsxs/Fragment), got: {}",
         &output.code[..200.min(output.code.len())]
     );
 
     // Should not contain TypeScript types
     assert!(
-        !output.code.contains(": React") && !output.code.contains(": number") && !output.code.contains(": string"),
+        !output.code.contains(": React")
+            && !output.code.contains(": number")
+            && !output.code.contains(": string"),
         "Transformed code should not contain TypeScript type annotations"
     );
 
@@ -77,13 +76,8 @@ export function greet(user: User): string {
 }
 "#;
 
-    let result = pledge_transform::transform(
-        ts_source,
-        ModuleKind::TypeScript,
-        "test.ts",
-        false,
-        &config,
-    );
+    let result =
+        pledge_transform::transform(ts_source, ModuleKind::TypeScript, "test.ts", false, &config);
 
     assert!(result.is_ok());
     let output = result.unwrap();
@@ -107,13 +101,8 @@ export function MyComponent() {
 }
 "#;
 
-    let result = pledge_transform::transform(
-        psx_tsx_content,
-        ModuleKind::Psx,
-        "test.psx",
-        false,
-        &config,
-    );
+    let result =
+        pledge_transform::transform(psx_tsx_content, ModuleKind::Psx, "test.psx", false, &config);
 
     assert!(result.is_ok(), "PSX (as TSX) transform should succeed");
     let output = result.unwrap();
@@ -130,8 +119,8 @@ async fn test_build_engine_fails_on_missing_entry() {
     let tmp = TempDir::new().unwrap();
     let config = PledgeConfig {
         root: tmp.path().to_path_buf(),
-        entry: vec![],  // No entries
-        app_dir: None,  // No app directory
+        entry: vec![], // No entries
+        app_dir: None, // No app directory
         mode: BuildMode::Production,
         ..Default::default()
     };
@@ -337,14 +326,29 @@ fn test_route_manifest_format() {
     });
 
     // Verify the structure matches what PledgeJS expects
-    assert!(manifest_json.get("frontend").is_some(), "Manifest should have 'frontend' key");
-    assert!(manifest_json.get("api").is_some(), "Manifest should have 'api' key");
-    assert!(manifest_json.get("backend").is_some(), "Manifest should have 'backend' key");
+    assert!(
+        manifest_json.get("frontend").is_some(),
+        "Manifest should have 'frontend' key"
+    );
+    assert!(
+        manifest_json.get("api").is_some(),
+        "Manifest should have 'api' key"
+    );
+    assert!(
+        manifest_json.get("backend").is_some(),
+        "Manifest should have 'backend' key"
+    );
 
     let frontend = manifest_json["frontend"].as_array().unwrap();
     assert!(!frontend.is_empty());
-    assert!(frontend[0].get("file").is_some(), "Each entry should have a 'file' field");
-    assert!(frontend[0].get("path").is_some(), "Each entry should have a 'path' field");
+    assert!(
+        frontend[0].get("file").is_some(),
+        "Each entry should have a 'file' field"
+    );
+    assert!(
+        frontend[0].get("path").is_some(),
+        "Each entry should have a 'path' field"
+    );
 }
 
 // ── Goal 51: Verify binary resolution works on all platforms ──
@@ -353,11 +357,32 @@ fn test_route_manifest_format() {
 fn test_binary_resolution_platform_detection() {
     // Verify that the platform detection logic produces correct package names
     let (os, arch) = if cfg!(target_os = "windows") {
-        ("win32", if cfg!(target_pointer_width = "64") { "x64" } else { "x86" })
+        (
+            "win32",
+            if cfg!(target_pointer_width = "64") {
+                "x64"
+            } else {
+                "x86"
+            },
+        )
     } else if cfg!(target_os = "macos") {
-        ("darwin", if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" })
+        (
+            "darwin",
+            if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "x64"
+            },
+        )
     } else if cfg!(target_os = "linux") {
-        ("linux", if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" })
+        (
+            "linux",
+            if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "x64"
+            },
+        )
     } else {
         ("unknown", "unknown")
     };

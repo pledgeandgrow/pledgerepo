@@ -165,10 +165,22 @@ pub fn analyze_vite_plugin(source: &str, plugin_name: &str) -> MigrationAnalysis
 
     // Detect hooks
     let hook_names = [
-        "resolveId", "load", "transform", "transformIndexHtml",
-        "configureServer", "buildStart", "buildEnd", "generateBundle",
-        "options", "renderStart", "renderError", "writeBundle",
-        "closeBundle", "moduleParsed", "banner", "footer",
+        "resolveId",
+        "load",
+        "transform",
+        "transformIndexHtml",
+        "configureServer",
+        "buildStart",
+        "buildEnd",
+        "generateBundle",
+        "options",
+        "renderStart",
+        "renderError",
+        "writeBundle",
+        "closeBundle",
+        "moduleParsed",
+        "banner",
+        "footer",
     ];
 
     for hook in &hook_names {
@@ -179,11 +191,18 @@ pub fn analyze_vite_plugin(source: &str, plugin_name: &str) -> MigrationAnalysis
 
     // Detect Node.js API usage
     let node_api_patterns = [
-        ("fs", "fs"), ("path", "path"), ("os", "os"),
-        ("crypto", "crypto"), ("http", "http"), ("https", "https"),
-        ("stream", "stream"), ("buffer", "Buffer"),
-        ("process", "process"), ("child_process", "exec"),
-        ("url", "URL"), ("util", "util"),
+        ("fs", "fs"),
+        ("path", "path"),
+        ("os", "os"),
+        ("crypto", "crypto"),
+        ("http", "http"),
+        ("https", "https"),
+        ("stream", "stream"),
+        ("buffer", "Buffer"),
+        ("process", "process"),
+        ("child_process", "exec"),
+        ("url", "URL"),
+        ("util", "util"),
     ];
 
     for (api, pattern) in &node_api_patterns {
@@ -198,10 +217,18 @@ pub fn analyze_vite_plugin(source: &str, plugin_name: &str) -> MigrationAnalysis
     let source_lines = source.lines().count();
 
     let mut complexity: u32 = (hook_count * 10 + node_api_count * 15) as u32;
-    if source_lines > 100 { complexity += 20; }
-    if source_lines > 500 { complexity += 30; }
-    if source.contains("async") { complexity += 10; }
-    if source.contains("await") { complexity += 10; }
+    if source_lines > 100 {
+        complexity += 20;
+    }
+    if source_lines > 500 {
+        complexity += 30;
+    }
+    if source.contains("async") {
+        complexity += 10;
+    }
+    if source.contains("await") {
+        complexity += 10;
+    }
     complexity = complexity.min(100);
 
     let difficulty = if complexity < 20 {
@@ -219,11 +246,22 @@ pub fn analyze_vite_plugin(source: &str, plugin_name: &str) -> MigrationAnalysis
     let auto_transpilable = complexity < 30 && node_api_count == 0;
 
     let suggestion = match difficulty {
-        MigrationDifficulty::Trivial => "Can be automatically transpiled to WASM. Use `pledge plugin compile`.".to_string(),
-        MigrationDifficulty::Easy => "Straightforward WASM rewrite. Manual conversion of hooks needed.".to_string(),
-        MigrationDifficulty::Moderate => "Requires moderate effort. Node.js API calls need WASM polyfills.".to_string(),
-        MigrationDifficulty::Hard => "Complex plugin. Consider keeping as JS plugin with Boa runtime.".to_string(),
-        MigrationDifficulty::VeryHard => "Very complex. Recommend keeping as JS plugin. WASM migration not practical.".to_string(),
+        MigrationDifficulty::Trivial => {
+            "Can be automatically transpiled to WASM. Use `pledge plugin compile`.".to_string()
+        }
+        MigrationDifficulty::Easy => {
+            "Straightforward WASM rewrite. Manual conversion of hooks needed.".to_string()
+        }
+        MigrationDifficulty::Moderate => {
+            "Requires moderate effort. Node.js API calls need WASM polyfills.".to_string()
+        }
+        MigrationDifficulty::Hard => {
+            "Complex plugin. Consider keeping as JS plugin with Boa runtime.".to_string()
+        }
+        MigrationDifficulty::VeryHard => {
+            "Very complex. Recommend keeping as JS plugin. WASM migration not practical."
+                .to_string()
+        }
     };
 
     MigrationAnalysis {
@@ -291,7 +329,10 @@ fn strip_esm_for_batch(source: &str, global_name: &str) -> String {
         .map(|line| {
             let trimmed = line.trim();
             if trimmed.starts_with("export default") {
-                line.replace("export default", &format!("globalThis['{}'] =", global_name))
+                line.replace(
+                    "export default",
+                    &format!("globalThis['{}'] =", global_name),
+                )
             } else if trimmed.starts_with("export const")
                 || trimmed.starts_with("export let")
                 || trimmed.starts_with("export var")
@@ -315,16 +356,36 @@ fn strip_esm_for_batch(source: &str, global_name: &str) -> String {
 pub fn can_transpile_to_wasm(source: &str) -> bool {
     // Check for patterns that prevent automatic transpilation
     let blockers = [
-        "require(", "process.", "fetch(",
-        "setTimeout", "setInterval", "Promise(",
-        "XMLHttpRequest", "WebSocket", "addEventListener",
-        "document.", "window.",
+        "require(",
+        "process.",
+        "fetch(",
+        "setTimeout",
+        "setInterval",
+        "Promise(",
+        "XMLHttpRequest",
+        "WebSocket",
+        "addEventListener",
+        "document.",
+        "window.",
     ];
 
     // Check for Node.js imports (import ... from 'fs', etc.)
-    let node_imports = ["fs", "path", "os", "crypto", "http", "https", "stream", "child_process", "net", "tls"];
+    let node_imports = [
+        "fs",
+        "path",
+        "os",
+        "crypto",
+        "http",
+        "https",
+        "stream",
+        "child_process",
+        "net",
+        "tls",
+    ];
     for node_mod in &node_imports {
-        if source.contains(&format!("from '{}'", node_mod)) || source.contains(&format!("require('{}'", node_mod)) {
+        if source.contains(&format!("from '{}'", node_mod))
+            || source.contains(&format!("require('{}'", node_mod))
+        {
             return false;
         }
     }
@@ -370,37 +431,46 @@ pub struct {}Plugin;
 impl Plugin for {}Plugin {{
     fn name(&self) -> &str {{ "{}" }}
 "#,
-        plugin_name, to_pascal_case(plugin_name), to_pascal_case(plugin_name), plugin_name
+        plugin_name,
+        to_pascal_case(plugin_name),
+        to_pascal_case(plugin_name),
+        plugin_name
     );
 
     if has_transform {
-        skeleton.push_str(r#"
+        skeleton.push_str(
+            r#"
     fn transform(&self, code: &str, id: &str) -> Option<TransformResult> {
         // TODO: Implement transform logic
         // Original JS: transform(code, id) { ... }
         None
     }
-"#);
+"#,
+        );
     }
 
     if has_resolve_id {
-        skeleton.push_str(r#"
+        skeleton.push_str(
+            r#"
     fn resolve_id(&self, source: &str, importer: &str) -> Option<ResolveResult> {
         // TODO: Implement resolveId logic
         // Original JS: resolveId(source, importer) { ... }
         None
     }
-"#);
+"#,
+        );
     }
 
     if has_load {
-        skeleton.push_str(r#"
+        skeleton.push_str(
+            r#"
     fn load(&self, id: &str) -> Option<LoadResult> {
         // TODO: Implement load logic
         // Original JS: load(id) { ... }
         None
     }
-"#);
+"#,
+        );
     }
 
     skeleton.push_str("}\n");
@@ -573,7 +643,8 @@ impl NodeCompatLayer {
         // path.dirname
         self.polyfills.insert(
             "path.dirname".to_string(),
-            r#"function dirname(p) { return p.split('/').slice(0, -1).join('/') || '.'; }"#.to_string(),
+            r#"function dirname(p) { return p.split('/').slice(0, -1).join('/') || '.'; }"#
+                .to_string(),
         );
 
         // path.basename
@@ -595,15 +666,14 @@ impl NodeCompatLayer {
         );
 
         // process.env
-        self.polyfills.insert(
-            "process.env".to_string(),
-            r#"const env = {};"#.to_string(),
-        );
+        self.polyfills
+            .insert("process.env".to_string(), r#"const env = {};"#.to_string());
 
         // URL
         self.polyfills.insert(
             "URL".to_string(),
-            r#"function URL(url, base) { this.href = url; this.pathname = url.split('?')[0]; }"#.to_string(),
+            r#"function URL(url, base) { this.href = url; this.pathname = url.split('?')[0]; }"#
+                .to_string(),
         );
 
         // crypto.randomUUID (simplified)
@@ -615,7 +685,8 @@ impl NodeCompatLayer {
 
     /// Register a custom polyfill
     pub fn register(&mut self, api: &str, implementation: &str) {
-        self.polyfills.insert(api.to_string(), implementation.to_string());
+        self.polyfills
+            .insert(api.to_string(), implementation.to_string());
     }
 
     /// Get a polyfill implementation
@@ -625,7 +696,11 @@ impl NodeCompatLayer {
 
     /// Generate the full polyfill JS source for injection into the runtime
     pub fn polyfill_source(&self) -> String {
-        self.polyfills.values().cloned().collect::<Vec<_>>().join("\n")
+        self.polyfills
+            .values()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Get the list of polyfilled APIs
@@ -724,11 +799,25 @@ mod tests {
     #[test]
     fn test_g107_plugin_batcher() {
         let mut batcher = PluginBatcher::new();
-        batcher.add_plugin("plugin1", "export default { name: 'p1', transform(c,i) { return {code:c,map:null}; } }");
-        batcher.add_plugin("plugin2", "export default { name: 'p2', resolveId(s,i) { return {id:s,external:false}; } }");
+        batcher.add_plugin(
+            "plugin1",
+            "export default { name: 'p1', transform(c,i) { return {code:c,map:null}; } }",
+        );
+        batcher.add_plugin(
+            "plugin2",
+            "export default { name: 'p2', resolveId(s,i) { return {id:s,external:false}; } }",
+        );
         assert_eq!(batcher.count(), 2);
-        assert!(batcher.combined_source().contains("__pledge_batch_plugin_0"));
-        assert!(batcher.combined_source().contains("__pledge_batch_plugin_1"));
+        assert!(
+            batcher
+                .combined_source()
+                .contains("__pledge_batch_plugin_0")
+        );
+        assert!(
+            batcher
+                .combined_source()
+                .contains("__pledge_batch_plugin_1")
+        );
     }
 
     #[test]
@@ -785,7 +874,11 @@ mod tests {
         let config = RuntimeConfig::default();
         // Without features compiled in, resolve() should fall back to Boa
         let resolved = config.resolve();
-        assert!(resolved == JsRuntime::Boa || resolved == JsRuntime::QuickJsJit || resolved == JsRuntime::V8);
+        assert!(
+            resolved == JsRuntime::Boa
+                || resolved == JsRuntime::QuickJsJit
+                || resolved == JsRuntime::V8
+        );
     }
 
     #[test]
@@ -842,7 +935,10 @@ mod tests {
         let mut layer = NodeCompatLayer::new();
         layer.register("custom.api", "function customApi() { return 42; }");
         assert!(layer.has_polyfill("custom.api"));
-        assert_eq!(layer.get("custom.api"), Some("function customApi() { return 42; }"));
+        assert_eq!(
+            layer.get("custom.api"),
+            Some("function customApi() { return 42; }")
+        );
     }
 
     #[test]
