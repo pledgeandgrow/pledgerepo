@@ -25,12 +25,14 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
-    "Unicode-DFS-2016",
     "Unicode-3.0",
     "Zlib",
     "CC0-1.0",
     "0BSD",
     "Unlicense",
+    "MPL-2.0",
+    "NCSA",
+    "CDLA-Permissive-2.0",
 ]
 # Allow specific exceptions
 exceptions = []
