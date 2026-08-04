@@ -55,7 +55,7 @@ if (!mapped) {
 }
 
 // Download the prebuilt binary from GitHub Releases (version-specific)
-const GITHUB_REPO = 'pledgeandgrow/pledgerepo';
+const GITHUB_REPO = 'pledgeandgrow/pledgepack';
 const RELEASE_TAG = `v${PKG_VERSION}`;
 const packageName = `pledge-${mapped.target}${mapped.ext}`;
 const downloadUrl = `https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_TAG}/${packageName}`;
@@ -148,8 +148,8 @@ function tryBuildFromSource() {
   if (!existsSync(join(sourceDir, 'Cargo.toml'))) {
     console.warn('  \x1b[31mpledge\x1b[0m: Source not available in this installation.');
     console.warn('  To build from source:');
-    console.warn('    git clone https://github.com/pledgeandgrow/pledgerepo');
-    console.warn('    cd pledgerepo && cargo build --release');
+    console.warn('    git clone https://github.com/pledgeandgrow/pledgepack');
+    console.warn('    cd pledgepack && cargo build --release');
     console.warn('');
     return;
   }

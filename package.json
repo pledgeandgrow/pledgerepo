@@ -58,11 +58,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pledgeandgrow/pledgerepo.git"
+    "url": "git+https://github.com/pledgeandgrow/pledgepack.git"
   },
-  "homepage": "https://github.com/pledgeandgrow/pledgerepo",
+  "homepage": "https://github.com/pledgeandgrow/pledgepack",
   "bugs": {
-    "url": "https://github.com/pledgeandgrow/pledgerepo/issues"
+    "url": "https://github.com/pledgeandgrow/pledgepack/issues"
   },
   "engines": {
     "node": ">=18"

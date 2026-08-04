@@ -53,8 +53,8 @@ if (!binaryPath) {
   console.error('    npm rebuild pledgepack');
   console.error('');
   console.error('  Or build from source:');
-  console.error('    git clone https://github.com/pledgeandgrow/pledgerepo');
-  console.error('    cd pledgerepo && cargo build --release');
+  console.error('    git clone https://github.com/pledgeandgrow/pledgepack');
+  console.error('    cd pledgepack && cargo build --release');
   console.error('');
   process.exit(1);
 }

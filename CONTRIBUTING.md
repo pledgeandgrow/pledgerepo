@@ -14,8 +14,8 @@ Thank you for your interest in contributing to Pledge! This document outlines th
 
 ```bash
 # Clone the repository
-git clone https://github.com/pledgeandgrow/pledgerepo.git
-cd pledgerepo
+git clone https://github.com/pledgeandgrow/pledgepack.git
+cd pledgepack
 
 # Build the project
 .\build.ps1        # Windows
