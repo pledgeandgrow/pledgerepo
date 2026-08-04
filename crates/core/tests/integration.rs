@@ -135,8 +135,13 @@ async fn test_build_engine_fails_on_missing_entry() {
 
     let err_msg = result.unwrap_err().to_string();
     assert!(
-        err_msg.contains("No entry points found"),
-        "Error message should mention missing entry points, got: {}",
+        err_msg.contains("No pages found"),
+        "Error message should say no pages found, got: {}",
+        err_msg
+    );
+    assert!(
+        err_msg.contains("app/page.tsx"),
+        "Error message should suggest creating app/page.tsx, got: {}",
         err_msg
     );
 }
@@ -230,8 +235,8 @@ async fn test_build_engine_fails_on_empty_app_dir() {
 
     let err_msg = result.unwrap_err().to_string();
     assert!(
-        err_msg.contains("No page files found"),
-        "Error message should mention no page files, got: {}",
+        err_msg.contains("No pages found"),
+        "Error message should say no pages found, got: {}",
         err_msg
     );
     assert!(
@@ -264,8 +269,8 @@ async fn test_build_engine_fails_on_nonexistent_entry_file() {
 
     let err_msg = result.unwrap_err().to_string();
     assert!(
-        err_msg.contains("Entry file not found"),
-        "Error message should mention entry file not found, got: {}",
+        err_msg.contains("File not found"),
+        "Error message should say file not found, got: {}",
         err_msg
     );
     assert!(

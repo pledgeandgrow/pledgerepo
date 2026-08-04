@@ -202,9 +202,9 @@ impl BuildEngine {
 
                     if route_table.routes.is_empty() {
                         anyhow::bail!(
-                            "No page files found in app/ directory. \
-                             Create at least one page file (e.g. app/page.tsx) \
-                             to use app-directory routing."
+                            "No pages found in {}/. Create {} to get started.",
+                            app_dir,
+                            app_dir.trim_end_matches('/').to_string() + "/page.tsx"
                         );
                     }
                     // Use relative paths for build (gen dir is .pledge/gen/, so ../../ to reach root)
@@ -293,9 +293,8 @@ document.addEventListener("click", function(e) {
 
         if entries.is_empty() {
             anyhow::bail!(
-                "No entry points found. Configure `entry` in pledge.config.ts \
-                 (e.g. entry: [\"src/index.tsx\"]) or create an `app/page.tsx` \
-                 file for automatic app-directory routing."
+                "No pages found. Create app/page.tsx to get started, \n\
+                 or set `entry` in pledge.config.ts if you're using a custom setup."
             );
         }
 
@@ -306,9 +305,9 @@ document.addEventListener("click", function(e) {
                     let entry_path = self.config.root.join(entry);
                     if !entry_path.exists() {
                         anyhow::bail!(
-                            "Entry file not found: {} \n\
-                             The entry file does not exist. Check the path in your \
-                             pledge.config.ts or create the file.",
+                            "File not found: {} \n\
+                             This file is referenced in your pledge.config.ts. \n\
+                             Create it or fix the path.",
                             entry
                         );
                     }
