@@ -30,6 +30,15 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(lib);
 
+    // Also produce an object file — used on macOS where Zig's archive
+    // format is incompatible with Apple's linker.
+    const obj = b.addObject(.{
+        .name = "pledge_native",
+        .root_module = lib_mod,
+    });
+    const install_obj = b.addInstallFile(obj.getEmittedBin(), "pledge_native.o");
+    b.getInstallStep().dependOn(&install_obj.step);
+
     // ─── Tests ───
     const tests = b.addTest(.{
         .root_module = lib_mod,
