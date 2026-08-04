@@ -58,7 +58,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install Zig
-        uses: goto-bus-stop/setup-zig@v3
+        uses: mlugg/setup-zig@v1
         with:
           version: 0.16.0
 
