@@ -539,17 +539,37 @@ async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRes
     let mut html = match std::fs::read_to_string(&html_path) {
         Ok(content) => content,
         Err(_) => {
-            // Auto-generate HTML shell from layout.tsx (no static index.html needed)
-            let (html_attrs, head_content) =
-                match shell_generator::try_extract_shell_from_project(&state.config.root) {
-                    Some((attrs, head)) => (attrs, head),
-                    None => (
-                        "lang=\"en\"".to_string(),
-                        "<title>PledgeStack</title>".to_string(),
-                    ),
-                };
-            let import_map = generate_import_map(&state.config);
-            shell_generator::generate_html_shell(&html_attrs, &head_content, "", &import_map)
+            // Fall back to root index.html if base_dir index.html doesn't exist
+            let root_html = state.config.root.join("index.html");
+            if root_html != html_path {
+                if let Ok(content) = std::fs::read_to_string(&root_html) {
+                    content
+                } else {
+                    // Auto-generate HTML shell from layout.tsx (no static index.html needed)
+                    let (html_attrs, head_content) =
+                        match shell_generator::try_extract_shell_from_project(&state.config.root) {
+                            Some((attrs, head)) => (attrs, head),
+                            None => (
+                                "lang=\"en\"".to_string(),
+                                "<title>PledgeStack</title>".to_string(),
+                            ),
+                        };
+                    let import_map = generate_import_map(&state.config);
+                    shell_generator::generate_html_shell(&html_attrs, &head_content, "", &import_map)
+                }
+            } else {
+                // Auto-generate HTML shell from layout.tsx (no static index.html needed)
+                let (html_attrs, head_content) =
+                    match shell_generator::try_extract_shell_from_project(&state.config.root) {
+                        Some((attrs, head)) => (attrs, head),
+                        None => (
+                            "lang=\"en\"".to_string(),
+                            "<title>PledgeStack</title>".to_string(),
+                        ),
+                    };
+                let import_map = generate_import_map(&state.config);
+                shell_generator::generate_html_shell(&html_attrs, &head_content, "", &import_map)
+            }
         }
     };
 
@@ -782,15 +802,18 @@ async fn index_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRes
     }
 
     // Inject import map for bare specifiers (react, react-dom, etc.)
-    let import_map = generate_import_map(&state.config);
-    if !import_map.is_empty() {
-        let map_tag = format!("<script type=\"importmap\">\n{}\n</script>\n", import_map);
-        if html.contains("</head>") {
-            html = html.replace("</head>", &format!("{}\n</head>", map_tag));
-        } else if html.contains("<body") {
-            html = html.replace("<body", &format!("{}\n<body", map_tag));
-        } else {
-            html = format!("{}\n{}", map_tag, html);
+    // Skip if HTML already contains an import map (e.g., from shell generator)
+    if !html.contains("type=\"importmap\"") {
+        let import_map = generate_import_map(&state.config);
+        if !import_map.is_empty() {
+            let map_tag = format!("<script type=\"importmap\">\n{}\n</script>\n", import_map);
+            if html.contains("</head>") {
+                html = html.replace("</head>", &format!("{}\n</head>", map_tag));
+            } else if html.contains("<body") {
+                html = html.replace("<body", &format!("{}\n<body", map_tag));
+            } else {
+                html = format!("{}\n{}", map_tag, html);
+            }
         }
     }
 
@@ -862,15 +885,18 @@ async fn app_route_handler(
     }
 
     // Inject import map for bare specifiers (react, react-dom, etc.)
-    let import_map = generate_import_map(&state.config);
-    if !import_map.is_empty() {
-        let map_tag = format!("<script type=\"importmap\">\n{}\n</script>\n", import_map);
-        if html.contains("</head>") {
-            html = html.replace("</head>", &format!("{}\n</head>", map_tag));
-        } else if html.contains("<body") {
-            html = html.replace("<body", &format!("{}\n<body", map_tag));
-        } else {
-            html = format!("{}\n{}", map_tag, html);
+    // Skip if HTML already contains an import map (e.g., from shell generator)
+    if !html.contains("type=\"importmap\"") {
+        let import_map = generate_import_map(&state.config);
+        if !import_map.is_empty() {
+            let map_tag = format!("<script type=\"importmap\">\n{}\n</script>\n", import_map);
+            if html.contains("</head>") {
+                html = html.replace("</head>", &format!("{}\n</head>", map_tag));
+            } else if html.contains("<body") {
+                html = html.replace("<body", &format!("{}\n<body", map_tag));
+            } else {
+                html = format!("{}\n{}", map_tag, html);
+            }
         }
     }
 
@@ -2397,16 +2423,18 @@ async fn entry_index_handler(
     </script>
 </body>"#;
 
-    // Inject import map
-    let import_map = generate_import_map(&state.config);
-    if !import_map.is_empty() {
-        let map_tag = format!("<script type=\"importmap\">\n{}\n</script>\n", import_map);
-        if html.contains("</head>") {
-            html = html.replace("</head>", &format!("{}\n</head>", map_tag));
-        } else if html.contains("<body") {
-            html = html.replace("<body", &format!("{}\n<body", map_tag));
-        } else {
-            html = format!("{}\n{}", map_tag, html);
+    // Inject import map (skip if already present from shell generator)
+    if !html.contains("type=\"importmap\"") {
+        let import_map = generate_import_map(&state.config);
+        if !import_map.is_empty() {
+            let map_tag = format!("<script type=\"importmap\">\n{}\n</script>\n", import_map);
+            if html.contains("</head>") {
+                html = html.replace("</head>", &format!("{}\n</head>", map_tag));
+            } else if html.contains("<body") {
+                html = html.replace("<body", &format!("{}\n<body", map_tag));
+            } else {
+                html = format!("{}\n{}", map_tag, html);
+            }
         }
     }
 

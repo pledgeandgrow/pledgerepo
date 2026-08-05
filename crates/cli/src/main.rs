@@ -1353,6 +1353,31 @@ async fn main() -> Result<()> {
                         page_content.replace("__PLEDGE_PROJECT_NAME__", &project_name);
                     std::fs::write(page_path, updated_page)?;
                 }
+
+                // Re-inject framework dependencies (cache may have stale package.json)
+                let deps = match template.as_str() {
+                    "pledgestack" | "react" | "next" | "tanstack" => serde_json::json!({
+                        "react": "^19.0.0",
+                        "react-dom": "^19.0.0"
+                    }),
+                    "solid" => serde_json::json!({
+                        "solid-js": "^1.8.0"
+                    }),
+                    "vue" => serde_json::json!({
+                        "vue": "^3.4.0"
+                    }),
+                    "svelte" => serde_json::json!({
+                        "svelte": "^4.2.0"
+                    }),
+                    _ => serde_json::json!({}),
+                };
+                let pkg_path = project_dir.join("package.json");
+                let mut pkg: serde_json::Value =
+                    serde_json::from_str(&std::fs::read_to_string(&pkg_path).unwrap_or_else(|_| "{}".to_string()))?;
+                if let Some(obj) = pkg.as_object_mut() {
+                    obj.insert("dependencies".to_string(), deps);
+                }
+                std::fs::write(pkg_path, serde_json::to_string_pretty(&pkg)?)?;
             } else {
                 // Generate from scratch and cache
                 std::fs::create_dir_all(project_dir)?;
@@ -2235,6 +2260,80 @@ export default defineConfig({
             let pledge_dir = project_dir.join(".pledge");
             let _ = std::fs::create_dir_all(&pledge_dir);
             prewarm_module_graph(project_dir, &pledge_dir);
+
+            // Auto-install dependencies if package.json has them
+            let pkg_json_path = project_dir.join("package.json");
+            let has_deps = std::fs::read_to_string(&pkg_json_path)
+                .map(|c| c.contains("\"dependencies\""))
+                .unwrap_or(false);
+            if has_deps {
+                // On Windows, npm/yarn/pnpm are .cmd files — must use cmd /c
+                let is_windows = cfg!(target_os = "windows");
+
+                let pm_check = |bin: &str| -> bool {
+                    if is_windows {
+                        std::process::Command::new("cmd")
+                            .args(["/c", &format!("{} --version", bin)])
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .status()
+                            .map(|s| s.success())
+                            .unwrap_or(false)
+                    } else {
+                        std::process::Command::new(bin)
+                            .arg("--version")
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .status()
+                            .map(|s| s.success())
+                            .unwrap_or(false)
+                    }
+                };
+
+                let pm = if let Some(ref pm) = pm_choice {
+                    pm.clone()
+                } else if pm_check("pnpm") {
+                    "pnpm".to_string()
+                } else if pm_check("yarn") {
+                    "yarn".to_string()
+                } else {
+                    "npm".to_string()
+                };
+
+                let install_cmd = match pm.as_str() {
+                    "yarn" => "yarn",
+                    "pnpm" => "pnpm install",
+                    "bun" => "bun install",
+                    _ => "npm install",
+                };
+
+                print!("  \x1b[90mInstalling dependencies with {}...\x1b[0m", pm);
+                let install_result = if is_windows {
+                    std::process::Command::new("cmd")
+                        .args(["/c", install_cmd])
+                        .current_dir(project_dir)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                } else {
+                    let parts: Vec<&str> = install_cmd.split_whitespace().collect();
+                    std::process::Command::new(parts[0])
+                        .args(&parts[1..])
+                        .current_dir(project_dir)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                };
+
+                match install_result {
+                    Ok(s) if s.success() => {
+                        println!("\r  \x1b[32m✓\x1b[0m Dependencies installed ({})    ", pm);
+                    }
+                    _ => {
+                        println!("\r  \x1b[33m⚠\x1b[0m Auto-install failed — run `{}` manually    ", install_cmd);
+                    }
+                }
+            }
 
             if flash {
                 println!("\n  \x1b[32m✓\x1b[0m {} — {}\n", template, project_name);
